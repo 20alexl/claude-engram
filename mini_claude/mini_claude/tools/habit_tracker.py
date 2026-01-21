@@ -80,7 +80,7 @@ class HabitTracker:
         work_tools = [t for t in self._session_tools_used
                      if t["tool"].startswith("work_")]
         safety_tools = [t for t in self._session_tools_used
-                       if t["tool"].startswith(("loop_", "scope_", "diff_review", "think_audit"))]
+                       if t["tool"].startswith(("loop_", "scope_", "think_audit", "audit_"))]
 
         return {
             "session_active": self._session_start_time is not None,

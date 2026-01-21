@@ -1636,42 +1636,8 @@ Example:
     ),
 
     # =========================================================================
-    # New Tools: diff_review, think_audit, code_pattern_check
+    # New Tools: think_audit, code_pattern_check
     # =========================================================================
-
-    Tool(
-        name="diff_review",
-        description="""Review git diff for issues BEFORE committing.
-
-Catches problems before they reach your repo:
-- Silent failures (except: pass, empty catch blocks)
-- Debug code left in (print, console.log, debugger)
-- Hardcoded secrets/credentials
-- TODO/FIXME comments
-- Security issues (eval, innerHTML, shell=True)
-- Convention violations
-
-Use this before every commit to catch "AI slop" patterns.
-
-Example:
-  diff_review(project_dir="/path/to/project")
-  diff_review(project_dir="/path/to/project", staged_only=True)""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project_dir": {
-                    "type": "string",
-                    "description": "Project directory to review diff in"
-                },
-                "staged_only": {
-                    "type": "boolean",
-                    "description": "If true, only review staged changes (git diff --staged)",
-                    "default": False
-                },
-            },
-            "required": ["project_dir"],
-        },
-    ),
 
     Tool(
         name="think_audit",

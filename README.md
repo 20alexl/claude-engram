@@ -374,7 +374,7 @@ Creates a comprehensive summary for the next Claude instance:
 - Habit performance
 - Tips for next session
 
-## All 61 Tools
+## All 60 Tools
 
 ### 🔑 Essential (Start Here!)
 | Tool | What It Does |
@@ -454,7 +454,6 @@ Creates a comprehensive summary for the next Claude instance:
 ### 🔒 Pre-Commit Validation
 | Tool | What It Does |
 |------|--------------|
-| `diff_review` | **Review git diff for issues** (silent failures, secrets, TODOs) |
 | `think_audit` | **Audit file for anti-patterns** (with quick_fix suggestions) |
 | `audit_batch` | **Audit multiple files at once** (supports glob patterns) |
 | `find_similar_issues` | **Search codebase for bug patterns** (find all `except: pass`) |

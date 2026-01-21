@@ -93,7 +93,6 @@ Next session, you'll know WHY things are the way they are.
 | Make a decision | `work_log_decision` | Explain WHY for future |
 | Multi-file task | `scope_declare` | Prevent over-refactoring |
 | Before big changes | `impact_analyze` | See what depends on file |
-| Before committing | `diff_review` | Catch issues in your changes |
 | Audit a file | `think_audit` | Find anti-patterns + get quick fixes |
 | Audit many files | `audit_batch` | Scan directory for issues |
 | Find similar bugs | `find_similar_issues` | Search codebase for pattern |
@@ -154,7 +153,7 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 
 ---
 
-## All 61 Tools
+## All 60 Tools
 
 ### Session & Memory (USE THESE!)
 - `session_start` - **START HERE** every session
@@ -214,7 +213,6 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 - `code_pattern_check` - **Check code against conventions with LLM** (semantic analysis)
 
 ### Pre-Commit Validation (CATCH ISSUES BEFORE COMMITTING!)
-- `diff_review` - **Review git diff for issues** (silent failures, debug code, secrets, TODOs)
 - `think_audit` - **Audit file for anti-patterns** (with quick_fix suggestions)
 - `audit_batch` - **Audit multiple files at once** (supports glob patterns)
 - `find_similar_issues` - **Search codebase for bug patterns** (find all `except: pass`, etc.)

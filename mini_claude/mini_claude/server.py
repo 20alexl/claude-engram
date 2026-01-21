@@ -362,14 +362,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             )
 
         # -------------------------------------------------------------------------
-        # New Tools: diff_review, think_audit, code_pattern_check
+        # New Tools: think_audit, code_pattern_check
         # -------------------------------------------------------------------------
-
-        case "diff_review":
-            return await handlers.diff_review(
-                project_dir=arguments.get("project_dir", ""),
-                staged_only=arguments.get("staged_only", False),
-            )
 
         case "think_audit":
             return await handlers.think_audit(

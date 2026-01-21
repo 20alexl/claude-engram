@@ -1407,29 +1407,6 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
-    # Diff Review - Review changes before committing
-    # -------------------------------------------------------------------------
-
-    async def diff_review(
-        self,
-        project_dir: str,
-        staged_only: bool,
-    ) -> list[TextContent]:
-        """Review git diff for issues before committing."""
-        if not project_dir:
-            return self._needs_clarification(
-                "No project directory provided",
-                "Which project should I review the diff for?"
-            )
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.git_helper.review_diff(project_dir, staged_only)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    # -------------------------------------------------------------------------
     # Think Audit - Audit file for common issues
     # -------------------------------------------------------------------------
 
