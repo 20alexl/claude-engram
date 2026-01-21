@@ -1779,9 +1779,13 @@ Example:
 When you find a bug pattern (e.g., 'except: pass'), use this to find
 all similar occurrences across the codebase.
 
+By default, excludes vendor directories (node_modules, site-packages, venv, etc.)
+and skips matches inside string literals to reduce false positives.
+
 Example:
   find_similar_issues(issue_pattern="except:\\s*pass", project_path="/path/to/project")
-  find_similar_issues(issue_pattern="eval\\(", project_path="/path", file_extensions=[".py"])""",
+  find_similar_issues(issue_pattern="eval\\(", project_path="/path", file_extensions=[".py"])
+  find_similar_issues(issue_pattern="TODO", project_path="/path", exclude_paths=["tests/"])""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1797,6 +1801,15 @@ Example:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "File extensions to search (default: .py, .js, .ts, etc.)"
+                },
+                "exclude_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Paths to exclude (default: node_modules, site-packages, venv, etc.)"
+                },
+                "exclude_strings": {
+                    "type": "boolean",
+                    "description": "Skip matches inside string literals (default: true)"
                 },
             },
             "required": ["issue_pattern", "project_path"],

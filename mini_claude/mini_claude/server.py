@@ -389,6 +389,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 issue_pattern=arguments.get("issue_pattern", ""),
                 project_path=arguments.get("project_path", ""),
                 file_extensions=arguments.get("file_extensions"),
+                exclude_paths=arguments.get("exclude_paths"),
+                exclude_strings=arguments.get("exclude_strings", True),
             )
 
         case "code_pattern_check":

@@ -1487,6 +1487,8 @@ class Handlers:
         issue_pattern: str,
         project_path: str,
         file_extensions: list[str] | None = None,
+        exclude_paths: list[str] | None = None,
+        exclude_strings: bool = True,
     ) -> list[TextContent]:
         """Search codebase for code similar to a found issue pattern."""
         if not issue_pattern:
@@ -1505,7 +1507,9 @@ class Handlers:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self.thinker.find_similar_issues(issue_pattern, project_path, file_extensions)
+            lambda: self.thinker.find_similar_issues(
+                issue_pattern, project_path, file_extensions, exclude_paths, exclude_strings
+            )
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 

@@ -23,6 +23,69 @@ from .scout import SearchEngine
 from .memory import MemoryStore
 
 
+def _is_inside_string_literal(line: str, match_start: int) -> bool:
+    """
+    Check if a match position is inside a string literal.
+
+    This detects:
+    - Single-quoted strings: 'text'
+    - Double-quoted strings: "text"
+    - Raw strings: r"text" or r'text'
+    - Triple-quoted strings (basic detection)
+
+    Args:
+        line: The line of code
+        match_start: The position where the match starts
+
+    Returns:
+        True if the match is inside a string literal
+    """
+    # Track whether we're inside a string
+    in_single = False
+    in_double = False
+    i = 0
+
+    while i < match_start and i < len(line):
+        char = line[i]
+
+        # Handle escape sequences
+        if char == '\\' and i + 1 < len(line):
+            i += 2  # Skip escaped character
+            continue
+
+        # Handle triple quotes (simplified - just check if we're starting one)
+        if i + 2 < len(line):
+            triple = line[i:i+3]
+            if triple == '"""' and not in_single:
+                in_double = not in_double
+                i += 3
+                continue
+            elif triple == "'''" and not in_double:
+                in_single = not in_single
+                i += 3
+                continue
+
+        # Handle single quotes (only if not in double quote)
+        if char == "'" and not in_double:
+            in_single = not in_single
+        # Handle double quotes (only if not in single quote)
+        elif char == '"' and not in_single:
+            in_double = not in_double
+
+        i += 1
+
+    return in_single or in_double
+
+
+# Default paths to exclude when searching for issues
+DEFAULT_EXCLUDE_PATHS = [
+    "node_modules", "__pycache__", ".git", "venv", ".venv",
+    "dist", "build", ".next", "coverage", "site-packages",
+    "env", ".env", "Lib", "lib", ".tox", "eggs", "*.egg-info",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache",
+]
+
+
 class Thinker:
     """
     Think before you code.
@@ -788,6 +851,8 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         issue_pattern: str,
         project_path: str,
         file_extensions: Optional[list[str]] = None,
+        exclude_paths: Optional[list[str]] = None,
+        exclude_strings: bool = True,
     ) -> MiniClaudeResponse:
         """
         Search codebase for code similar to a found issue pattern.
@@ -796,6 +861,8 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
             issue_pattern: The pattern to search for (e.g., "except: pass", "eval(")
             project_path: Root directory to search in
             file_extensions: File extensions to search (e.g., [".py", ".js"])
+            exclude_paths: Paths to exclude (default: vendor dirs, envs, site-packages)
+            exclude_strings: Skip matches inside string literals (default: True)
 
         Returns:
             List of files and locations with similar patterns
@@ -817,18 +884,21 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         if not file_extensions:
             file_extensions = [".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".rs"]
 
+        # Use default exclusions if not specified
+        if exclude_paths is None:
+            exclude_paths = DEFAULT_EXCLUDE_PATHS
+
         # Build glob patterns
         matches = []
         files_searched = 0
+        files_skipped = 0
 
         for ext in file_extensions:
             pattern = f"{project_path}/**/*{ext}"
             for file_path in glob_module.glob(pattern, recursive=True):
-                # Skip common non-code directories
-                if any(skip in file_path for skip in [
-                    "node_modules", "__pycache__", ".git", "venv", ".venv",
-                    "dist", "build", ".next", "coverage"
-                ]):
+                # Skip excluded directories
+                if any(skip in file_path for skip in exclude_paths):
+                    files_skipped += 1
                     continue
 
                 files_searched += 1
@@ -837,7 +907,12 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
                     lines = content.splitlines()
 
                     for line_num, line in enumerate(lines, 1):
-                        if re.search(issue_pattern, line, re.IGNORECASE):
+                        match = re.search(issue_pattern, line, re.IGNORECASE)
+                        if match:
+                            # Skip matches inside string literals
+                            if exclude_strings and _is_inside_string_literal(line, match.start()):
+                                continue
+
                             matches.append({
                                 "file": file_path,
                                 "line": line_num,
@@ -856,6 +931,8 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
                 break
 
         work_log.what_worked.append(f"Searched {files_searched} files, found {len(matches)} matches")
+        if files_skipped > 0:
+            work_log.what_worked.append(f"Skipped {files_skipped} files in excluded paths")
 
         # Group by file
         files_affected = {}
@@ -880,6 +957,7 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
             data={
                 "pattern": issue_pattern,
                 "files_searched": files_searched,
+                "files_skipped": files_skipped,
                 "total_matches": len(matches),
                 "files_affected": len(files_affected),
                 "matches": matches[:50],
@@ -954,12 +1032,18 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         # Run patterns
         for line_num, line in enumerate(lines, 1):
             for pattern, severity, message, fix in patterns:
-                # Special case: skip "open without context manager" if line has "with open"
+                # Special case: skip "open without context manager" if line has "with"
                 if "File opened without context manager" in message:
-                    if re.search(r"\bwith\b.*\bopen\s*\(", line):
+                    # Skip if line uses context manager (with ... open)
+                    if re.search(r"\bwith\b", line) and re.search(r"\bopen\s*\(", line):
                         continue  # Line uses context manager correctly
 
-                if re.search(pattern, line, re.IGNORECASE):
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    # Skip matches inside string literals (prevents false positives in docs/regex)
+                    if _is_inside_string_literal(line, match.start()):
+                        continue
+
                     issues.append({
                         "line": line_num,
                         "severity": severity,
