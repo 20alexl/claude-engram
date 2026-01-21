@@ -374,7 +374,7 @@ Creates a comprehensive summary for the next Claude instance:
 - Habit performance
 - Tips for next session
 
-## All 55 Tools
+## All 59 Tools
 
 ### 🔑 Essential (Start Here!)
 | Tool | What It Does |
@@ -449,6 +449,13 @@ Creates a comprehensive summary for the next Claude instance:
 | `convention_add` | Store coding rule |
 | `convention_get` | Get project rules |
 | `convention_check` | Check code against rules |
+| `code_pattern_check` | **Check code with LLM** (semantic analysis) |
+
+### 🔒 Pre-Commit Validation (NEW!)
+| Tool | What It Does |
+|------|--------------|
+| `diff_review` | **Review git diff for issues** (silent failures, secrets, TODOs) |
+| `think_audit` | **Audit file for anti-patterns** (with quick_fix suggestions) |
 
 ### 🧪 Testing & Git
 | Tool | What It Does |

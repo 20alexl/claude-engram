@@ -437,39 +437,42 @@ class GitHelper:
         issues = []
         current_file = None
         line_num = 0
+        in_docstring = False  # Track if we're inside a docstring
 
-        # Patterns to check for
+        # Patterns to check for - only on actual code lines
         patterns = [
-            # Critical - Silent failures
-            (r"except:\s*pass", "critical", "Silent exception - errors will be swallowed", "Add proper error handling or logging"),
-            (r"except\s+\w+:\s*pass", "critical", "Silent exception handler", "Log the error or handle it properly"),
-            (r"catch\s*\([^)]*\)\s*\{\s*\}", "critical", "Empty catch block", "Add error handling or logging"),
+            # Critical - Silent failures (only match actual code, not descriptions)
+            (r'^\+\s*(except:\s*pass)', "critical", "Silent exception - errors will be swallowed", "Add proper error handling or logging"),
+            (r'^\+\s*(except\s+\w+:\s*pass)', "critical", "Silent exception handler", "Log the error or handle it properly"),
+            (r'^\+\s*(catch\s*\([^)]*\)\s*\{\s*\})', "critical", "Empty catch block", "Add error handling or logging"),
 
-            # Critical - Security issues
-            (r"(password|secret|api_key|apikey|token)\s*=\s*['\"][^'\"]+['\"]", "critical", "Hardcoded credential/secret", "Use environment variables"),
-            (r"eval\s*\(", "critical", "eval() usage - potential security risk", "Avoid eval() - use safer alternatives"),
+            # Critical - Security issues (only on assignment lines)
+            (r'^\+[^"\'#]*\b(password|secret|api_key|apikey|token)\s*=\s*["\'][^"\']+["\']', "critical", "Hardcoded credential/secret", "Use environment variables"),
+            (r'^\+[^#]*\beval\s*\(', "critical", "eval() usage - potential security risk", "Avoid eval() - use safer alternatives"),
 
             # Warning - Debug code
-            (r"^\+.*\bprint\s*\(", "warning", "print() statement left in code", "Remove debug print statements"),
-            (r"^\+.*console\.(log|debug|info)\s*\(", "warning", "console.log left in code", "Remove debug console statements"),
-            (r"^\+.*debugger\b", "warning", "debugger statement left in code", "Remove debugger statement"),
-            (r"^\+.*breakpoint\s*\(\)", "warning", "breakpoint() left in code", "Remove debug breakpoint"),
+            (r'^\+\s*print\s*\(', "warning", "print() statement left in code", "Remove debug print statements"),
+            (r'^\+.*console\.(log|debug|info)\s*\(', "warning", "console.log left in code", "Remove debug console statements"),
+            (r'^\+\s*debugger\s*;?\s*$', "warning", "debugger statement left in code", "Remove debugger statement"),
+            (r'^\+\s*breakpoint\s*\(\)', "warning", "breakpoint() left in code", "Remove debug breakpoint"),
 
-            # Warning - Code quality
-            (r"TODO|FIXME|XXX|HACK", "warning", "TODO/FIXME comment found", "Address TODO before committing or create an issue"),
-            (r"^\+.*#\s*type:\s*ignore", "warning", "type: ignore comment", "Fix the type issue instead of ignoring"),
-            (r"^\+.*//\s*@ts-ignore", "warning", "@ts-ignore comment", "Fix the TypeScript issue"),
-            (r"^\+.*//\s*eslint-disable", "warning", "eslint-disable comment", "Fix the linting issue"),
+            # Warning - Code quality (must be actual comments, not in strings)
+            (r'^\+[^"\']*#\s*type:\s*ignore', "warning", "type: ignore comment", "Fix the type issue instead of ignoring"),
+            (r'^\+[^"\']*//\s*@ts-ignore', "warning", "@ts-ignore comment", "Fix the TypeScript issue"),
+            (r'^\+[^"\']*//\s*eslint-disable', "warning", "eslint-disable comment", "Fix the linting issue"),
 
-            # Warning - Potential bugs
-            (r"^\+.*==\s*None\b", "warning", "Using == None instead of 'is None'", "Use 'is None' for None comparisons"),
-            (r"^\+.*!=\s*None\b", "warning", "Using != None instead of 'is not None'", "Use 'is not None' for None comparisons"),
+            # Warning - Potential bugs (only in code, not strings)
+            (r'^\+[^"\'#]*\s==\s*None\b', "warning", "Using == None instead of 'is None'", "Use 'is None' for None comparisons"),
+            (r'^\+[^"\'#]*\s!=\s*None\b', "warning", "Using != None instead of 'is not None'", "Use 'is not None' for None comparisons"),
 
             # Info - Removed code
-            (r"^-.*\bdef\s+\w+\s*\(", "info", "Function removed - may break dependents", "Verify no other code depends on this"),
-            (r"^-.*\bclass\s+\w+", "info", "Class removed - may break dependents", "Verify no other code depends on this"),
-            (r"^-.*\bexport\s+(default\s+)?(function|class|const|let|var)", "info", "Export removed - may break imports", "Verify no other code imports this"),
+            (r'^-\s*def\s+\w+\s*\(', "info", "Function removed - may break dependents", "Verify no other code depends on this"),
+            (r'^-\s*class\s+\w+', "info", "Class removed - may break dependents", "Verify no other code depends on this"),
+            (r'^-.*\bexport\s+(default\s+)?(function|class|const|let|var)', "info", "Export removed - may break imports", "Verify no other code imports this"),
         ]
+
+        # TODO/FIXME pattern - check separately to avoid false positives in descriptions
+        todo_pattern = r'^\+[^"\']*#.*\b(TODO|FIXME|XXX|HACK)\b'
 
         for line in diff_content.splitlines():
             # Track current file
@@ -478,6 +481,7 @@ class GitHelper:
                 if match:
                     current_file = match.group(1)
                     line_num = 0
+                    in_docstring = False
                 continue
 
             # Track line numbers (from @@ -X,Y +A,B @@)
@@ -493,16 +497,54 @@ class GitHelper:
                     line_num += 1
                 continue
 
-            # Check patterns
-            for pattern, severity, message, suggestion in patterns:
-                if re.search(pattern, line, re.IGNORECASE):
+            # Skip documentation files for certain checks
+            is_doc_file = current_file and any(
+                current_file.endswith(ext) for ext in ['.md', '.txt', '.rst']
+            )
+
+            # Track docstrings (triple quotes)
+            stripped = line[1:].strip() if len(line) > 1 else ""
+            if '"""' in stripped or "'''" in stripped:
+                # Count quotes - odd number means entering/exiting docstring
+                triple_double = stripped.count('"""')
+                triple_single = stripped.count("'''")
+                if triple_double % 2 == 1 or triple_single % 2 == 1:
+                    in_docstring = not in_docstring
+
+            # Skip lines that appear to be inside docstrings or are description strings
+            if in_docstring:
+                if line.startswith("+"):
+                    line_num += 1
+                continue
+
+            # Skip lines that are clearly string definitions (description=, name=, etc.)
+            if re.match(r'^\+\s*(description|name|message|help|doc)\s*=\s*["\']', line[1:] if line else ""):
+                if line.startswith("+"):
+                    line_num += 1
+                continue
+
+            # Check patterns (skip doc files for code patterns)
+            if not is_doc_file:
+                for pattern, severity, message, suggestion in patterns:
+                    if re.search(pattern, line, re.IGNORECASE):
+                        issues.append({
+                            "file": current_file or "unknown",
+                            "line": line_num,
+                            "severity": severity,
+                            "message": message,
+                            "suggestion": suggestion,
+                            "code": line[:100],
+                        })
+
+                # Check TODO separately - only in actual comments
+                if re.search(todo_pattern, line):
                     issues.append({
                         "file": current_file or "unknown",
                         "line": line_num,
-                        "severity": severity,
-                        "message": message,
-                        "suggestion": suggestion,
-                        "code": line[:100],  # First 100 chars of the line
+                        "severity": "warning",
+                        "message": "TODO/FIXME comment found",
+                        "suggestion": "Address TODO before committing or create an issue",
+                        "code": line[:100],
                     })
 
             if line.startswith("+"):
