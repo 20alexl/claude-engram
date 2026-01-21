@@ -130,42 +130,44 @@ class MiniClaudeResponse(BaseModel):
 
             return "\n".join(lines)
 
-        # NORMAL CASE: Standard formatting
-        # Status and confidence
-        lines.append(f"## Mini Claude Report")
-        lines.append(f"**Status:** {self.status} | **Confidence:** {self.confidence}")
+        # NORMAL CASE: Streamlined formatting (less verbose)
+        # Compact status line
+        lines.append(f"**{self.status}** | confidence: {self.confidence}")
+
+        # Reasoning (the most important part)
+        if self.reasoning:
+            lines.append(f"{self.reasoning}")
         lines.append("")
 
-        # Reasoning
-        if self.reasoning:
-            lines.append(f"**Reasoning:** {self.reasoning}")
+        # Warnings FIRST - they're important
+        if self.warnings:
+            for w in self.warnings:
+                lines.append(f"⚠️ {w}")
             lines.append("")
 
         # Findings
         if self.findings:
-            lines.append("### Findings")
             for i, f in enumerate(self.findings, 1):
                 loc = f"{f.file}:{f.line}" if f.line else f.file
-                lines.append(f"{i}. **[{f.relevance.upper()}]** `{loc}`")
-                lines.append(f"   {f.summary}")
+                lines.append(f"{i}. [{f.relevance}] `{loc}` - {f.summary}")
                 if f.snippet:
                     lines.append(f"   ```")
                     lines.append(f"   {f.snippet}")
                     lines.append(f"   ```")
             lines.append("")
 
-        # Data (for non-search tools)
+        # Data (for non-search tools) - more compact
         if self.data:
-            lines.append("### Data")
             if isinstance(self.data, dict):
                 for key, value in self.data.items():
                     if isinstance(value, list):
-                        lines.append(f"**{key}:**")
-                        for item in value[:10]:  # Limit display
-                            lines.append(f"  - {item}")
+                        if value:  # Only show non-empty lists
+                            lines.append(f"**{key}:**")
+                            for item in value[:10]:
+                                lines.append(f"  - {item}")
                     elif isinstance(value, dict):
                         lines.append(f"**{key}:** {json.dumps(value, indent=2)}")
-                    else:
+                    elif value is not None and value != "":  # Only show non-empty values
                         lines.append(f"**{key}:** {value}")
             else:
                 lines.append(str(self.data))
@@ -173,39 +175,25 @@ class MiniClaudeResponse(BaseModel):
 
         # Connections
         if self.connections:
-            lines.append(f"### Connections")
             lines.append(self.connections)
-            lines.append("")
-
-        # Warnings
-        if self.warnings:
-            lines.append("### Warnings")
-            for w in self.warnings:
-                lines.append(f"- {w}")
             lines.append("")
 
         # Suggestions
         if self.suggestions:
-            lines.append("### Suggestions")
             for s in self.suggestions:
-                lines.append(f"- {s}")
+                lines.append(f"💡 {s}")
             lines.append("")
 
         # Questions
         if self.questions:
-            lines.append("### Questions for You")
+            lines.append("**Questions:**")
             for q in self.questions:
                 lines.append(f"- {q}")
             lines.append("")
 
-        # Work log
-        lines.append("### Work Log")
-        lines.append(f"- Files examined: {self.work_log.files_examined}")
-        lines.append(f"- Time taken: {self.work_log.time_taken_ms}ms")
-        if self.work_log.what_i_tried:
-            lines.append(f"- Tried: {', '.join(self.work_log.what_i_tried)}")
+        # Work log - only show if there's something notable (failures)
         if self.work_log.what_failed:
-            lines.append(f"- Failed: {', '.join(self.work_log.what_failed)}")
+            lines.append(f"❌ Failed: {', '.join(self.work_log.what_failed)}")
 
         return "\n".join(lines)
 

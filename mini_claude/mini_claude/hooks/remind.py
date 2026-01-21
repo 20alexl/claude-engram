@@ -740,12 +740,12 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append(habit_feedback)
             lines.append("")
 
-        # Check if scope is declared
+        # Check if scope is declared - only suggest for 3+ files (avoid ceremony for small tasks)
         scope = get_scope_status()
         if not scope.get("has_scope"):
             files_edited = state.get("files_edited_this_session", [])
-            if len(files_edited) >= 2:
-                lines.append("⚠️ You've edited multiple files without declaring scope!")
+            if len(files_edited) >= 3:  # Changed from 2 to 3 - less ceremony for small tasks
+                lines.append(f"💡 You've edited {len(files_edited)} files - consider declaring scope to prevent creep")
                 lines.append("  Run: scope_declare(task_description='...', in_scope_files=[...])")
                 lines.append("")
 

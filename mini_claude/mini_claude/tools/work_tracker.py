@@ -236,23 +236,38 @@ class WorkTracker:
                     past_context.append(content)
 
         warnings = []
+        suggestions = []
+
         if past_context:
             warnings.append(f"Found {len(past_context)} past issues with this file!")
             for ctx in past_context[:3]:
                 warnings.append(f"  - {ctx}")
 
+        # Helpful message when no history exists
+        if not relevant and not past_context:
+            suggestions.append(f"No history yet for {Path(file_path).name}.")
+            suggestions.append("After editing, use loop_record_edit(file_path, description) to build history.")
+            suggestions.append("If something breaks, use work_log_mistake() so you'll be warned next time.")
+
         work_log.what_worked.append(f"found {len(relevant)} relevant events")
+
+        # Build a more useful reasoning message
+        if relevant or past_context:
+            reasoning = f"Found {len(relevant)} session events and {len(past_context)} past mistakes for {Path(file_path).name}"
+        else:
+            reasoning = f"No history for {Path(file_path).name} yet - this is a fresh file in your workflow"
 
         return MiniClaudeResponse(
             status="success",
-            confidence="medium",
-            reasoning=f"Found {len(relevant)} events related to {Path(file_path).name}",
+            confidence="medium" if (relevant or past_context) else "low",
+            reasoning=reasoning,
             work_log=work_log,
             data={
                 "current_session_events": relevant,
                 "past_mistakes": past_context,
             },
             warnings=warnings,
+            suggestions=suggestions,
         )
 
     def check_for_repeated_mistake(self, action: str) -> Optional[str]:

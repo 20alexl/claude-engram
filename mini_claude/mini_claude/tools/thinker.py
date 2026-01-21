@@ -280,13 +280,36 @@ over-engineering, or tunnel vision."""
         work_log = WorkLog()
         work_log.what_worked.append(f"Exploring solutions for: {problem}")
 
+        # FIRST: Check for existing patterns in codebase (before LLM call)
+        existing_patterns = []
+        existing_patterns_text = ""
+        if project_path:
+            try:
+                search_result = self.search.search(
+                    query=problem,
+                    directory=project_path,
+                    max_results=5,
+                )
+                if search_result.data and search_result.data.get("findings"):
+                    existing_patterns = [
+                        f"{f.get('file', 'unknown')}: {f.get('summary', '')}"
+                        for f in search_result.data["findings"]
+                    ]
+                    work_log.what_worked.append(f"Found {len(existing_patterns)} existing patterns")
+                    existing_patterns_text = "\n".join(f"- {p}" for p in existing_patterns)
+            except Exception as e:
+                work_log.what_failed.append(f"Pattern search failed: {str(e)}")
+
+        # Build prompt WITH existing patterns context
         prompt = f"""Explore different approaches to solve this problem:
 
 Problem: {problem}
 
 {f'Constraints:{chr(10)}{chr(10).join(f"- {c}" for c in constraints)}' if constraints else 'No specific constraints'}
 
-Brainstorm 4-6 different approaches, ranging from:
+{f'Existing patterns found in codebase:{chr(10)}{existing_patterns_text}{chr(10)}{chr(10)}Consider how these existing patterns might inform your suggestions.' if existing_patterns_text else ''}
+
+Brainstorm 4-6 different approaches FOR THIS SPECIFIC PROBLEM, ranging from:
 - Simple/naive (quick to implement, might not scale)
 - Standard (what most people do)
 - Creative (unusual but potentially better)
@@ -294,11 +317,11 @@ Brainstorm 4-6 different approaches, ranging from:
 
 For each approach:
 - Name it clearly
-- Describe how it works (2-3 sentences)
+- Describe how it works (2-3 sentences) - BE SPECIFIC to this problem
 - Trade-offs (what you gain/lose)
 - Implementation complexity (low/medium/high)
 
-Don't just pick one - show the solution space."""
+IMPORTANT: Don't give generic textbook answers. Analyze THIS specific problem and give concrete suggestions that apply to it. Reference the existing patterns if found."""
 
         try:
             result = self.llm.generate(prompt)
@@ -311,24 +334,6 @@ Don't just pick one - show the solution space."""
         except Exception as e:
             work_log.what_failed.append(f"LLM exploration failed: {str(e)}")
             exploration = "LLM exploration unavailable"
-
-        # Check for existing patterns in codebase
-        existing_patterns = []
-        if project_path:
-            try:
-                search_result = self.search.search(
-                    query=problem,
-                    directory=project_path,
-                    max_results=3,
-                )
-                if search_result.data and search_result.data.get("findings"):
-                    existing_patterns = [
-                        f"{f.get('file', 'unknown')}: {f.get('summary', '')}"
-                        for f in search_result.data["findings"]
-                    ]
-                    work_log.what_worked.append("Found existing patterns")
-            except Exception as e:
-                work_log.what_failed.append(f"Pattern search failed: {str(e)}")
 
         return MiniClaudeResponse(
             status="success",
