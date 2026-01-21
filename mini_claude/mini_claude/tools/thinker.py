@@ -526,3 +526,238 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
                             break
 
         return suggestions[:5]  # Max 5 suggestions
+
+    def audit(
+        self,
+        file_path: str,
+        focus_areas: Optional[list[str]] = None,
+    ) -> MiniClaudeResponse:
+        """
+        Audit a file for common issues and anti-patterns.
+
+        Detects:
+        - Silent failures (except: pass, empty catch)
+        - Missing error handling
+        - Hardcoded values that should be configurable
+        - TODO/FIXME items
+        - Fail-fast violations
+        - Type safety issues
+        - Security concerns
+
+        Args:
+            file_path: Path to the file to audit
+            focus_areas: Optional areas to focus on (e.g., ["error_handling", "security"])
+
+        Returns:
+            Audit report with issues, severity, and suggested fixes
+        """
+        import re
+        work_log = WorkLog()
+        work_log.what_i_tried.append(f"Auditing {Path(file_path).name}")
+
+        # Read the file
+        try:
+            content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+            lines = content.splitlines()
+            work_log.what_worked.append(f"Read {len(lines)} lines")
+        except Exception as e:
+            work_log.what_failed.append(f"Failed to read file: {str(e)}")
+            return MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Could not read file: {str(e)}",
+                work_log=work_log,
+            )
+
+        # Determine language from extension
+        ext = Path(file_path).suffix.lower()
+        language = {
+            ".py": "python",
+            ".js": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".jsx": "javascript",
+            ".go": "go",
+            ".rs": "rust",
+            ".java": "java",
+        }.get(ext, "unknown")
+
+        # Run pattern-based analysis
+        issues = self._pattern_audit(content, lines, language)
+        work_log.what_worked.append(f"Found {len(issues)} pattern-based issues")
+
+        # Use LLM for deeper analysis if we have context
+        llm_analysis = None
+        if len(content) < 10000:  # Only for reasonably sized files
+            prompt = self._build_audit_prompt(content, language, focus_areas, issues)
+            try:
+                result = self.llm.generate(prompt)
+                if result.get("success"):
+                    llm_analysis = result.get("response", "")
+                    work_log.what_worked.append("LLM analysis complete")
+            except Exception as e:
+                work_log.what_failed.append(f"LLM analysis failed: {str(e)}")
+
+        # Categorize issues
+        critical = [i for i in issues if i["severity"] == "critical"]
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        info = [i for i in issues if i["severity"] == "info"]
+
+        # Determine status
+        if critical:
+            status = "failed"
+            reasoning = f"Found {len(critical)} critical issue(s) that need immediate attention"
+        elif warnings:
+            status = "partial"
+            reasoning = f"Found {len(warnings)} warning(s) to review"
+        else:
+            status = "success"
+            reasoning = "No major issues found"
+
+        # Format warnings for display
+        warning_messages = []
+        for issue in (critical + warnings)[:10]:
+            warning_messages.append(
+                f"[{issue['severity'].upper()}] Line {issue['line']}: {issue['message']}"
+            )
+
+        # Extract suggestions (quick_fix)
+        suggestions = []
+        for issue in issues[:5]:
+            if issue.get("fix"):
+                suggestions.append(f"Line {issue['line']}: {issue['fix']}")
+
+        return MiniClaudeResponse(
+            status=status,
+            confidence="high" if not llm_analysis else "medium",
+            reasoning=reasoning,
+            work_log=work_log,
+            data={
+                "file": file_path,
+                "language": language,
+                "lines_analyzed": len(lines),
+                "critical_count": len(critical),
+                "warning_count": len(warnings),
+                "info_count": len(info),
+                "issues": issues[:20],
+                "llm_analysis": llm_analysis,
+            },
+            warnings=warning_messages,
+            suggestions=suggestions,
+        )
+
+    def _pattern_audit(self, content: str, lines: list[str], language: str) -> list[dict]:
+        """Run pattern-based analysis on code."""
+        import re
+        issues = []
+
+        # Python-specific patterns
+        python_patterns = [
+            (r"except:\s*pass", "critical", "Silent exception - errors swallowed", "Add error logging: except Exception as e: logger.error(e)"),
+            (r"except\s+\w+:\s*pass", "critical", "Silent exception handler", "Log or re-raise the exception"),
+            (r"except\s+Exception\s*:", "warning", "Catching broad Exception", "Catch specific exceptions instead"),
+            (r"^\s*print\s*\(", "info", "print() statement - consider using logging", "Replace with logging.info() or remove"),
+            (r"#\s*(TODO|FIXME|XXX|HACK)", "warning", "TODO/FIXME comment", "Address or create issue to track"),
+            (r"open\s*\([^)]+\)\s*(?!\.)", "warning", "File opened without context manager", "Use 'with open(...) as f:' instead"),
+            (r"==\s*None\b", "info", "Using == None", "Use 'is None' for None comparisons"),
+            (r"!=\s*None\b", "info", "Using != None", "Use 'is not None' for None comparisons"),
+            (r"\beval\s*\(", "critical", "eval() usage - security risk", "Avoid eval(), use ast.literal_eval() for data"),
+            (r"\bexec\s*\(", "critical", "exec() usage - security risk", "Avoid exec(), find safer alternatives"),
+            (r"import\s+pickle", "warning", "pickle import - security risk with untrusted data", "Use json for serialization if possible"),
+            (r"subprocess\.(call|run|Popen)\s*\([^)]*shell\s*=\s*True", "critical", "subprocess with shell=True - injection risk", "Use shell=False with list of arguments"),
+        ]
+
+        # JavaScript/TypeScript patterns
+        js_patterns = [
+            (r"catch\s*\([^)]*\)\s*\{\s*\}", "critical", "Empty catch block", "Add error handling or logging"),
+            (r"console\.(log|debug|info)\s*\(", "info", "console.log - remove for production", "Use proper logging or remove"),
+            (r"\beval\s*\(", "critical", "eval() usage - XSS risk", "Avoid eval(), use JSON.parse() for data"),
+            (r"innerHTML\s*=", "warning", "innerHTML assignment - XSS risk", "Use textContent or sanitize input"),
+            (r"document\.write\s*\(", "critical", "document.write - XSS risk", "Use DOM manipulation methods"),
+            (r"//\s*(TODO|FIXME|XXX|HACK)", "warning", "TODO/FIXME comment", "Address or create issue"),
+            (r"@ts-ignore", "warning", "@ts-ignore - type error suppressed", "Fix the type error instead"),
+            (r"any\s*[;,\)]", "info", "'any' type used", "Use specific types for better safety"),
+            (r"as\s+any\b", "warning", "Type assertion to 'any'", "Use proper type assertion"),
+        ]
+
+        # Go patterns
+        go_patterns = [
+            (r"_\s*=\s*\w+\.\w+\(", "warning", "Error ignored with _", "Handle or explicitly ignore with comment"),
+            (r"//\s*(TODO|FIXME|XXX)", "warning", "TODO/FIXME comment", "Address or create issue"),
+            (r"panic\s*\(", "warning", "panic() call - use sparingly", "Return error instead if possible"),
+        ]
+
+        # Select patterns based on language
+        patterns = []
+        if language == "python":
+            patterns = python_patterns
+        elif language in ("javascript", "typescript"):
+            patterns = js_patterns
+        elif language == "go":
+            patterns = go_patterns
+        else:
+            # Generic patterns for any language
+            patterns = [
+                (r"TODO|FIXME|XXX|HACK", "warning", "TODO/FIXME comment", "Address before committing"),
+                (r"password\s*=\s*['\"][^'\"]+['\"]", "critical", "Hardcoded password", "Use environment variable"),
+                (r"api_?key\s*=\s*['\"][^'\"]+['\"]", "critical", "Hardcoded API key", "Use environment variable"),
+            ]
+
+        # Run patterns
+        for line_num, line in enumerate(lines, 1):
+            for pattern, severity, message, fix in patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    issues.append({
+                        "line": line_num,
+                        "severity": severity,
+                        "message": message,
+                        "fix": fix,
+                        "code": line.strip()[:80],
+                    })
+
+        return issues
+
+    def _build_audit_prompt(
+        self,
+        content: str,
+        language: str,
+        focus_areas: Optional[list[str]],
+        existing_issues: list[dict],
+    ) -> str:
+        """Build prompt for LLM audit analysis."""
+        focus_text = ""
+        if focus_areas:
+            focus_text = f"\n\nFocus especially on: {', '.join(focus_areas)}"
+
+        existing_text = ""
+        if existing_issues:
+            existing_text = "\n\nAlready found issues:\n" + "\n".join(
+                f"- Line {i['line']}: {i['message']}"
+                for i in existing_issues[:5]
+            )
+
+        return f"""Audit this {language} code for issues I might have missed.
+
+CODE:
+```{language}
+{content[:5000]}
+```
+{existing_text}
+
+Look for:
+1. Silent failures (errors being swallowed)
+2. Missing error handling for I/O operations
+3. Security vulnerabilities
+4. Logic errors
+5. Code that could fail silently
+6. Hardcoded values that should be configurable
+{focus_text}
+
+For each issue found, provide:
+- Line number (approximate)
+- Severity (critical/warning/info)
+- Brief description
+- Suggested fix
+
+Be concise. Only report real issues, not style preferences.
+If the code looks fine, say so briefly."""

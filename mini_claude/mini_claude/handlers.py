@@ -1348,6 +1348,81 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
+    # Diff Review - Review changes before committing
+    # -------------------------------------------------------------------------
+
+    async def diff_review(
+        self,
+        project_dir: str,
+        staged_only: bool,
+    ) -> list[TextContent]:
+        """Review git diff for issues before committing."""
+        if not project_dir:
+            return self._needs_clarification(
+                "No project directory provided",
+                "Which project should I review the diff for?"
+            )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.git_helper.review_diff(project_dir, staged_only)
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Think Audit - Audit file for common issues
+    # -------------------------------------------------------------------------
+
+    async def think_audit(
+        self,
+        file_path: str,
+        focus_areas: list[str] | None,
+    ) -> list[TextContent]:
+        """Audit a file for common issues and anti-patterns."""
+        if not file_path:
+            return self._needs_clarification(
+                "No file path provided",
+                "Which file should I audit?"
+            )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.thinker.audit(file_path, focus_areas)
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Code Pattern Check - Check code against conventions with LLM
+    # -------------------------------------------------------------------------
+
+    async def code_pattern_check(
+        self,
+        project_path: str,
+        code: str,
+    ) -> list[TextContent]:
+        """Check code against stored conventions using LLM."""
+        if not project_path:
+            return self._needs_clarification(
+                "No project path provided",
+                "Which project's conventions should I check against?"
+            )
+
+        if not code:
+            return self._needs_clarification(
+                "No code provided",
+                "What code should I check?"
+            )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.conventions.check_code_with_llm(project_path, code, self.llm)
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
     # Helper Methods
     # -------------------------------------------------------------------------
 

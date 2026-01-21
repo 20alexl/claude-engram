@@ -360,3 +360,121 @@ class ConventionTracker:
             "total_conventions": total_conventions,
             "storage_path": str(self.conventions_file),
         }
+
+    def check_code_with_llm(
+        self,
+        project_path: str,
+        code: str,
+        llm_client,
+    ) -> MiniClaudeResponse:
+        """
+        Check code against stored conventions using LLM for deeper analysis.
+
+        This is an enhanced version of check_conventions that uses
+        the LLM to understand semantic violations, not just keyword matches.
+
+        Args:
+            project_path: Project directory
+            code: Code snippet to check
+            llm_client: LLM client for analysis
+        """
+        work_log = WorkLog()
+        work_log.what_i_tried.append("Checking code against conventions with LLM")
+
+        if project_path not in self._projects:
+            return MiniClaudeResponse(
+                status="success",
+                confidence="low",
+                reasoning="No conventions stored - nothing to check against",
+                work_log=work_log,
+                suggestions=["Use convention_add to store project rules first"],
+            )
+
+        proj = self._projects[project_path]
+        if not proj.conventions:
+            return MiniClaudeResponse(
+                status="success",
+                confidence="low",
+                reasoning="No conventions stored for this project",
+                work_log=work_log,
+            )
+
+        # First do quick pattern-based check
+        quick_result = self.check_conventions(project_path, code)
+        quick_violations = quick_result.data.get("violations", []) if quick_result.data else []
+
+        # Build prompt for LLM analysis
+        conventions_text = "\n".join(
+            f"- [{c.category}] {c.rule}" +
+            (f" (importance: {c.importance}/10)" if c.importance >= 7 else "")
+            for c in sorted(proj.conventions, key=lambda x: x.importance, reverse=True)
+        )
+
+        prompt = f"""Check this code against the project conventions.
+
+PROJECT CONVENTIONS:
+{conventions_text}
+
+CODE TO CHECK:
+```
+{code[:3000]}
+```
+
+For each convention violation found:
+1. Which convention was violated
+2. Where in the code (line/section)
+3. Severity (high/medium/low based on convention importance)
+4. Suggested fix
+
+Only report actual violations, not style preferences.
+If the code follows all conventions, say "No violations found."
+
+Be concise."""
+
+        violations = []
+        llm_analysis = None
+
+        try:
+            result = llm_client.generate(prompt)
+            if result.get("success"):
+                llm_analysis = result.get("response", "")
+                work_log.what_worked.append("LLM analysis complete")
+
+                # Check if LLM found issues
+                if "no violation" not in llm_analysis.lower():
+                    violations.append({
+                        "source": "llm",
+                        "analysis": llm_analysis,
+                    })
+            else:
+                work_log.what_failed.append(f"LLM check failed: {result.get('error')}")
+        except Exception as e:
+            work_log.what_failed.append(f"LLM analysis failed: {str(e)}")
+
+        # Combine quick violations with LLM analysis
+        all_violations = quick_violations + violations
+        total_violations = len(quick_violations) + (1 if violations else 0)
+
+        if all_violations:
+            status = "partial"
+            reasoning = f"Found {total_violations} potential violation(s)"
+            warnings = [f"[{v.get('importance', '?')}/10] {v.get('rule', 'LLM Analysis')}: {v.get('violation', v.get('analysis', '')[:100])}"
+                       for v in all_violations[:5]]
+        else:
+            status = "success"
+            reasoning = "Code follows all stored conventions"
+            warnings = []
+
+        return MiniClaudeResponse(
+            status=status,
+            confidence="medium",
+            reasoning=reasoning,
+            work_log=work_log,
+            data={
+                "conventions_checked": len(proj.conventions),
+                "quick_violations": quick_violations,
+                "llm_analysis": llm_analysis,
+            },
+            warnings=warnings,
+            suggestions=["Fix violations before committing"] if all_violations else [],
+        )

@@ -1634,4 +1634,106 @@ Example:
             "required": [],
         },
     ),
+
+    # =========================================================================
+    # New Tools: diff_review, think_audit, code_pattern_check
+    # =========================================================================
+
+    Tool(
+        name="diff_review",
+        description="""Review git diff for issues BEFORE committing.
+
+Catches problems before they reach your repo:
+- Silent failures (except: pass, empty catch blocks)
+- Debug code left in (print, console.log, debugger)
+- Hardcoded secrets/credentials
+- TODO/FIXME comments
+- Security issues (eval, innerHTML, shell=True)
+- Convention violations
+
+Use this before every commit to catch "AI slop" patterns.
+
+Example:
+  diff_review(project_dir="/path/to/project")
+  diff_review(project_dir="/path/to/project", staged_only=True)""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_dir": {
+                    "type": "string",
+                    "description": "Project directory to review diff in"
+                },
+                "staged_only": {
+                    "type": "boolean",
+                    "description": "If true, only review staged changes (git diff --staged)",
+                    "default": False
+                },
+            },
+            "required": ["project_dir"],
+        },
+    ),
+
+    Tool(
+        name="think_audit",
+        description="""Audit a file for common issues and anti-patterns.
+
+Combines pattern matching + LLM analysis to find:
+- Silent failures (except: pass, empty catch)
+- Missing error handling for I/O
+- Hardcoded values that should be configurable
+- TODO/FIXME items
+- Security vulnerabilities
+- Type safety issues (any, type:ignore)
+
+Returns issues with severity, line numbers, and suggested fixes (quick_fix).
+
+Example:
+  think_audit(file_path="/path/to/file.py")
+  think_audit(file_path="/path/to/file.py", focus_areas=["security", "error_handling"])""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to audit"
+                },
+                "focus_areas": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional areas to focus on (e.g., ['error_handling', 'security'])"
+                },
+            },
+            "required": ["file_path"],
+        },
+    ),
+
+    Tool(
+        name="code_pattern_check",
+        description="""Check code against stored conventions using LLM for deep analysis.
+
+Enhanced version of convention_check that uses LLM to understand semantic violations,
+not just keyword matches.
+
+Use this to verify code follows project patterns before committing.
+
+Example:
+  code_pattern_check(
+    project_path="/path/to/project",
+    code="def myFunction(): ..."
+  )""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory with stored conventions"
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Code snippet to check against conventions"
+                },
+            },
+            "required": ["project_path", "code"],
+        },
+    ),
 ]

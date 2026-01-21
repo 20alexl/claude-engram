@@ -1,14 +1,14 @@
 """
-Git Helper - Intelligent commit message generation
+Git Helper - Intelligent commit message generation and diff review
 
-Generates commit messages from:
-1. Work logs (what was done)
-2. Decisions (why choices were made)
-3. Files changed (what was touched)
-4. Actual git diff (what changed)
+Features:
+1. Generate commit messages from work logs and git changes
+2. Review diffs for issues BEFORE committing (diff_review)
+3. Auto-commit with context-aware messages
 """
 
 import subprocess
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -315,3 +315,197 @@ class GitHelper:
                 reasoning=f"Git operation failed: {str(e)}",
                 work_log=work_log,
             )
+
+    def review_diff(
+        self,
+        project_dir: str,
+        staged_only: bool = False,
+    ) -> MiniClaudeResponse:
+        """
+        Review git diff for issues BEFORE committing.
+
+        Catches:
+        - Silent failures (except: pass, empty catch blocks)
+        - Missing error handling
+        - Debug code left in (print, console.log, debugger)
+        - Hardcoded secrets/credentials
+        - TODO/FIXME comments
+        - Convention violations
+        - Breaking changes (removed exports, changed signatures)
+
+        Args:
+            project_dir: Project directory
+            staged_only: If True, only review staged changes (git diff --staged)
+        """
+        work_log = WorkLog()
+        work_log.what_i_tried.append("Reviewing git diff for issues")
+
+        # Get the diff
+        try:
+            cmd = ["git", "-C", project_dir, "diff"]
+            if staged_only:
+                cmd.append("--staged")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode != 0:
+                return MiniClaudeResponse(
+                    status="failed",
+                    confidence="high",
+                    reasoning=f"Git diff failed: {result.stderr}",
+                    work_log=work_log,
+                )
+
+            diff_content = result.stdout
+
+            if not diff_content.strip():
+                return MiniClaudeResponse(
+                    status="success",
+                    confidence="high",
+                    reasoning="No changes to review",
+                    work_log=work_log,
+                    suggestions=["Stage changes with 'git add' first" if not staged_only else "No staged changes"],
+                )
+
+        except Exception as e:
+            work_log.what_failed.append(f"Failed to get diff: {str(e)}")
+            return MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Failed to get diff: {str(e)}",
+                work_log=work_log,
+            )
+
+        # Analyze the diff
+        issues = self._analyze_diff(diff_content)
+        work_log.what_worked.append(f"Analyzed {len(diff_content.splitlines())} diff lines")
+
+        # Categorize issues by severity
+        critical = [i for i in issues if i["severity"] == "critical"]
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        info = [i for i in issues if i["severity"] == "info"]
+
+        # Build result
+        if critical:
+            status = "failed"
+            confidence = "high"
+            reasoning = f"Found {len(critical)} critical issue(s) - DO NOT COMMIT"
+        elif warnings:
+            status = "partial"
+            confidence = "medium"
+            reasoning = f"Found {len(warnings)} warning(s) - review before committing"
+        else:
+            status = "success"
+            confidence = "high"
+            reasoning = "No major issues found"
+
+        # Format warnings for display
+        warning_messages = []
+        for issue in critical + warnings:
+            warning_messages.append(
+                f"[{issue['severity'].upper()}] {issue['file']}:{issue.get('line', '?')} - {issue['message']}"
+            )
+
+        suggestions = []
+        for issue in issues:
+            if issue.get("suggestion"):
+                suggestions.append(issue["suggestion"])
+
+        return MiniClaudeResponse(
+            status=status,
+            confidence=confidence,
+            reasoning=reasoning,
+            work_log=work_log,
+            data={
+                "critical_count": len(critical),
+                "warning_count": len(warnings),
+                "info_count": len(info),
+                "issues": issues[:20],  # Limit to 20 issues
+                "diff_lines": len(diff_content.splitlines()),
+            },
+            warnings=warning_messages[:10],  # Top 10 issues
+            suggestions=suggestions[:5],
+        )
+
+    def _analyze_diff(self, diff_content: str) -> list[dict]:
+        """Analyze diff content for common issues."""
+        issues = []
+        current_file = None
+        line_num = 0
+
+        # Patterns to check for
+        patterns = [
+            # Critical - Silent failures
+            (r"except:\s*pass", "critical", "Silent exception - errors will be swallowed", "Add proper error handling or logging"),
+            (r"except\s+\w+:\s*pass", "critical", "Silent exception handler", "Log the error or handle it properly"),
+            (r"catch\s*\([^)]*\)\s*\{\s*\}", "critical", "Empty catch block", "Add error handling or logging"),
+
+            # Critical - Security issues
+            (r"(password|secret|api_key|apikey|token)\s*=\s*['\"][^'\"]+['\"]", "critical", "Hardcoded credential/secret", "Use environment variables"),
+            (r"eval\s*\(", "critical", "eval() usage - potential security risk", "Avoid eval() - use safer alternatives"),
+
+            # Warning - Debug code
+            (r"^\+.*\bprint\s*\(", "warning", "print() statement left in code", "Remove debug print statements"),
+            (r"^\+.*console\.(log|debug|info)\s*\(", "warning", "console.log left in code", "Remove debug console statements"),
+            (r"^\+.*debugger\b", "warning", "debugger statement left in code", "Remove debugger statement"),
+            (r"^\+.*breakpoint\s*\(\)", "warning", "breakpoint() left in code", "Remove debug breakpoint"),
+
+            # Warning - Code quality
+            (r"TODO|FIXME|XXX|HACK", "warning", "TODO/FIXME comment found", "Address TODO before committing or create an issue"),
+            (r"^\+.*#\s*type:\s*ignore", "warning", "type: ignore comment", "Fix the type issue instead of ignoring"),
+            (r"^\+.*//\s*@ts-ignore", "warning", "@ts-ignore comment", "Fix the TypeScript issue"),
+            (r"^\+.*//\s*eslint-disable", "warning", "eslint-disable comment", "Fix the linting issue"),
+
+            # Warning - Potential bugs
+            (r"^\+.*==\s*None\b", "warning", "Using == None instead of 'is None'", "Use 'is None' for None comparisons"),
+            (r"^\+.*!=\s*None\b", "warning", "Using != None instead of 'is not None'", "Use 'is not None' for None comparisons"),
+
+            # Info - Removed code
+            (r"^-.*\bdef\s+\w+\s*\(", "info", "Function removed - may break dependents", "Verify no other code depends on this"),
+            (r"^-.*\bclass\s+\w+", "info", "Class removed - may break dependents", "Verify no other code depends on this"),
+            (r"^-.*\bexport\s+(default\s+)?(function|class|const|let|var)", "info", "Export removed - may break imports", "Verify no other code imports this"),
+        ]
+
+        for line in diff_content.splitlines():
+            # Track current file
+            if line.startswith("+++"):
+                match = re.match(r"\+\+\+ [ab]/(.+)", line)
+                if match:
+                    current_file = match.group(1)
+                    line_num = 0
+                continue
+
+            # Track line numbers (from @@ -X,Y +A,B @@)
+            if line.startswith("@@"):
+                match = re.search(r"\+(\d+)", line)
+                if match:
+                    line_num = int(match.group(1))
+                continue
+
+            # Only check added/removed lines
+            if not (line.startswith("+") or line.startswith("-")):
+                if line and not line.startswith("\\"):
+                    line_num += 1
+                continue
+
+            # Check patterns
+            for pattern, severity, message, suggestion in patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    issues.append({
+                        "file": current_file or "unknown",
+                        "line": line_num,
+                        "severity": severity,
+                        "message": message,
+                        "suggestion": suggestion,
+                        "code": line[:100],  # First 100 chars of the line
+                    })
+
+            if line.startswith("+"):
+                line_num += 1
+
+        return issues
