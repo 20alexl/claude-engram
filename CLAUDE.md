@@ -87,7 +87,7 @@ Next session, you'll know WHY things are the way they are.
 
 | When | Tool | Why |
 |------|------|-----|
-| Start of session | `session_start` | Load context + past mistakes |
+| Start of session | `session_start` | Load context + past mistakes + **auto-restore checkpoints** |
 | Before editing important files | `work_pre_edit_check` | See past mistakes with file |
 | Something breaks | `work_log_mistake` | Remember for next time |
 | Make a decision | `work_log_decision` | Explain WHY for future |
@@ -95,9 +95,48 @@ Next session, you'll know WHY things are the way they are.
 | Before big changes | `impact_analyze` | See what depends on file |
 | Before committing | `diff_review` | Catch issues in your changes |
 | Audit a file | `think_audit` | Find anti-patterns + get quick fixes |
+| Audit many files | `audit_batch` | Scan directory for issues |
+| Find similar bugs | `find_similar_issues` | Search codebase for pattern |
 | End of session | `work_save_session` | Persist work to memory |
-| Before long tasks | `context_checkpoint_save` | Survive context compaction |
+| Before long tasks | `context_checkpoint_save` | **Survive context compaction** |
 | When claiming done | `context_self_check` | Verify you actually did it |
+
+---
+
+## CRITICAL: Surviving Context Compaction
+
+When context gets long, it will be compacted (summarized). **You WILL lose context.**
+
+To survive compaction:
+
+1. **Before long tasks**: `context_checkpoint_save(task_description, current_step, ...)`
+2. **Periodically**: Save checkpoints at natural breakpoints
+3. **After compaction**: `session_start` auto-restores your checkpoint!
+
+If you notice you've lost context mid-task:
+
+```python
+mcp__mini-claude__context_checkpoint_restore()
+```
+
+This restores your last saved state including:
+
+- What task you were working on
+- Which steps are done/pending
+- Key decisions made
+- Files involved
+
+### IMPORTANT: When Writing Continuation Summaries
+
+If context is being compacted and you're writing a continuation summary, **ALWAYS INCLUDE**:
+
+```text
+CRITICAL: This project uses Mini Claude MCP for persistent memory.
+FIRST ACTION after resuming: Call mcp__mini-claude__session_start(project_path="<path>")
+This will restore your checkpoint and show what you were working on.
+```
+
+This ensures the next Claude instance knows to use Mini Claude.
 
 ---
 
@@ -115,7 +154,7 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 
 ---
 
-## All 59 Tools
+## All 61 Tools
 
 ### Session & Memory (USE THESE!)
 - `session_start` - **START HERE** every session
@@ -177,6 +216,8 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 ### Pre-Commit Validation (CATCH ISSUES BEFORE COMMITTING!)
 - `diff_review` - **Review git diff for issues** (silent failures, debug code, secrets, TODOs)
 - `think_audit` - **Audit file for anti-patterns** (with quick_fix suggestions)
+- `audit_batch` - **Audit multiple files at once** (supports glob patterns)
+- `find_similar_issues` - **Search codebase for bug patterns** (find all `except: pass`, etc.)
 
 ### Testing & Git (AUTO-RUN TESTS, SMART COMMITS)
 - `test_run` - Auto-detect and run tests (pytest, npm, go, rust, make)

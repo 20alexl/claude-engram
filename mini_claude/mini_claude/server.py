@@ -375,6 +375,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await handlers.think_audit(
                 file_path=arguments.get("file_path", ""),
                 focus_areas=arguments.get("focus_areas"),
+                min_severity=arguments.get("min_severity"),
+            )
+
+        case "audit_batch":
+            return await handlers.audit_batch(
+                file_paths=arguments.get("file_paths", []),
+                min_severity=arguments.get("min_severity"),
+            )
+
+        case "find_similar_issues":
+            return await handlers.find_similar_issues(
+                issue_pattern=arguments.get("issue_pattern", ""),
+                project_path=arguments.get("project_path", ""),
+                file_extensions=arguments.get("file_extensions"),
             )
 
         case "code_pattern_check":

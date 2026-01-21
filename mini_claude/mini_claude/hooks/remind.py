@@ -304,6 +304,38 @@ def get_scope_status() -> dict:
         return {}
 
 
+def get_checkpoint_data() -> dict:
+    """Load the latest checkpoint data if it exists."""
+    checkpoint_file = Path.home() / ".mini_claude" / "checkpoints" / "latest_checkpoint.json"
+    if not checkpoint_file.exists():
+        return {}
+    try:
+        data = json.loads(checkpoint_file.read_text())
+        # Check age - only return if less than 48 hours old
+        age_hours = (time.time() - data.get("timestamp", 0)) / 3600
+        if age_hours < 48:
+            return data
+        return {}
+    except Exception:
+        return {}
+
+
+def get_handoff_data() -> dict:
+    """Load the latest handoff data if it exists."""
+    handoff_file = Path.home() / ".mini_claude" / "checkpoints" / "latest_handoff.json"
+    if not handoff_file.exists():
+        return {}
+    try:
+        data = json.loads(handoff_file.read_text())
+        # Check age - only return if less than 48 hours old
+        age_hours = (time.time() - data.get("created_at", 0)) / 3600
+        if age_hours < 48:
+            return data
+        return {}
+    except Exception:
+        return {}
+
+
 # ============================================================================
 # THINKING TOOL ENFORCEMENT - 3-Tier Progressive System
 # ============================================================================
@@ -693,6 +725,57 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         state["prompts_without_session"] = state.get("prompts_without_session", 0) + 1
         prompts = state["prompts_without_session"]
         save_state(state)
+
+        # AUTO-LOAD CHECKPOINT/HANDOFF - Show context even without session_start!
+        # This is the key to surviving context compaction
+        checkpoint = get_checkpoint_data()
+        handoff = get_handoff_data()
+
+        if checkpoint or handoff:
+            lines.append("🔄" * 20)
+            lines.append("")
+            lines.append("📋 CONTEXT RESTORED FROM PREVIOUS SESSION")
+            lines.append("   (You don't need to call session_start to see this)")
+            lines.append("")
+
+            if checkpoint:
+                age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
+                lines.append(f"CHECKPOINT ({age_hours:.1f}h ago):")
+                lines.append(f"  Task: {checkpoint.get('task_description', 'Unknown')[:80]}")
+                lines.append(f"  Current step: {checkpoint.get('current_step', 'Unknown')[:60]}")
+                if checkpoint.get("completed_steps"):
+                    lines.append(f"  ✓ Completed: {len(checkpoint['completed_steps'])} steps")
+                    for step in checkpoint["completed_steps"][-3:]:
+                        lines.append(f"    • {step[:60]}")
+                if checkpoint.get("pending_steps"):
+                    lines.append(f"  ⏳ Pending: {len(checkpoint['pending_steps'])} steps")
+                    for step in checkpoint["pending_steps"][:3]:
+                        lines.append(f"    • {step[:60]}")
+                if checkpoint.get("files_involved"):
+                    lines.append(f"  📁 Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}")
+                if checkpoint.get("key_decisions"):
+                    lines.append("  🎯 Key decisions:")
+                    for dec in checkpoint["key_decisions"][:2]:
+                        lines.append(f"    • {dec[:60]}")
+                lines.append("")
+
+            if handoff:
+                lines.append("HANDOFF MESSAGE:")
+                lines.append(f"  {handoff.get('summary', 'No summary')[:100]}")
+                if handoff.get("next_steps"):
+                    lines.append("  Next steps:")
+                    for step in handoff["next_steps"][:3]:
+                        lines.append(f"    → {step[:60]}")
+                if handoff.get("warnings"):
+                    lines.append("  ⚠️ Warnings:")
+                    for warn in handoff["warnings"][:2]:
+                        lines.append(f"    • {warn[:60]}")
+                lines.append("")
+
+            lines.append("⚡ CONTINUE FROM WHERE YOU LEFT OFF!")
+            lines.append("")
+            lines.append("🔄" * 20)
+            lines.append("")
 
         # ALWAYS show past mistakes first - this is the compelling reason to use Mini Claude
         mistakes = get_past_mistakes(project_memory)

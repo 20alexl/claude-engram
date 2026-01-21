@@ -1689,7 +1689,8 @@ Returns issues with severity, line numbers, and suggested fixes (quick_fix).
 
 Example:
   think_audit(file_path="/path/to/file.py")
-  think_audit(file_path="/path/to/file.py", focus_areas=["security", "error_handling"])""",
+  think_audit(file_path="/path/to/file.py", focus_areas=["security", "error_handling"])
+  think_audit(file_path="/path/to/file.py", min_severity="warning")  # Skip info-level""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1701,6 +1702,11 @@ Example:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Optional areas to focus on (e.g., ['error_handling', 'security'])"
+                },
+                "min_severity": {
+                    "type": "string",
+                    "enum": ["critical", "warning", "info"],
+                    "description": "Minimum severity level to report. 'critical' shows only critical, 'warning' shows critical+warning, 'info' shows all."
                 },
             },
             "required": ["file_path"],
@@ -1734,6 +1740,66 @@ Example:
                 },
             },
             "required": ["project_path", "code"],
+        },
+    ),
+
+    Tool(
+        name="audit_batch",
+        description="""Audit multiple files at once for common issues.
+
+Fast pattern-based auditing across many files. Supports glob patterns.
+
+Use this to scan a directory or set of files before committing.
+
+Example:
+  audit_batch(file_paths=["src/**/*.py"])
+  audit_batch(file_paths=["file1.py", "file2.py"], min_severity="warning")""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of file paths or glob patterns (e.g., ['src/**/*.py'])"
+                },
+                "min_severity": {
+                    "type": "string",
+                    "enum": ["critical", "warning", "info"],
+                    "description": "Minimum severity level to report"
+                },
+            },
+            "required": ["file_paths"],
+        },
+    ),
+
+    Tool(
+        name="find_similar_issues",
+        description="""Search codebase for code matching an issue pattern.
+
+When you find a bug pattern (e.g., 'except: pass'), use this to find
+all similar occurrences across the codebase.
+
+Example:
+  find_similar_issues(issue_pattern="except:\\s*pass", project_path="/path/to/project")
+  find_similar_issues(issue_pattern="eval\\(", project_path="/path", file_extensions=[".py"])""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "issue_pattern": {
+                    "type": "string",
+                    "description": "Regex pattern to search for (e.g., 'except:\\s*pass', 'eval\\(')"
+                },
+                "project_path": {
+                    "type": "string",
+                    "description": "Root directory to search in"
+                },
+                "file_extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File extensions to search (default: .py, .js, .ts, etc.)"
+                },
+            },
+            "required": ["issue_pattern", "project_path"],
         },
     ),
 ]

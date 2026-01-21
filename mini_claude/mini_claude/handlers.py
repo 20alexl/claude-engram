@@ -419,7 +419,43 @@ class Handlers:
             except Exception:
                 pass  # Non-critical if hooks aren't available
 
-        return [TextContent(type="text", text=response.to_formatted_string())]
+        # Check for and auto-restore any existing checkpoints or handoffs
+        checkpoint_info = ""
+        try:
+            # Try to restore checkpoint
+            checkpoint_result = self.context_guard.restore_checkpoint()
+            if checkpoint_result.status == "success" and checkpoint_result.data:
+                checkpoint_info = "\n\n" + "=" * 50 + "\n"
+                checkpoint_info += "📋 RESTORED CHECKPOINT FROM PREVIOUS SESSION:\n"
+                checkpoint_info += "=" * 50 + "\n"
+                checkpoint_info += checkpoint_result.data.get("summary", "")
+                checkpoint_info += "\n\n⚠️ CONTINUE FROM WHERE YOU LEFT OFF!"
+
+            # Also check for handoff
+            handoff_result = self.context_guard.get_handoff()
+            if handoff_result.status == "success" and handoff_result.data:
+                handoff = handoff_result.data.get("handoff", {})
+                if handoff:
+                    checkpoint_info += "\n\n" + "=" * 50 + "\n"
+                    checkpoint_info += "📝 HANDOFF FROM PREVIOUS SESSION:\n"
+                    checkpoint_info += "=" * 50 + "\n"
+                    checkpoint_info += f"Summary: {handoff.get('summary', 'N/A')}\n"
+                    if handoff.get('next_steps'):
+                        checkpoint_info += "Next steps:\n"
+                        for step in handoff['next_steps']:
+                            checkpoint_info += f"  • {step}\n"
+                    if handoff.get('warnings'):
+                        checkpoint_info += "⚠️ Warnings:\n"
+                        for warn in handoff['warnings']:
+                            checkpoint_info += f"  • {warn}\n"
+        except Exception:
+            pass  # Non-critical if checkpoint restore fails
+
+        output = response.to_formatted_string()
+        if checkpoint_info:
+            output += checkpoint_info
+
+        return [TextContent(type="text", text=output)]
 
     # -------------------------------------------------------------------------
     # Impact Analyzer
@@ -1401,6 +1437,7 @@ class Handlers:
         self,
         file_path: str,
         focus_areas: list[str] | None,
+        min_severity: str | None = None,
     ) -> list[TextContent]:
         """Audit a file for common issues and anti-patterns."""
         if not file_path:
@@ -1413,7 +1450,62 @@ class Handlers:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self.thinker.audit(file_path, focus_areas)
+            lambda: self.thinker.audit(file_path, focus_areas, min_severity)
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Audit Batch - Audit multiple files at once
+    # -------------------------------------------------------------------------
+
+    async def audit_batch(
+        self,
+        file_paths: list[str],
+        min_severity: str | None = None,
+    ) -> list[TextContent]:
+        """Audit multiple files at once."""
+        if not file_paths:
+            return self._needs_clarification(
+                "No file paths provided",
+                "Which files should I audit? (supports glob patterns like 'src/**/*.py')"
+            )
+
+        record_session_tool_use("audit_batch", f"{len(file_paths)} files")
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.thinker.audit_batch(file_paths, min_severity)
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Find Similar Issues - Search codebase for similar patterns
+    # -------------------------------------------------------------------------
+
+    async def find_similar_issues(
+        self,
+        issue_pattern: str,
+        project_path: str,
+        file_extensions: list[str] | None = None,
+    ) -> list[TextContent]:
+        """Search codebase for code similar to a found issue pattern."""
+        if not issue_pattern:
+            return self._needs_clarification(
+                "No pattern provided",
+                "What pattern should I search for? (e.g., 'except: pass', 'eval(')"
+            )
+
+        if not project_path:
+            return self._needs_clarification(
+                "No project path provided",
+                "Which directory should I search in?"
+            )
+
+        record_session_tool_use("find_similar_issues", issue_pattern[:30])
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.thinker.find_similar_issues(issue_pattern, project_path, file_extensions)
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 

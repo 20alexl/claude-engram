@@ -531,6 +531,7 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         self,
         file_path: str,
         focus_areas: Optional[list[str]] = None,
+        min_severity: Optional[str] = None,
     ) -> MiniClaudeResponse:
         """
         Audit a file for common issues and anti-patterns.
@@ -547,6 +548,10 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         Args:
             file_path: Path to the file to audit
             focus_areas: Optional areas to focus on (e.g., ["error_handling", "security"])
+            min_severity: Optional minimum severity to report ("critical", "warning", "info")
+                          If "critical", only critical issues are shown
+                          If "warning", critical + warning issues are shown
+                          If "info" or None, all issues are shown
 
         Returns:
             Audit report with issues, severity, and suggested fixes
@@ -598,6 +603,13 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
             except Exception as e:
                 work_log.what_failed.append(f"LLM analysis failed: {str(e)}")
 
+        # Filter by minimum severity if specified
+        severity_levels = {"critical": 3, "warning": 2, "info": 1}
+        if min_severity and min_severity in severity_levels:
+            min_level = severity_levels[min_severity]
+            issues = [i for i in issues if severity_levels.get(i["severity"], 0) >= min_level]
+            work_log.what_worked.append(f"Filtered to {min_severity}+ severity: {len(issues)} issues")
+
         # Categorize issues
         critical = [i for i in issues if i["severity"] == "critical"]
         warnings = [i for i in issues if i["severity"] == "warning"]
@@ -644,6 +656,242 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
             },
             warnings=warning_messages,
             suggestions=suggestions,
+        )
+
+    def audit_batch(
+        self,
+        file_paths: list[str],
+        min_severity: Optional[str] = None,
+    ) -> MiniClaudeResponse:
+        """
+        Audit multiple files at once.
+
+        Args:
+            file_paths: List of file paths to audit
+            min_severity: Minimum severity to report ("critical", "warning", "info")
+
+        Returns:
+            Aggregated audit results across all files
+        """
+        import glob as glob_module
+        work_log = WorkLog()
+        work_log.what_i_tried.append(f"Batch auditing {len(file_paths)} files")
+
+        # Expand glob patterns
+        expanded_paths = []
+        for path in file_paths:
+            if '*' in path or '?' in path:
+                expanded_paths.extend(glob_module.glob(path, recursive=True))
+            else:
+                expanded_paths.append(path)
+
+        # Remove duplicates and filter to existing files
+        expanded_paths = list(set(expanded_paths))
+        expanded_paths = [p for p in expanded_paths if Path(p).is_file()]
+
+        if not expanded_paths:
+            return MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning="No valid files found to audit",
+                work_log=work_log,
+            )
+
+        work_log.what_worked.append(f"Found {len(expanded_paths)} files to audit")
+
+        # Audit each file (pattern-based only for speed)
+        all_issues = []
+        files_with_issues = []
+        files_clean = []
+
+        for file_path in expanded_paths[:50]:  # Limit to 50 files
+            try:
+                content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+                lines = content.splitlines()
+
+                ext = Path(file_path).suffix.lower()
+                language = {
+                    ".py": "python", ".js": "javascript", ".ts": "typescript",
+                    ".tsx": "typescript", ".jsx": "javascript", ".go": "go",
+                }.get(ext, "unknown")
+
+                issues = self._pattern_audit(content, lines, language)
+
+                # Filter by severity
+                severity_levels = {"critical": 3, "warning": 2, "info": 1}
+                if min_severity and min_severity in severity_levels:
+                    min_level = severity_levels[min_severity]
+                    issues = [i for i in issues if severity_levels.get(i["severity"], 0) >= min_level]
+
+                if issues:
+                    files_with_issues.append({
+                        "file": file_path,
+                        "issue_count": len(issues),
+                        "critical": len([i for i in issues if i["severity"] == "critical"]),
+                        "warning": len([i for i in issues if i["severity"] == "warning"]),
+                        "issues": issues[:5],  # Top 5 issues per file
+                    })
+                    all_issues.extend([{**i, "file": file_path} for i in issues])
+                else:
+                    files_clean.append(file_path)
+
+            except Exception as e:
+                work_log.what_failed.append(f"Failed to audit {file_path}: {str(e)}")
+
+        # Sort by severity
+        critical_files = [f for f in files_with_issues if f["critical"] > 0]
+        warning_files = [f for f in files_with_issues if f["critical"] == 0 and f["warning"] > 0]
+
+        total_critical = sum(f["critical"] for f in files_with_issues)
+        total_warning = sum(f["warning"] for f in files_with_issues)
+
+        if total_critical > 0:
+            status = "failed"
+            reasoning = f"Found {total_critical} critical issue(s) across {len(critical_files)} file(s)"
+        elif total_warning > 0:
+            status = "partial"
+            reasoning = f"Found {total_warning} warning(s) across {len(warning_files)} file(s)"
+        else:
+            status = "success"
+            reasoning = f"All {len(files_clean)} file(s) passed audit"
+
+        # Format warnings
+        warning_messages = []
+        for f in sorted(files_with_issues, key=lambda x: x["critical"], reverse=True)[:10]:
+            warning_messages.append(
+                f"{Path(f['file']).name}: {f['critical']} critical, {f['warning']} warnings"
+            )
+
+        return MiniClaudeResponse(
+            status=status,
+            confidence="high",
+            reasoning=reasoning,
+            work_log=work_log,
+            data={
+                "files_audited": len(expanded_paths),
+                "files_with_issues": len(files_with_issues),
+                "files_clean": len(files_clean),
+                "total_critical": total_critical,
+                "total_warning": total_warning,
+                "critical_files": critical_files,
+                "warning_files": warning_files,
+                "all_issues": all_issues[:50],  # Limit total issues
+            },
+            warnings=warning_messages,
+            suggestions=[
+                f"Fix critical issues in: {', '.join(Path(f['file']).name for f in critical_files[:3])}"
+            ] if critical_files else [],
+        )
+
+    def find_similar_issues(
+        self,
+        issue_pattern: str,
+        project_path: str,
+        file_extensions: Optional[list[str]] = None,
+    ) -> MiniClaudeResponse:
+        """
+        Search codebase for code similar to a found issue pattern.
+
+        Args:
+            issue_pattern: The pattern to search for (e.g., "except: pass", "eval(")
+            project_path: Root directory to search in
+            file_extensions: File extensions to search (e.g., [".py", ".js"])
+
+        Returns:
+            List of files and locations with similar patterns
+        """
+        import re
+        import glob as glob_module
+        work_log = WorkLog()
+        work_log.what_i_tried.append(f"Searching for pattern: {issue_pattern}")
+
+        if not Path(project_path).exists():
+            return MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Project path does not exist: {project_path}",
+                work_log=work_log,
+            )
+
+        # Default extensions
+        if not file_extensions:
+            file_extensions = [".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".java", ".rs"]
+
+        # Build glob patterns
+        matches = []
+        files_searched = 0
+
+        for ext in file_extensions:
+            pattern = f"{project_path}/**/*{ext}"
+            for file_path in glob_module.glob(pattern, recursive=True):
+                # Skip common non-code directories
+                if any(skip in file_path for skip in [
+                    "node_modules", "__pycache__", ".git", "venv", ".venv",
+                    "dist", "build", ".next", "coverage"
+                ]):
+                    continue
+
+                files_searched += 1
+                try:
+                    content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+                    lines = content.splitlines()
+
+                    for line_num, line in enumerate(lines, 1):
+                        if re.search(issue_pattern, line, re.IGNORECASE):
+                            matches.append({
+                                "file": file_path,
+                                "line": line_num,
+                                "code": line.strip()[:100],
+                            })
+
+                            if len(matches) >= 100:  # Limit matches
+                                break
+
+                except Exception:
+                    continue
+
+                if len(matches) >= 100:
+                    break
+            if len(matches) >= 100:
+                break
+
+        work_log.what_worked.append(f"Searched {files_searched} files, found {len(matches)} matches")
+
+        # Group by file
+        files_affected = {}
+        for match in matches:
+            file = match["file"]
+            if file not in files_affected:
+                files_affected[file] = []
+            files_affected[file].append(match)
+
+        if matches:
+            status = "partial"
+            reasoning = f"Found {len(matches)} occurrences in {len(files_affected)} file(s)"
+        else:
+            status = "success"
+            reasoning = f"Pattern not found in {files_searched} files searched"
+
+        return MiniClaudeResponse(
+            status=status,
+            confidence="high",
+            reasoning=reasoning,
+            work_log=work_log,
+            data={
+                "pattern": issue_pattern,
+                "files_searched": files_searched,
+                "total_matches": len(matches),
+                "files_affected": len(files_affected),
+                "matches": matches[:50],
+                "by_file": {k: v for k, v in list(files_affected.items())[:20]},
+            },
+            warnings=[
+                f"{Path(f).name}: {len(m)} occurrence(s)"
+                for f, m in sorted(files_affected.items(), key=lambda x: len(x[1]), reverse=True)[:10]
+            ],
+            suggestions=[
+                f"Fix pattern in {len(files_affected)} file(s) to prevent similar issues"
+            ] if matches else [],
         )
 
     def _pattern_audit(self, content: str, lines: list[str], language: str) -> list[dict]:
@@ -706,6 +954,11 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         # Run patterns
         for line_num, line in enumerate(lines, 1):
             for pattern, severity, message, fix in patterns:
+                # Special case: skip "open without context manager" if line has "with open"
+                if "File opened without context manager" in message:
+                    if re.search(r"\bwith\b.*\bopen\s*\(", line):
+                        continue  # Line uses context manager correctly
+
                 if re.search(pattern, line, re.IGNORECASE):
                     issues.append({
                         "line": line_num,
@@ -736,11 +989,19 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
                 for i in existing_issues[:5]
             )
 
+        # Add line numbers to help LLM give accurate references
+        lines = content.split('\n')
+        numbered_content = '\n'.join(
+            f"{i+1:4d}| {line}" for i, line in enumerate(lines[:200])  # Limit to 200 lines
+        )
+        if len(lines) > 200:
+            numbered_content += f"\n... ({len(lines) - 200} more lines truncated)"
+
         return f"""Audit this {language} code for issues I might have missed.
 
-CODE:
+CODE (with line numbers):
 ```{language}
-{content[:5000]}
+{numbered_content}
 ```
 {existing_text}
 
@@ -753,11 +1014,12 @@ Look for:
 6. Hardcoded values that should be configurable
 {focus_text}
 
-For each issue found, provide:
-- Line number (approximate)
-- Severity (critical/warning/info)
-- Brief description
-- Suggested fix
+IMPORTANT: Only reference line numbers that appear in the code above. Do NOT make up line numbers.
+
+For each issue found, provide EXACTLY this format:
+- Line [NUMBER]: [SEVERITY] - [DESCRIPTION]. Fix: [SUGGESTION]
+
+Example: "Line 42: warning - Exception caught but not logged. Fix: Add logging.error(e)"
 
 Be concise. Only report real issues, not style preferences.
-If the code looks fine, say so briefly."""
+If the code looks fine, say "No additional issues found." """
