@@ -458,6 +458,102 @@ class Handlers:
         return [TextContent(type="text", text=output)]
 
     # -------------------------------------------------------------------------
+    # Session End (combines summary + save)
+    # -------------------------------------------------------------------------
+
+    async def session_end(self, project_path: str | None = None) -> list[TextContent]:
+        """
+        End a session - summarizes work and saves to memory.
+
+        Combines:
+        1. work_session_summary - what was done
+        2. work_save_session - persist to memory
+        3. habit_session_summary - habit performance (optional)
+
+        Call this at the end of a session instead of separate tools.
+        """
+        from pathlib import Path
+        work_log = WorkLog()
+        work_log.what_i_tried.append("Ending session")
+
+        lines = []
+        lines.append("=" * 50)
+        lines.append("SESSION END SUMMARY")
+        lines.append("=" * 50)
+
+        # 1. Get session summary
+        try:
+            summary_response = self.work_tracker.get_session_summary()
+            if summary_response.data:
+                data = summary_response.data
+                lines.append("")
+                lines.append("📊 Session Stats:")
+                lines.append(f"  Duration: {data.get('duration_minutes', 0):.1f} minutes")
+                lines.append(f"  Files edited: {data.get('edits', 0)}")
+                lines.append(f"  Searches: {data.get('searches', 0)}")
+                lines.append(f"  Decisions: {data.get('decisions', 0)}")
+                lines.append(f"  Mistakes logged: {data.get('errors', 0)}")
+
+                if data.get('files_touched'):
+                    lines.append("")
+                    lines.append("📁 Files touched:")
+                    for f in data['files_touched'][:10]:
+                        lines.append(f"  - {Path(f).name}")
+
+                if data.get('mistakes'):
+                    lines.append("")
+                    lines.append("⚠️ Mistakes logged (will warn next time):")
+                    for m in data['mistakes'][:5]:
+                        lines.append(f"  - {m.get('description', '')[:60]}")
+
+            work_log.what_worked.append("Got session summary")
+        except Exception as e:
+            work_log.what_failed.append(f"Summary failed: {str(e)}")
+
+        # 2. Save session to memory
+        memories_saved = 0
+        try:
+            save_response = self.work_tracker.persist_session_to_memory()
+            if save_response.data:
+                memories_saved = save_response.data.get('memories_created', 0)
+            lines.append("")
+            lines.append(f"💾 Saved {memories_saved} memories for next session")
+            work_log.what_worked.append(f"Saved {memories_saved} memories")
+        except Exception as e:
+            work_log.what_failed.append(f"Save failed: {str(e)}")
+
+        # 3. Clear scope if active
+        try:
+            if self.scope_guard._current_scope:
+                self.scope_guard.clear_scope()
+                lines.append("🎯 Cleared task scope")
+        except Exception:
+            pass
+
+        # 4. Remove from active sessions
+        if project_path:
+            self._active_sessions.discard(project_path.rstrip("/"))
+
+        lines.append("")
+        lines.append("=" * 50)
+        lines.append("Next session: Run session_start to restore context")
+        lines.append("=" * 50)
+
+        response = MiniClaudeResponse(
+            status="success",
+            confidence="high",
+            reasoning="Session ended and saved",
+            work_log=work_log,
+            data={
+                "memories_saved": memories_saved,
+            },
+        )
+
+        # Combine formatted response with summary
+        output = "\n".join(lines) + "\n\n" + response.to_formatted_string()
+        return [TextContent(type="text", text=output)]
+
+    # -------------------------------------------------------------------------
     # Impact Analyzer
     # -------------------------------------------------------------------------
 
@@ -665,6 +761,118 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
+    # Unified Pre-Edit Check (combines work_pre_edit_check + loop + scope)
+    # -------------------------------------------------------------------------
+
+    async def pre_edit_check(self, file_path: str) -> list[TextContent]:
+        """
+        Unified pre-edit check - combines all safety checks before editing.
+
+        Checks:
+        1. Past mistakes with this file (work tracker)
+        2. Loop detection (are you editing this file too many times?)
+        3. Scope check (is this file in scope for your task?)
+
+        Call this ONCE before editing instead of 3 separate tools.
+        """
+        if not file_path:
+            return self._needs_clarification(
+                "No file path provided",
+                "Which file are you about to edit?"
+            )
+
+        from pathlib import Path
+        work_log = WorkLog()
+        work_log.what_i_tried.append(f"Pre-edit check for {Path(file_path).name}")
+
+        all_warnings = []
+        all_suggestions = []
+        combined_data = {"file": file_path}
+        overall_status = "success"
+
+        # 1. Work tracker - past mistakes and context
+        try:
+            work_response = self.work_tracker.get_relevant_context(file_path)
+            if work_response.warnings:
+                all_warnings.extend(work_response.warnings)
+            if work_response.suggestions:
+                all_suggestions.extend(work_response.suggestions)
+            if work_response.data:
+                combined_data["work_context"] = work_response.data
+            if work_response.status == "warning":
+                overall_status = "warning"
+            work_log.what_worked.append("Checked work history")
+        except Exception as e:
+            work_log.what_failed.append(f"Work check failed: {str(e)}")
+
+        # 2. Loop detector - are we stuck?
+        try:
+            loop_response = self.loop_detector.check_before_edit(file_path)
+            if loop_response.warnings:
+                all_warnings.extend(loop_response.warnings)
+            if loop_response.suggestions:
+                all_suggestions.extend(loop_response.suggestions)
+            if loop_response.data:
+                combined_data["loop_risk"] = loop_response.data.get("risk_level", "low")
+                combined_data["edit_count"] = loop_response.data.get("edit_count", 0)
+            if loop_response.status == "warning":
+                overall_status = "warning"
+            work_log.what_worked.append("Checked loop risk")
+        except Exception as e:
+            work_log.what_failed.append(f"Loop check failed: {str(e)}")
+
+        # 3. Scope guard - is this file in scope?
+        try:
+            scope_response = self.scope_guard.check_file(file_path)
+            if scope_response.warnings:
+                all_warnings.extend(scope_response.warnings)
+            if scope_response.suggestions:
+                all_suggestions.extend(scope_response.suggestions)
+            if scope_response.data:
+                combined_data["in_scope"] = scope_response.data.get("in_scope", True)
+            if scope_response.status == "warning":
+                overall_status = "warning"
+            work_log.what_worked.append("Checked scope")
+        except Exception as e:
+            work_log.what_failed.append(f"Scope check failed: {str(e)}")
+
+        # Notify hooks
+        try:
+            from .hooks.remind import mark_pre_edit_check_done
+            mark_pre_edit_check_done(file_path)
+        except Exception:
+            pass
+
+        # Track in habit tracker
+        record_session_tool_use("pre_edit_check", file_path[:30])
+
+        # Build summary
+        issues = []
+        if combined_data.get("loop_risk") == "high":
+            issues.append("high loop risk")
+        if combined_data.get("in_scope") is False:
+            issues.append("out of scope")
+        if combined_data.get("work_context", {}).get("past_mistakes"):
+            issues.append("past mistakes found")
+
+        if issues:
+            reasoning = f"⚠️ Issues found: {', '.join(issues)}"
+        else:
+            reasoning = f"✅ Safe to edit {Path(file_path).name}"
+
+        response = MiniClaudeResponse(
+            status=overall_status,
+            confidence="high",
+            reasoning=reasoning,
+            work_log=work_log,
+            data=combined_data,
+            warnings=all_warnings[:10],  # Limit warnings
+            suggestions=list(dict.fromkeys(all_suggestions))[:5],  # Dedupe and limit
+        )
+
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
     # Code Quality Checker
     # -------------------------------------------------------------------------
 
@@ -845,8 +1053,12 @@ class Handlers:
         key_decisions: list[str] | None,
         blockers: list[str] | None,
         project_path: str | None,
+        # Optional handoff fields (merged from create_handoff)
+        handoff_summary: str | None = None,
+        handoff_context_needed: list[str] | None = None,
+        handoff_warnings: list[str] | None = None,
     ) -> list[TextContent]:
-        """Save a checkpoint of current task state."""
+        """Save a checkpoint of current task state with optional handoff info."""
         if not task_description:
             return self._needs_clarification(
                 "No task description",
@@ -862,6 +1074,9 @@ class Handlers:
             key_decisions=key_decisions,
             blockers=blockers,
             project_path=project_path,
+            handoff_summary=handoff_summary,
+            handoff_context_needed=handoff_context_needed,
+            handoff_warnings=handoff_warnings,
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -937,6 +1152,32 @@ class Handlers:
             )
 
         response = self.context_guard.self_check(task, verification_steps)
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    async def verify_completion(
+        self,
+        task: str,
+        verification_steps: list[str],
+        evidence: list[str] | None = None,
+    ) -> list[TextContent]:
+        """Unified completion verification: claim + verify in one step."""
+        if not task:
+            return self._needs_clarification(
+                "No task specified",
+                "What task are you claiming is complete?"
+            )
+
+        if not verification_steps:
+            return self._needs_clarification(
+                "No verification steps",
+                "How should the task be verified?"
+            )
+
+        response = self.context_guard.verify_completion(
+            task=task,
+            verification_steps=verification_steps,
+            evidence=evidence,
+        )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     async def context_handoff_create(

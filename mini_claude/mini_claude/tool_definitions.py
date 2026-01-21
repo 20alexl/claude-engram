@@ -382,6 +382,33 @@ This replaces manually calling memory_recall + convention_get.""",
     ),
 
     # -------------------------------------------------------------------------
+    # Session End (NEW - combines summary + save)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="session_end",
+        description="""End a session - summarizes work and saves to memory.
+
+Call this at the END of a session. It combines:
+1. Session summary (what was done, files touched, decisions made)
+2. Save to memory (persist for next session)
+3. Clear scope (reset task boundaries)
+
+This replaces manually calling work_session_summary + work_save_session.
+
+The counterpart to session_start - use both for clean session management.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Optional: the project directory (for cleanup)"
+                },
+            },
+            "required": [],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
     # Impact Analyzer
     # -------------------------------------------------------------------------
     Tool(
@@ -491,20 +518,16 @@ This helps future sessions understand WHY things are the way they are.""",
     ),
 
     # -------------------------------------------------------------------------
-    # Work Tracker - Get Session Summary
+    # Work Tracker - Get Session Summary (consider using session_end instead)
     # -------------------------------------------------------------------------
     Tool(
         name="work_session_summary",
         description="""Get a summary of what happened in the current session.
 
-Returns:
-- Files edited
-- Searches performed
-- Mistakes logged
-- Decisions made
-- Time spent
+Returns: Files edited, searches performed, mistakes logged, decisions made.
 
-Use this before ending a session to review work done.""",
+NOTE: Consider using session_end instead - it combines this summary with
+saving to memory, giving you a complete end-of-session workflow.""",
         inputSchema={
             "type": "object",
             "properties": {},
@@ -513,18 +536,18 @@ Use this before ending a session to review work done.""",
     ),
 
     # -------------------------------------------------------------------------
-    # Work Tracker - Pre-Edit Check
+    # Work Tracker - Pre-Edit Check (DEPRECATED - use pre_edit_check instead)
     # -------------------------------------------------------------------------
     Tool(
         name="work_pre_edit_check",
-        description="""Check for relevant context before editing a file.
+        description="""[DEPRECATED] Use pre_edit_check instead - it combines this with loop and scope checks.
 
-Returns:
-- Previous edits to this file in this session
-- Past mistakes involving this file
-- Related searches
+This tool only checks work history. The unified pre_edit_check tool does:
+1. Work history (this tool's functionality)
+2. Loop detection (are you editing too many times?)
+3. Scope check (is this file in scope?)
 
-Use this BEFORE editing a file to avoid repeating mistakes.""",
+Prefer pre_edit_check for comprehensive safety checks.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -538,22 +561,48 @@ Use this BEFORE editing a file to avoid repeating mistakes.""",
     ),
 
     # -------------------------------------------------------------------------
-    # Work Tracker - Save Session
+    # Work Tracker - Save Session (consider using session_end instead)
     # -------------------------------------------------------------------------
     Tool(
         name="work_save_session",
         description="""Save the current session's work as memories.
 
-Persists:
-- Important decisions made
-- Files touched
-- Lessons learned
+Persists: Important decisions made, files touched, lessons learned.
 
-Call this at the end of a session or periodically to save progress.""",
+NOTE: Consider using session_end instead - it combines saving with a
+session summary, giving you a complete end-of-session workflow.""",
         inputSchema={
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
+    # Unified Pre-Edit Check (RECOMMENDED - combines all pre-edit checks)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="pre_edit_check",
+        description="""Unified pre-edit check - call this ONCE before editing any file.
+
+Combines three safety checks in one call:
+1. Work history: Past mistakes with this file, previous edits, related searches
+2. Loop detection: Are you editing this file too many times? Risk of death spiral?
+3. Scope check: Is this file in scope for your current task?
+
+Returns a combined safety assessment with all warnings and suggestions.
+
+Use this INSTEAD of calling work_pre_edit_check, loop_check_before_edit,
+and scope_check separately. One tool, all the checks.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "The file you're about to edit"
+                },
+            },
+            "required": ["file_path"],
         },
     ),
 
@@ -620,18 +669,18 @@ Call this after each edit to enable loop detection.""",
     ),
 
     # -------------------------------------------------------------------------
-    # Loop Detector - Check Before Edit
+    # Loop Detector - Check Before Edit (DEPRECATED - use pre_edit_check instead)
     # -------------------------------------------------------------------------
     Tool(
         name="loop_check_before_edit",
-        description="""Check if editing a file might put you in a loop.
+        description="""[DEPRECATED] Use pre_edit_check instead - it includes loop detection.
 
-Returns warning if:
-- File has been edited too many times
-- Previous edits to this file failed tests
-- You're oscillating between files
+This tool only checks loop risk. The unified pre_edit_check tool does:
+1. Work history (past mistakes)
+2. Loop detection (this tool's functionality)
+3. Scope check (is file in scope?)
 
-Call this BEFORE editing to catch death spirals early.""",
+Prefer pre_edit_check for comprehensive safety checks.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -733,14 +782,18 @@ Example: "Fix login bug" -> scope is only auth files.""",
     ),
 
     # -------------------------------------------------------------------------
-    # Scope Guard - Check File
+    # Scope Guard - Check File (DEPRECATED - use pre_edit_check instead)
     # -------------------------------------------------------------------------
     Tool(
         name="scope_check",
-        description="""Check if editing a file is within the declared scope.
+        description="""[DEPRECATED] Use pre_edit_check instead - it includes scope checking.
 
-Call this BEFORE editing any file to catch scope creep.
-Returns warning if the file is outside scope.""",
+This tool only checks scope. The unified pre_edit_check tool does:
+1. Work history (past mistakes)
+2. Loop detection (edit frequency)
+3. Scope check (this tool's functionality)
+
+Prefer pre_edit_check for comprehensive safety checks.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -819,7 +872,7 @@ Call this when you're done with a task and ready to start a new one.""",
     # -------------------------------------------------------------------------
     Tool(
         name="context_checkpoint_save",
-        description="""Save a checkpoint of current task state.
+        description="""Save a checkpoint of current task state with optional handoff info.
 
 Use this to preserve task progress that survives:
 - Context compaction
@@ -830,7 +883,9 @@ Call this:
 - Before long operations that might fail
 - When context is getting long (approaching compaction)
 - At natural breakpoints in multi-step tasks
-- Before ending a session""",
+- Before ending a session
+
+Optionally include handoff info (summary, context_needed, warnings) for the next session.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -870,6 +925,20 @@ Call this:
                 "project_path": {
                     "type": "string",
                     "description": "Optional: project directory"
+                },
+                "handoff_summary": {
+                    "type": "string",
+                    "description": "Optional: summary for next session (merged from handoff)"
+                },
+                "handoff_context_needed": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: context needed for next session"
+                },
+                "handoff_warnings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: warnings for next session"
                 },
             },
             "required": ["task_description", "current_step", "completed_steps", "pending_steps", "files_involved"],
@@ -968,8 +1037,9 @@ Returns the most important instructions to keep in mind.""",
     # -------------------------------------------------------------------------
     Tool(
         name="context_claim_completion",
-        description="""Record a claim that a task is complete.
+        description="""⚠️ DEPRECATED: Use verify_completion instead (combines claim + verify).
 
+Record a claim that a task is complete.
 This creates an audit trail for self_check to verify later.
 Forces explicit recording of what was supposedly done.
 
@@ -996,8 +1066,9 @@ Include evidence (file paths, test results) for verification.""",
     # -------------------------------------------------------------------------
     Tool(
         name="context_self_check",
-        description="""Verify that claimed work was actually completed.
+        description="""⚠️ DEPRECATED: Use verify_completion instead (combines claim + verify).
 
+Verify that claimed work was actually completed.
 This combats the tendency to claim 100% completion when
 work is actually incomplete. Forces explicit verification.
 
@@ -1023,12 +1094,48 @@ Provide concrete verification steps like:
     ),
 
     # -------------------------------------------------------------------------
-    # Context Guard - Create Handoff
+    # Unified Completion Verification (merges claim_completion + self_check)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="verify_completion",
+        description="""Unified completion verification: claim + verify in one step.
+
+This combines context_claim_completion and context_self_check:
+1. Records the completion claim with evidence
+2. Generates a verification checklist
+3. Returns both in one response
+
+Use this instead of calling claim_completion then self_check separately.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "What task is being claimed as complete"
+                },
+                "verification_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Concrete steps to verify completion"
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional: evidence (file paths, test results)"
+                },
+            },
+            "required": ["task", "verification_steps"],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
+    # Context Guard - Create Handoff (DEPRECATED: use checkpoint with handoff fields)
     # -------------------------------------------------------------------------
     Tool(
         name="context_handoff_create",
-        description="""Create a structured handoff document for the next session.
+        description="""⚠️ DEPRECATED: Use context_checkpoint_save with handoff_* params instead.
 
+Create a structured handoff document for the next session.
 This ensures nothing is lost when:
 - Session ends
 - Context gets compacted
@@ -1071,8 +1178,9 @@ Include everything the next session needs to continue.""",
     # -------------------------------------------------------------------------
     Tool(
         name="context_handoff_get",
-        description="""Retrieve the latest handoff document.
+        description="""⚠️ DEPRECATED: Use context_checkpoint_restore instead (includes handoff info).
 
+Retrieve the latest handoff document.
 Call this at session start to see what the previous session left.
 Contains summary, next steps, and important context.""",
         inputSchema={
@@ -1376,20 +1484,24 @@ Shows:
     # -------------------------------------------------------------------------
     Tool(
         name="think_research",
-        description="""Deep research on a question using web + codebase + reasoning.
+        description="""Research a question using codebase search + local LLM reasoning.
 
-Helps overcome tunnel vision by:
-- Searching current best practices (2026 docs)
-- Finding existing patterns in codebase
-- Using LLM to reason about findings
-- Suggesting next steps
+What it does:
+- Searches your codebase for existing patterns (if project_path provided)
+- Uses local LLM (Ollama) to reason about findings
+- Provides analysis and suggestions
 
-Use this BEFORE writing code to understand the problem space.
+Limitations:
+- Web search is basic (DuckDuckGo Instant Answers only, not full search)
+- For real web research, use Claude's native WebSearch tool instead
+- LLM quality depends on your local Ollama model
+
+Best for: Finding patterns in YOUR codebase, not general web research.
 
 Example:
   think_research(
-    question="What's the best way to handle async file I/O in Python?",
-    context="Building an MCP server with high concurrency",
+    question="How is error handling done in this codebase?",
+    project_path="/path/to/project",
     depth="medium"
   )""",
         inputSchema={

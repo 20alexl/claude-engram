@@ -35,6 +35,10 @@ class TaskCheckpoint:
     blockers: list[str]
     timestamp: float = field(default_factory=time.time)
     metadata: dict = field(default_factory=dict)
+    # Optional handoff fields (merged from create_handoff)
+    handoff_summary: str = ""
+    handoff_context_needed: list[str] = field(default_factory=list)
+    handoff_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -77,6 +81,10 @@ class ContextGuard:
         key_decisions: Optional[list[str]] = None,
         blockers: Optional[list[str]] = None,
         project_path: Optional[str] = None,
+        # Optional handoff fields (merged from create_handoff)
+        handoff_summary: Optional[str] = None,
+        handoff_context_needed: Optional[list[str]] = None,
+        handoff_warnings: Optional[list[str]] = None,
     ) -> MiniClaudeResponse:
         """
         Save a checkpoint of current task state.
@@ -86,6 +94,9 @@ class ContextGuard:
         - When context is getting long (approaching compaction)
         - At natural breakpoints in multi-step tasks
         - Before ending a session
+
+        Optionally include handoff info (summary, context_needed, warnings)
+        for the next session - this merges checkpoint + handoff into one call.
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("saving task checkpoint")
@@ -102,6 +113,9 @@ class ContextGuard:
             key_decisions=key_decisions or [],
             blockers=blockers or [],
             metadata={"project_path": project_path} if project_path else {},
+            handoff_summary=handoff_summary or "",
+            handoff_context_needed=handoff_context_needed or [],
+            handoff_warnings=handoff_warnings or [],
         )
 
         self._current_checkpoint = checkpoint
@@ -119,6 +133,10 @@ class ContextGuard:
             "blockers": checkpoint.blockers,
             "timestamp": checkpoint.timestamp,
             "metadata": checkpoint.metadata,
+            # Include handoff fields
+            "handoff_summary": checkpoint.handoff_summary,
+            "handoff_context_needed": checkpoint.handoff_context_needed,
+            "handoff_warnings": checkpoint.handoff_warnings,
         }
 
         with open(checkpoint_file, "w") as f:
@@ -133,10 +151,19 @@ class ContextGuard:
 
         progress_pct = len(completed_steps) / (len(completed_steps) + len(pending_steps)) * 100 if (completed_steps or pending_steps) else 0
 
+        has_handoff = bool(handoff_summary or handoff_context_needed or handoff_warnings)
+        reasoning = f"Checkpoint saved. Task is {progress_pct:.0f}% complete. {len(pending_steps)} steps remaining."
+        if has_handoff:
+            reasoning += " Includes handoff info for next session."
+
+        suggestions = ["Call restore_checkpoint at session start to continue"]
+        if not has_handoff:
+            suggestions.append("Add handoff_summary for clearer session transitions")
+
         return MiniClaudeResponse(
             status="success",
             confidence="high",
-            reasoning=f"Checkpoint saved. Task is {progress_pct:.0f}% complete. {len(pending_steps)} steps remaining.",
+            reasoning=reasoning,
             work_log=work_log,
             data={
                 "task_id": task_id,
@@ -144,11 +171,9 @@ class ContextGuard:
                 "progress_percent": round(progress_pct, 1),
                 "completed": len(completed_steps),
                 "pending": len(pending_steps),
+                "has_handoff": has_handoff,
             },
-            suggestions=[
-                "Call restore_checkpoint at session start to continue",
-                "Use task_handoff if ending session now",
-            ],
+            suggestions=suggestions,
         )
 
     def restore_checkpoint(
@@ -203,6 +228,29 @@ class ContextGuard:
         if data.get("key_decisions"):
             summary_lines.append(f"**Key decisions:** {len(data['key_decisions'])} recorded")
 
+        # Include handoff info if present
+        handoff_summary = data.get("handoff_summary")
+        handoff_context = data.get("handoff_context_needed", [])
+        handoff_warnings = data.get("handoff_warnings", [])
+
+        if handoff_summary:
+            summary_lines.extend([
+                "",
+                "## Handoff from previous session:",
+                handoff_summary,
+            ])
+
+        if handoff_context:
+            summary_lines.append(f"**Context needed:** {', '.join(handoff_context[:3])}")
+
+        # Add handoff warnings to main warnings
+        warnings.extend(handoff_warnings)
+
+        suggestions = [
+            f"Continue with: {data['current_step']}",
+            f"Remaining steps: {', '.join(data['pending_steps'][:3])}{'...' if len(data['pending_steps']) > 3 else ''}",
+        ]
+
         return MiniClaudeResponse(
             status="success",
             confidence="high",
@@ -210,10 +258,7 @@ class ContextGuard:
             work_log=work_log,
             data=data,
             warnings=warnings,
-            suggestions=[
-                f"Continue with: {data['current_step']}",
-                f"Remaining steps: {', '.join(data['pending_steps'][:3])}{'...' if len(data['pending_steps']) > 3 else ''}",
-            ],
+            suggestions=suggestions,
         )
 
     def add_critical_instruction(
@@ -426,6 +471,88 @@ class ContextGuard:
                 "claim_evidence": claim.get("evidence", []) if claim else [],
             },
             warnings=["⚠️ You MUST actually verify each step - don't just mark as done!"],
+        )
+
+    def verify_completion(
+        self,
+        task: str,
+        verification_steps: list[str],
+        evidence: Optional[list[str]] = None,
+    ) -> MiniClaudeResponse:
+        """
+        Unified completion verification: claim + verify in one step.
+
+        This combines claim_completion and self_check into a single tool:
+        1. Records the completion claim with evidence
+        2. Generates a verification checklist
+        3. Returns both in one response
+
+        Args:
+            task: What task is being claimed as complete
+            verification_steps: Concrete steps to verify completion
+            evidence: Optional evidence (file paths, test results)
+        """
+        work_log = WorkLog()
+        work_log.what_i_tried.append("verifying task completion")
+
+        # Record the claim
+        claim = {
+            "task": task,
+            "evidence": evidence or [],
+            "timestamp": time.time(),
+            "verified": False,
+        }
+        self._claimed_completions.append(claim)
+
+        # Record verification attempt
+        verification = {
+            "task": task,
+            "steps": verification_steps,
+            "timestamp": time.time(),
+        }
+        self._actual_verifications.append(verification)
+
+        # Build unified verification response
+        checklist = [
+            "## Completion Verification",
+            f"**Task:** {task}",
+            "",
+        ]
+
+        if evidence:
+            checklist.append("**Evidence provided:**")
+            for ev in evidence:
+                checklist.append(f"- {ev}")
+            checklist.append("")
+
+        checklist.append("**Verification checklist:**")
+        for i, step in enumerate(verification_steps, 1):
+            checklist.append(f"- [ ] {step}")
+
+        checklist.extend([
+            "",
+            "**Instructions:** Go through each step and verify it's actually done.",
+            "If any step fails, the task is NOT complete.",
+        ])
+
+        work_log.what_worked.append(f"generated {len(verification_steps)} verification steps")
+
+        warnings = ["⚠️ You MUST actually verify each step - don't just mark as done!"]
+        if not evidence:
+            warnings.append("⚠️ No evidence provided - consider adding file paths or test results")
+
+        return MiniClaudeResponse(
+            status="success",
+            confidence="high",
+            reasoning="\n".join(checklist),
+            work_log=work_log,
+            data={
+                "task": task,
+                "verification_steps": verification_steps,
+                "evidence": evidence or [],
+                "claim_recorded": True,
+            },
+            warnings=warnings,
         )
 
     def create_handoff(

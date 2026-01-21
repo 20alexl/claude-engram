@@ -7,6 +7,7 @@ Includes retry logic and health checking.
 Environment variables:
 - MINI_CLAUDE_MODEL: Which Ollama model to use (default: qwen2.5-coder:7b)
 - MINI_CLAUDE_OLLAMA_URL: Ollama API URL (default: http://localhost:11434)
+- MINI_CLAUDE_TIMEOUT: Timeout in seconds for LLM calls (default: 300)
 """
 
 import httpx
@@ -17,6 +18,7 @@ from typing import Optional
 
 # Default model - can be overridden via environment variable
 DEFAULT_MODEL = "qwen2.5-coder:7b"
+DEFAULT_TIMEOUT = 300.0  # 5 minutes - local LLMs on slow machines need time
 
 
 class LLMClient:
@@ -26,15 +28,20 @@ class LLMClient:
         self,
         base_url: str = None,
         model: str = None,
-        timeout: float = 120.0,
+        timeout: float = None,
         max_retries: int = 3,
     ):
         # Allow environment variables to override defaults
         self.base_url = base_url or os.environ.get("MINI_CLAUDE_OLLAMA_URL", "http://localhost:11434")
         self.model = model or os.environ.get("MINI_CLAUDE_MODEL", DEFAULT_MODEL)
-        self.timeout = timeout
+        # Timeout: explicit param > env var > default (300s)
+        if timeout is not None:
+            self.timeout = timeout
+        else:
+            env_timeout = os.environ.get("MINI_CLAUDE_TIMEOUT")
+            self.timeout = float(env_timeout) if env_timeout else DEFAULT_TIMEOUT
         self.max_retries = max_retries
-        self._client = httpx.Client(timeout=timeout)
+        self._client = httpx.Client(timeout=self.timeout)
         self._last_health_check: Optional[float] = None
         self._is_healthy: bool = False
 

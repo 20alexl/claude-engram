@@ -91,6 +91,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 project_path=arguments.get("project_path", ""),
             )
 
+        case "session_end":
+            return await handlers.session_end(
+                project_path=arguments.get("project_path"),
+            )
+
         case "impact_analyze":
             return await handlers.impact_analyze(
                 file_path=arguments.get("file_path", ""),
@@ -144,6 +149,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         case "work_save_session":
             return await handlers.work_save_session()
+
+        # Unified Pre-Edit Check (combines work + loop + scope checks)
+        case "pre_edit_check":
+            return await handlers.pre_edit_check(
+                file_path=arguments.get("file_path", ""),
+            )
 
         # Code Quality Checker
         case "code_quality_check":
@@ -211,6 +222,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 key_decisions=arguments.get("key_decisions"),
                 blockers=arguments.get("blockers"),
                 project_path=arguments.get("project_path"),
+                # Optional handoff fields (merged from create_handoff)
+                handoff_summary=arguments.get("handoff_summary"),
+                handoff_context_needed=arguments.get("handoff_context_needed"),
+                handoff_warnings=arguments.get("handoff_warnings"),
             )
 
         case "context_checkpoint_restore":
@@ -241,6 +256,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await handlers.context_self_check(
                 task=arguments.get("task", ""),
                 verification_steps=arguments.get("verification_steps", []),
+            )
+
+        # Unified completion verification (merges claim_completion + self_check)
+        case "verify_completion":
+            return await handlers.verify_completion(
+                task=arguments.get("task", ""),
+                verification_steps=arguments.get("verification_steps", []),
+                evidence=arguments.get("evidence"),
             )
 
         case "context_handoff_create":

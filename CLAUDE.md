@@ -30,10 +30,15 @@ Replace `<PROJECT_PATH>` with the actual project directory.
 Before editing files that are shared, config files, or core modules:
 
 ```
-mcp__mini-claude__work_pre_edit_check(file_path="<the file>")
+mcp__mini-claude__pre_edit_check(file_path="<the file>")
 ```
 
-This shows past mistakes with that file. **If you skip this, you will repeat mistakes.**
+This unified check combines:
+- Past mistakes with that file
+- Loop detection (are you editing too many times?)
+- Scope check (is this file in scope?)
+
+**If you skip this, you will repeat mistakes.**
 
 ---
 
@@ -88,7 +93,7 @@ Next session, you'll know WHY things are the way they are.
 | When | Tool | Why |
 |------|------|-----|
 | Start of session | `session_start` | Load context + past mistakes + **auto-restore checkpoints** |
-| Before editing important files | `work_pre_edit_check` | See past mistakes with file |
+| Before editing important files | `pre_edit_check` | **Unified check**: past mistakes + loop risk + scope (use this!) |
 | Something breaks | `work_log_mistake` | Remember for next time |
 | Make a decision | `work_log_decision` | Explain WHY for future |
 | Multi-file task | `scope_declare` | Prevent over-refactoring |
@@ -96,9 +101,9 @@ Next session, you'll know WHY things are the way they are.
 | Audit a file | `think_audit` | Find anti-patterns + get quick fixes |
 | Audit many files | `audit_batch` | Scan directory for issues |
 | Find similar bugs | `find_similar_issues` | Search codebase for pattern |
-| End of session | `work_save_session` | Persist work to memory |
-| Before long tasks | `context_checkpoint_save` | **Survive context compaction** |
-| When claiming done | `context_self_check` | Verify you actually did it |
+| End of session | `session_end` | **Summary + save** in one call (use this!) |
+| Before long tasks | `context_checkpoint_save` | **Survive compaction + handoff** (now includes handoff!) |
+| When claiming done | `verify_completion` | **Claim + verify** in one call (NEW!) |
 
 ---
 
@@ -109,6 +114,7 @@ When context gets long, it will be compacted (summarized). **You WILL lose conte
 To survive compaction:
 
 1. **Before long tasks**: `context_checkpoint_save(task_description, current_step, ...)`
+   - Now includes optional handoff fields: `handoff_summary`, `handoff_context_needed`, `handoff_warnings`
 2. **Periodically**: Save checkpoints at natural breakpoints
 3. **After compaction**: `session_start` auto-restores your checkpoint!
 
@@ -153,10 +159,11 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 
 ---
 
-## All 60 Tools
+## All Tools
 
 ### Session & Memory (USE THESE!)
 - `session_start` - **START HERE** every session
+- `session_end` - **END HERE** - summarizes + saves (NEW!)
 - `memory_remember` - Store something important
 - `memory_recall` - Get memories
 - `memory_forget` - Clear project memories
@@ -164,36 +171,40 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 ### Work Tracking (YOUR JUNIOR TAKING NOTES)
 - `work_log_mistake` - **Log when things break**
 - `work_log_decision` - Log why you did something
-- `work_pre_edit_check` - **Check before editing**
-- `work_session_summary` - See session work
-- `work_save_session` - Persist to memory
+- `pre_edit_check` - **Unified check before editing** (NEW - replaces 3 tools!)
+- ~~`work_pre_edit_check`~~ - DEPRECATED, use `pre_edit_check`
+- ~~`work_session_summary`~~ - Use `session_end` instead
+- ~~`work_save_session`~~ - Use `session_end` instead
 
 ### Code Quality (PREVENT "AI SLOP")
 - `code_quality_check` - Check code BEFORE writing
+- `output_validate_code` - Detect fake/silent failure patterns
+- `output_validate_result` - Check outputs for fake results
 
 ### Loop Detection (PREVENT DEATH SPIRALS)
 - `loop_record_edit` - Record file edit
-- `loop_check_before_edit` - Check if editing might loop
+- ~~`loop_check_before_edit`~~ - DEPRECATED, use `pre_edit_check`
 - `loop_record_test` - Record test results
 - `loop_status` - Get loop detection status
 
 ### Scope Guard (PREVENT OVER-REFACTORING)
 - `scope_declare` - Declare files in scope for task
-- `scope_check` - Check if file is in scope
+- ~~`scope_check`~~ - DEPRECATED, use `pre_edit_check`
 - `scope_expand` - Add files to scope (deliberately)
 - `scope_status` - Get scope violations
 - `scope_clear` - Clear scope when done
 
 ### Context Guard (SURVIVE CONTEXT LOSS)
-- `context_checkpoint_save` - **Save task state** before compaction
-- `context_checkpoint_restore` - Restore previous task state
+- `context_checkpoint_save` - **Save task state + handoff** (now includes handoff fields!)
+- `context_checkpoint_restore` - Restore previous task state (includes handoff info)
 - `context_checkpoint_list` - List all saved checkpoints
+- `verify_completion` - **Claim + verify** in one call (NEW - replaces 2 tools!)
 - `context_instruction_add` - Register critical instruction
 - `context_instruction_reinforce` - Get instructions to remember
-- `context_claim_completion` - Claim task is complete
-- `context_self_check` - **Verify claimed work was done**
-- `context_handoff_create` - Create handoff for next session
-- `context_handoff_get` - Get previous session's handoff
+- ~~`context_claim_completion`~~ - DEPRECATED, use `verify_completion`
+- ~~`context_self_check`~~ - DEPRECATED, use `verify_completion`
+- ~~`context_handoff_create`~~ - DEPRECATED, use `context_checkpoint_save` with handoff params
+- ~~`context_handoff_get`~~ - DEPRECATED, use `context_checkpoint_restore`
 
 ### Output Validator (CATCH SILENT FAILURES)
 - `output_validate_code` - Detect fake/silent failure patterns
@@ -230,17 +241,17 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 - `momentum_finish_task` - Mark task as finished
 - `momentum_status` - Get current momentum status
 
-### Thinking Partner (OVERCOME TUNNEL VISION!)
-- `think_research` - Deep research (web + codebase + LLM reasoning)
+### Thinking Partner (LOCAL LLM REASONING)
+- `think_research` - Search codebase + LLM reasoning (NOTE: web search is limited)
 - `think_compare` - Compare multiple approaches with pros/cons
 - `think_challenge` - Challenge assumptions (devil's advocate)
 - `think_explore` - Explore solution space (simple → ideal)
-- `think_best_practice` - Find current (2026) best practices
+- `think_best_practice` - Find best practices (uses local LLM)
 
-### Habit Tracker (BUILD GOOD HABITS!)
+### Habit Tracker (OPTIONAL)
 - `habit_get_stats` - View habit statistics (last 7 days)
 - `habit_get_feedback` - Get gamified feedback on your habits
-- `habit_session_summary` - **Call before ending session** - Creates comprehensive handoff
+- `habit_session_summary` - Comprehensive session summary (or use `session_end`)
 
 ### Status
 - `mini_claude_status` - Health check

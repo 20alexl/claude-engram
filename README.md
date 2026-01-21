@@ -361,28 +361,29 @@ After a few days of use:
 
 ### 4. Session Exit Handoff
 
-Before ending a session:
+Before ending a session, use the unified `session_end` tool:
 
 ```
-mcp__mini-claude__habit_session_summary(project_path="/your/project")
+mcp__mini-claude__session_end(project_path="/your/project")
 ```
 
-Creates a comprehensive summary for the next Claude instance:
+This combines summary + save in one call and creates a comprehensive handoff:
 - Files edited & why
 - Decisions made & reasoning
 - Mistakes logged
-- Habit performance
-- Tips for next session
+- Session statistics
+- Memories saved for next session
 
-## All 60 Tools
+## All Tools
 
 ### 🔑 Essential (Start Here!)
 | Tool | What It Does |
 |------|--------------|
 | `session_start` | Load memories + warnings (START EVERY SESSION) |
+| `session_end` | **Summary + save** in one call (NEW!) |
 | `work_log_mistake` | Log mistakes so you don't repeat them |
 | `work_log_decision` | Log WHY you made choices |
-| `habit_session_summary` | Create handoff for next session |
+| `pre_edit_check` | **Unified pre-edit check** (NEW - combines 3 tools!) |
 
 ### 🧠 Session & Memory
 | Tool | What It Does |
@@ -397,20 +398,21 @@ Creates a comprehensive summary for the next Claude instance:
 |------|--------------|
 | `work_log_mistake` | Log when things break |
 | `work_log_decision` | Log why you did something |
-| `work_pre_edit_check` | Check context before editing |
-| `work_session_summary` | See what happened |
-| `work_save_session` | Persist to memory |
+| `pre_edit_check` | **Unified pre-edit check** (NEW - replaces 3 tools!) |
+| ~~`work_pre_edit_check`~~ | DEPRECATED → use `pre_edit_check` |
+| ~~`work_session_summary`~~ | DEPRECATED → use `session_end` |
+| ~~`work_save_session`~~ | DEPRECATED → use `session_end` |
 
 ### 🛡️ Safety Guards
 | Tool | What It Does |
 |------|--------------|
 | `code_quality_check` | Check code before writing |
 | `loop_record_edit` | Record edit for loop detection |
-| `loop_check_before_edit` | Check if editing might loop |
+| ~~`loop_check_before_edit`~~ | DEPRECATED → use `pre_edit_check` |
 | `loop_record_test` | Record test results |
 | `loop_status` | Get loop status |
 | `scope_declare` | Declare files in scope |
-| `scope_check` | Check if file in scope |
+| ~~`scope_check`~~ | DEPRECATED → use `pre_edit_check` |
 | `scope_expand` | Add files to scope |
 | `scope_status` | Get scope status |
 | `scope_clear` | Clear scope |
@@ -418,15 +420,16 @@ Creates a comprehensive summary for the next Claude instance:
 ### 💾 Context Protection
 | Tool | What It Does |
 |------|--------------|
-| `context_checkpoint_save` | Save task state |
-| `context_checkpoint_restore` | Restore task state |
+| `context_checkpoint_save` | Save task state **+ handoff info** (enhanced!) |
+| `context_checkpoint_restore` | Restore task state (includes handoff) |
 | `context_checkpoint_list` | List checkpoints |
+| `verify_completion` | **Claim + verify** in one call (NEW!) |
 | `context_instruction_add` | Add critical instruction |
 | `context_instruction_reinforce` | Get reminders |
-| `context_claim_completion` | Claim task complete |
-| `context_self_check` | Verify claimed work |
-| `context_handoff_create` | Create handoff |
-| `context_handoff_get` | Get previous handoff |
+| ~~`context_claim_completion`~~ | DEPRECATED → use `verify_completion` |
+| ~~`context_self_check`~~ | DEPRECATED → use `verify_completion` |
+| ~~`context_handoff_create`~~ | DEPRECATED → use `context_checkpoint_save` |
+| ~~`context_handoff_get`~~ | DEPRECATED → use `context_checkpoint_restore` |
 
 ### ✅ Output Validation
 | Tool | What It Does |
@@ -478,11 +481,11 @@ Creates a comprehensive summary for the next Claude instance:
 ### 💭 Thinking Partner
 | Tool | What It Does |
 |------|--------------|
-| `think_research` | Deep research (web + codebase + LLM) |
+| `think_research` | Deep research (codebase + LLM reasoning) |
 | `think_compare` | Compare options with pros/cons |
 | `think_challenge` | Challenge assumptions |
 | `think_explore` | Explore solution space |
-| `think_best_practice` | Find 2026 best practices |
+| `think_best_practice` | Find best practices (local LLM) |
 
 ### 📊 Habit Tracking (NEW!)
 | Tool | What It Does |

@@ -977,6 +977,10 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         import re
         issues = []
 
+        # Track multiline string state (for skipping docstrings)
+        in_multiline_string = False
+        multiline_char = None  # '"""' or "'''"
+
         # Python-specific patterns
         python_patterns = [
             (r"except:\s*pass", "critical", "Silent exception - errors swallowed", "Add error logging: except Exception as e: logger.error(e)"),
@@ -1031,6 +1035,31 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
 
         # Run patterns
         for line_num, line in enumerate(lines, 1):
+            # Track multiline docstring state
+            stripped = line.strip()
+
+            # Check for docstring start/end (Python)
+            if language == "python":
+                # Count triple quotes to toggle state
+                for quote_type in ['"""', "'''"]:
+                    count = line.count(quote_type)
+                    if count > 0:
+                        if not in_multiline_string:
+                            # Starting a multiline string
+                            if count == 1:
+                                in_multiline_string = True
+                                multiline_char = quote_type
+                            # count == 2 means open and close on same line (not multiline)
+                        elif multiline_char == quote_type:
+                            # Ending the multiline string
+                            if count >= 1:
+                                in_multiline_string = False
+                                multiline_char = None
+
+            # Skip lines inside multiline docstrings
+            if in_multiline_string:
+                continue
+
             for pattern, severity, message, fix in patterns:
                 # Special case: skip "open without context manager" if line has "with"
                 if "File opened without context manager" in message:
