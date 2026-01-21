@@ -35,7 +35,14 @@ from .tools.loop_detector import LoopDetector
 from .tools.scope_guard import ScopeGuard
 from .tools.context_guard import ContextGuard
 from .tools.output_validator import OutputValidator
-from .tools.habit_tracker import get_habit_tracker
+from .tools.habit_tracker import (
+    get_habit_tracker,
+    start_session as start_habit_session,
+    record_session_tool_use,
+    record_session_file_edit,
+    record_session_decision,
+    record_session_mistake,
+)
 
 
 class Handlers:
@@ -394,6 +401,9 @@ class Handlers:
             self._tool_call_count = 0  # Reset counter
             # Start work tracking for this project
             self.work_tracker.start_session(project_path)
+            # Start habit tracking session
+            start_habit_session()
+            record_session_tool_use("session_start", f"project: {project_path}")
             # Create session marker for hooks to detect
             try:
                 from pathlib import Path
@@ -541,6 +551,10 @@ class Handlers:
 
         self.work_tracker.log_mistake(description, file_path, how_to_avoid)
 
+        # Track in session
+        record_session_mistake()
+        record_session_tool_use("work_log_mistake", description[:30])
+
         # Notify hook that mistake was logged
         try:
             from .hooks.remind import mark_mistake_logged
@@ -572,6 +586,10 @@ class Handlers:
             )
 
         self.work_tracker.log_decision(decision, reason, alternatives)
+
+        # Track in session
+        record_session_decision()
+        record_session_tool_use("work_log_decision", decision[:30])
 
         response = MiniClaudeResponse(
             status="success",
@@ -1139,6 +1157,7 @@ class Handlers:
         project_path: str | None,
     ) -> list[TextContent]:
         """Deep research on a question using web + codebase + reasoning."""
+        record_session_tool_use("think_research", question[:50])
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
@@ -1153,6 +1172,7 @@ class Handlers:
         criteria: list[str] | None,
     ) -> list[TextContent]:
         """Compare multiple approaches with pros/cons analysis."""
+        record_session_tool_use("think_compare", context[:50] if context else "")
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
@@ -1166,6 +1186,7 @@ class Handlers:
         context: str | None,
     ) -> list[TextContent]:
         """Challenge an assumption with devil's advocate reasoning."""
+        record_session_tool_use("think_challenge", assumption[:50])
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
@@ -1180,6 +1201,7 @@ class Handlers:
         project_path: str | None,
     ) -> list[TextContent]:
         """Broad exploration of solution space for a problem."""
+        record_session_tool_use("think_explore", problem[:50])
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
@@ -1194,6 +1216,7 @@ class Handlers:
         year: int,
     ) -> list[TextContent]:
         """Find current best practices for a topic."""
+        record_session_tool_use("think_best_practice", topic[:50])
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
@@ -1386,6 +1409,7 @@ class Handlers:
                 "Which file should I audit?"
             )
 
+        record_session_tool_use("think_audit", file_path[:50])
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,

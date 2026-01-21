@@ -34,6 +34,79 @@ class HabitTracker:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.habit_file = self.state_dir / "habits.json"
 
+        # Within-session tracking (in-memory, not persisted until session end)
+        self._session_tools_used: List[Dict] = []  # Tools called this session
+        self._session_files_edited: List[str] = []  # Files edited this session
+        self._session_decisions_logged: int = 0
+        self._session_mistakes_logged: int = 0
+        self._session_start_time: Optional[datetime] = None
+
+    def start_session(self):
+        """Start a new session for tracking."""
+        self._session_tools_used = []
+        self._session_files_edited = []
+        self._session_decisions_logged = 0
+        self._session_mistakes_logged = 0
+        self._session_start_time = datetime.now()
+
+    def record_session_tool_use(self, tool_name: str, context: str = ""):
+        """Record a tool being used in the current session."""
+        self._session_tools_used.append({
+            "tool": tool_name,
+            "context": context,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    def record_session_file_edit(self, file_path: str):
+        """Record a file being edited in the current session."""
+        if file_path not in self._session_files_edited:
+            self._session_files_edited.append(file_path)
+
+    def record_session_decision(self):
+        """Record a decision being logged in the current session."""
+        self._session_decisions_logged += 1
+
+    def record_session_mistake(self):
+        """Record a mistake being logged in the current session."""
+        self._session_mistakes_logged += 1
+
+    def get_session_stats(self) -> Dict:
+        """Get statistics for the current session."""
+        # Categorize tools used
+        thinker_tools = [t for t in self._session_tools_used
+                        if t["tool"].startswith("think_")]
+        memory_tools = [t for t in self._session_tools_used
+                       if t["tool"] in ["memory_remember", "memory_recall", "session_start"]]
+        work_tools = [t for t in self._session_tools_used
+                     if t["tool"].startswith("work_")]
+        safety_tools = [t for t in self._session_tools_used
+                       if t["tool"].startswith(("loop_", "scope_", "diff_review", "think_audit"))]
+
+        return {
+            "session_active": self._session_start_time is not None,
+            "session_duration_minutes": (
+                (datetime.now() - self._session_start_time).total_seconds() / 60
+                if self._session_start_time else 0
+            ),
+            "total_tools_used": len(self._session_tools_used),
+            "thinker_tools_used": len(thinker_tools),
+            "memory_tools_used": len(memory_tools),
+            "work_tools_used": len(work_tools),
+            "safety_tools_used": len(safety_tools),
+            "files_edited": len(self._session_files_edited),
+            "decisions_logged": self._session_decisions_logged,
+            "mistakes_logged": self._session_mistakes_logged,
+            "tools_breakdown": self._get_tool_counts(),
+        }
+
+    def _get_tool_counts(self) -> Dict[str, int]:
+        """Get counts of each tool used this session."""
+        counts = {}
+        for t in self._session_tools_used:
+            tool = t["tool"]
+            counts[tool] = counts.get(tool, 0) + 1
+        return counts
+
     def _load_habits(self) -> Dict:
         """Load habit history."""
         if not self.habit_file.exists():
@@ -120,7 +193,7 @@ class HabitTracker:
         self._save_habits(data)
 
     def get_habit_stats(self, days: int = 7) -> Dict:
-        """Get habit statistics for the last N days."""
+        """Get habit statistics for the last N days, including current session."""
         data = self._load_habits()
 
         # Filter events to last N days
@@ -130,7 +203,7 @@ class HabitTracker:
             if datetime.fromisoformat(e["timestamp"]) > cutoff
         ]
 
-        # Calculate stats
+        # Calculate historical stats
         thinker_used = len([e for e in recent_events if e["event_type"] == "thinker_used"])
         risky_without = len([e for e in recent_events if e["event_type"] == "risky_edit_without_thinking"])
         loops_avoided = len([e for e in recent_events if e["event_type"] == "loop_avoided"])
@@ -143,6 +216,9 @@ class HabitTracker:
         loop_total = loops_avoided + loops_hit
         loop_avoid_rate = (loops_avoided / loop_total * 100) if loop_total > 0 else 0
 
+        # Include current session stats
+        session_stats = self.get_session_stats()
+
         return {
             "days": days,
             "thinker_used": thinker_used,
@@ -151,7 +227,8 @@ class HabitTracker:
             "loops_avoided": loops_avoided,
             "loops_hit": loops_hit,
             "loop_avoid_rate": loop_avoid_rate,
-            "total_stats": data["stats"]
+            "total_stats": data["stats"],
+            "current_session": session_stats,  # Include session data
         }
 
     def get_recent_thinker_usage(self, context_pattern: str, limit: int = 5) -> List[Dict]:
@@ -178,30 +255,20 @@ class HabitTracker:
         Returns formatted feedback string for display.
         """
         stats = self.get_habit_stats(days=7)
+        session_stats = self.get_session_stats()
 
         lines = []
+
+        # Check if this is first-time use (no historical data)
+        total_historical = (stats["thinker_used"] + stats["risky_without_thinking"] +
+                           stats["loops_avoided"] + stats["loops_hit"])
+
+        # If no historical data, show session-based feedback instead
+        if total_historical == 0:
+            return self._get_session_feedback(session_stats)
+
         lines.append("📊 Your Habits (last 7 days):")
         lines.append("")
-
-        # Check if this is first-time use (no data yet)
-        total_activity = (stats["thinker_used"] + stats["risky_without_thinking"] +
-                         stats["loops_avoided"] + stats["loops_hit"])
-
-        if total_activity == 0:
-            lines.append("🌱 Just getting started!")
-            lines.append("")
-            lines.append("Mini Claude will track your habits as you work:")
-            lines.append("  • Using Thinker tools before risky work")
-            lines.append("  • Avoiding death spiral loops")
-            lines.append("  • Building good coding practices")
-            lines.append("")
-            lines.append("💡 Quick Start:")
-            lines.append("  1. On your next architectural task, try think_explore")
-            lines.append("  2. When editing auth/security files, use think_best_practice")
-            lines.append("  3. If you edit the same file 3+ times, check think_challenge")
-            lines.append("")
-            lines.append("Check back in a few days to see your progress!")
-            return "\n".join(lines)
 
         # Thinking before risky work
         think_rate = stats["think_rate"]
@@ -260,6 +327,83 @@ class HabitTracker:
             lines.append("  • think_compare: Weigh pros/cons of approaches")
             lines.append("  • think_challenge: Question your assumptions")
             lines.append("")
+
+        return "\n".join(lines)
+
+    def _get_session_feedback(self, session_stats: Dict) -> str:
+        """
+        Generate feedback based on current session activity.
+
+        Used when there's no historical data yet - gives immediate feedback
+        instead of "Just getting started!".
+        """
+        lines = []
+        lines.append("📊 This Session:")
+        lines.append("")
+
+        total_tools = session_stats.get("total_tools_used", 0)
+
+        if total_tools == 0:
+            # Session just started, no activity yet
+            lines.append("🌱 Session just started!")
+            lines.append("")
+            lines.append("Mini Claude will track your habits as you work:")
+            lines.append("  • Using Thinker tools before risky work")
+            lines.append("  • Logging decisions and mistakes")
+            lines.append("  • Building good coding practices")
+            lines.append("")
+            lines.append("💡 Quick Start:")
+            lines.append("  1. On your next architectural task, try think_explore")
+            lines.append("  2. When editing auth/security files, use think_best_practice")
+            lines.append("  3. If you edit the same file 3+ times, check think_challenge")
+        else:
+            # We have session activity - show it!
+            thinker_count = session_stats.get("thinker_tools_used", 0)
+            files_edited = session_stats.get("files_edited", 0)
+            decisions = session_stats.get("decisions_logged", 0)
+            mistakes = session_stats.get("mistakes_logged", 0)
+            duration = session_stats.get("session_duration_minutes", 0)
+
+            # Duration info
+            if duration > 1:
+                lines.append(f"⏱️  Session duration: {duration:.0f} minutes")
+                lines.append("")
+
+            # Thinker tools feedback
+            if thinker_count > 0:
+                lines.append(f"✅ Great! You used Thinker tools {thinker_count}x this session")
+                # Show which ones
+                tool_counts = session_stats.get("tools_breakdown", {})
+                thinker_tools = {k: v for k, v in tool_counts.items() if k.startswith("think_")}
+                if thinker_tools:
+                    for tool, count in sorted(thinker_tools.items(), key=lambda x: x[1], reverse=True):
+                        lines.append(f"   • {tool}: {count}x")
+            elif files_edited > 0:
+                lines.append(f"⚠️  You've edited {files_edited} file(s) without using Thinker tools")
+                lines.append("   Consider: think_explore, think_best_practice, or think_challenge")
+
+            lines.append("")
+
+            # Decision logging feedback
+            if decisions > 0:
+                lines.append(f"📝 Logged {decisions} decision(s) - future you will thank you!")
+            elif files_edited >= 2:
+                lines.append("💡 Tip: Use work_log_decision to explain WHY you made choices")
+
+            # Mistake logging feedback
+            if mistakes > 0:
+                lines.append(f"🔧 Logged {mistakes} mistake(s) - you won't repeat them!")
+
+            # Overall assessment
+            lines.append("")
+            if thinker_count > 0 and decisions > 0:
+                lines.append("🌟 Excellent habits this session! Keep it up!")
+            elif thinker_count > 0:
+                lines.append("👍 Good use of Thinker tools! Consider logging decisions too.")
+            elif decisions > 0:
+                lines.append("👍 Good decision logging! Try Thinker tools before risky edits.")
+            else:
+                lines.append("💡 Build good habits: think before editing, log decisions")
 
         return "\n".join(lines)
 
@@ -352,3 +496,34 @@ def suggest_tool_for_context(context: str, risk_reason: str = "") -> Tuple[str, 
 def get_recent_thinker_usage(context_pattern: str, limit: int = 5) -> List[Dict]:
     """Get recent Thinker usage for context."""
     return _habit_tracker.get_recent_thinker_usage(context_pattern, limit)
+
+
+# Session tracking API functions
+def start_session():
+    """Start a new tracking session."""
+    _habit_tracker.start_session()
+
+
+def record_session_tool_use(tool_name: str, context: str = ""):
+    """Record a tool being used in the current session."""
+    _habit_tracker.record_session_tool_use(tool_name, context)
+
+
+def record_session_file_edit(file_path: str):
+    """Record a file being edited in the current session."""
+    _habit_tracker.record_session_file_edit(file_path)
+
+
+def record_session_decision():
+    """Record a decision being logged."""
+    _habit_tracker.record_session_decision()
+
+
+def record_session_mistake():
+    """Record a mistake being logged."""
+    _habit_tracker.record_session_mistake()
+
+
+def get_session_stats() -> Dict:
+    """Get current session statistics."""
+    return _habit_tracker.get_session_stats()
