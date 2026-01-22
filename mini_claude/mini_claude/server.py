@@ -73,6 +73,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 project_path=arguments.get("project_path", ""),
             )
 
+        case "memory_cleanup":
+            return await handlers.memory_cleanup(
+                project_path=arguments.get("project_path", ""),
+                dry_run=arguments.get("dry_run", True),
+                min_relevance=arguments.get("min_relevance", 3),
+                max_age_days=arguments.get("max_age_days", 30),
+            )
+
+        case "memory_search":
+            return await handlers.memory_search(
+                project_path=arguments.get("project_path", ""),
+                file_path=arguments.get("file_path"),
+                tags=arguments.get("tags"),
+                query=arguments.get("query"),
+                limit=arguments.get("limit", 5),
+            )
+
+        case "memory_cluster_view":
+            return await handlers.memory_cluster_view(
+                project_path=arguments.get("project_path", ""),
+                cluster_id=arguments.get("cluster_id"),
+            )
+
         case "file_summarize":
             return await handlers.summarize(
                 file_path=arguments.get("file_path", ""),

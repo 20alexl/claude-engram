@@ -610,6 +610,11 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
         if edit_count >= 2:
             results["suggestions"].append("💡 Consider reviewing logs/errors before editing again")
 
+        # 5. NEW: Contextual memory injection
+        contextual_memories = get_contextual_memories(project_dir, file_path)
+        if contextual_memories:
+            results["contextual_memories"] = contextual_memories
+
     except Exception:
         # Fallback to basic suggestions if rich context fails
         if "test" in file_name.lower():
@@ -625,6 +630,35 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     save_state(state)
 
     return results
+
+
+def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
+    """
+    Get memories relevant to a specific file context.
+    Uses the new MemoryStore.get_contextual_memories() method.
+
+    Returns list of memory content strings (max 3).
+    """
+    try:
+        # Import MemoryStore here to avoid circular imports
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from tools.memory import MemoryStore
+
+        memory = MemoryStore()
+        memories = memory.get_contextual_memories(
+            project_path=project_dir,
+            file_path=file_path,
+            limit=3,
+        )
+
+        # Return formatted memory strings
+        return [
+            f"💡 {m.content[:80]}..." if len(m.content) > 80 else f"💡 {m.content}"
+            for m in memories
+        ]
+    except Exception:
+        return []
 
 
 def _auto_record_edit(file_path: str, description: str = "auto-tracked"):
@@ -913,6 +947,14 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
             lines.append("")
             has_content = True
 
+        # NEW: Show contextual memories
+        if auto_check_results.get("contextual_memories"):
+            lines.append("🧠 CONTEXTUAL MEMORIES (relevant to this file):")
+            for m in auto_check_results["contextual_memories"]:
+                lines.append(f"  • {m}")
+            lines.append("")
+            has_content = True
+
     # TIER 3 ENFORCEMENT: BLOCKING on loop detection
     is_loop, loop_count = check_loop_detected(file_path)
     if is_loop:
@@ -1110,13 +1152,14 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
     return ""
 
 
-def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "") -> str:
+def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", output: str = "") -> str:
     """
     Generate reminder for PostToolUse hook on Bash.
 
     Enforces:
     1. If tests ran, demand loop_record_test
     2. If command failed, demand work_log_mistake
+    3. NEW: Auto-log detected mistakes from common error patterns
     """
     lines = []
     has_content = False
@@ -1142,24 +1185,125 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "") 
         errors = state["errors_without_log"]
         save_state(state)
 
+        # NEW: Auto-detect and auto-log common mistakes
+        auto_logged = _auto_log_detected_mistake(project_dir, command, output)
+
         lines.append("<mini-claude-error-reminder>")
-        if errors >= 3:
-            lines.append("🔴 MULTIPLE ERRORS WITHOUT LOGGING!")
-            lines.append(f"You've had {errors} errors without logging any as mistakes.")
+        if auto_logged:
+            lines.append(f"✅ AUTO-LOGGED MISTAKE: {auto_logged}")
+            lines.append("(This will warn you if you're about to make the same mistake)")
             lines.append("")
-        lines.append("Something failed. Log this mistake:")
-        lines.append("")
-        lines.append("  mcp__mini-claude__work_log_mistake(")
-        lines.append('    description="<what went wrong>",')
-        lines.append('    how_to_avoid="<how to prevent this>"')
-        lines.append("  )")
-        lines.append("")
-        lines.append("This will warn you if you're about to make the same mistake.")
+        else:
+            if errors >= 3:
+                lines.append("🔴 MULTIPLE ERRORS WITHOUT LOGGING!")
+                lines.append(f"You've had {errors} errors without logging any as mistakes.")
+                lines.append("")
+            lines.append("Something failed. Log this mistake:")
+            lines.append("")
+            lines.append("  mcp__mini-claude__work_log_mistake(")
+            lines.append('    description="<what went wrong>",')
+            lines.append('    how_to_avoid="<how to prevent this>"')
+            lines.append("  )")
+            lines.append("")
+            lines.append("This will warn you if you're about to make the same mistake.")
         lines.append("</mini-claude-error-reminder>")
         has_content = True
 
     if has_content:
         return "\n".join(lines)
+    return ""
+
+
+def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> str:
+    """
+    Auto-detect and log common mistake patterns from command output.
+    Returns description of logged mistake, or empty string if nothing detected.
+
+    NOTE: This only works for commands that EXIT SUCCESSFULLY but show errors in output
+    (e.g., test runs that show failures). For commands that fail (exit code != 0),
+    Claude Code doesn't fire PostToolUse hooks, so this won't be called.
+    See: https://github.com/anthropics/claude-code/issues/6371
+    """
+    if not output:
+        return ""
+
+    mistake_type = None
+    how_to_avoid = None
+
+    # Pattern 1: Import/Module errors
+    if "ModuleNotFoundError" in output or "ImportError" in output:
+        # Extract module name
+        import re
+        match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
+        module = match.group(1) if match else "unknown"
+        mistake_type = f"Import error: Module '{module}' not found"
+        how_to_avoid = f"Install missing module: pip install {module}"
+
+    # Pattern 2: Syntax errors
+    elif "SyntaxError" in output:
+        match = re.search(r"File ['\"]([^'\"]+)['\"], line (\d+)", output)
+        if match:
+            file_name = Path(match.group(1)).name
+            line = match.group(2)
+            mistake_type = f"Syntax error in {file_name}:{line}"
+            how_to_avoid = "Check syntax before running - use linter or read the file"
+
+    # Pattern 3: Type errors
+    elif "TypeError" in output:
+        match = re.search(r"TypeError: (.+)", output)
+        error_msg = match.group(1)[:60] if match else "type mismatch"
+        mistake_type = f"Type error: {error_msg}"
+        how_to_avoid = "Check argument types and return values"
+
+    # Pattern 4: Attribute errors
+    elif "AttributeError" in output:
+        match = re.search(r"AttributeError: (.+)", output)
+        error_msg = match.group(1)[:60] if match else "attribute not found"
+        mistake_type = f"Attribute error: {error_msg}"
+        how_to_avoid = "Check object type and available attributes"
+
+    # Pattern 5: Test failures
+    elif any(p in output for p in ["FAILED", "AssertionError", "test failed"]):
+        match = re.search(r"(\d+) failed", output)
+        count = match.group(1) if match else "some"
+        mistake_type = f"Test failure: {count} tests failed"
+        how_to_avoid = "Review test output and fix the failing assertions"
+
+    # Pattern 6: Permission errors
+    elif "PermissionError" in output or "Permission denied" in output:
+        mistake_type = "Permission error"
+        how_to_avoid = "Check file permissions or run with appropriate privileges"
+
+    # Pattern 7: Connection errors
+    elif "ConnectionError" in output or "Connection refused" in output:
+        mistake_type = "Connection error - service may not be running"
+        how_to_avoid = "Ensure the required service is running"
+
+    if mistake_type:
+        try:
+            from mini_claude.tools.memory import MemoryStore
+
+            memory = MemoryStore()
+            content = f"MISTAKE: {mistake_type}"
+            if how_to_avoid:
+                content += f" - Fix: {how_to_avoid}"
+
+            memory.remember_discovery(
+                project_path=project_dir,
+                content=content,
+                source="auto-detected",
+                relevance=9,  # High relevance for mistakes
+            )
+
+            # Reset error counter since we logged it
+            state = load_state()
+            state["errors_without_log"] = 0
+            save_state(state)
+
+            return mistake_type
+        except Exception:
+            pass  # Silent failure
+
     return ""
 
 
@@ -1241,6 +1385,44 @@ def main():
         result = reminder_for_bash(project_dir, command, exit_code)
         if result:
             print(result)
+
+    elif hook_type == "bash_json":
+        # PostToolUse hooks need to output JSON with additionalContext to show in conversation
+        # NOTE: This only fires for SUCCESSFUL commands. Failed commands (exit != 0) don't trigger
+        # PostToolUse hooks. See: https://github.com/anthropics/claude-code/issues/6371
+        import json as json_module
+        import select
+        try:
+            # Check if stdin has data (non-blocking)
+            has_stdin = select.select([sys.stdin], [], [], 0.5)[0]
+            if has_stdin:
+                stdin_data = sys.stdin.read()
+                if stdin_data:
+                    data = json_module.loads(stdin_data)
+                    command = data.get("tool_input", {}).get("command", "")
+                    # tool_response is an object with stdout/stderr fields
+                    tool_response = data.get("tool_response", {})
+                    if isinstance(tool_response, dict):
+                        stdout = tool_response.get("stdout", "")
+                        stderr = tool_response.get("stderr", "")
+                        response = f"{stdout}\n{stderr}".strip()
+                    else:
+                        response = str(tool_response)
+                    # Check for error patterns in output (for successful commands that show errors)
+                    exit_code = "1" if "error" in response.lower() or "Error" in response or "Traceback" in response or "FAILED" in response else "0"
+                    # Pass the actual output for auto-mistake detection
+                    result = reminder_for_bash(project_dir, command, exit_code, output=response)
+                    if result:
+                        # Output JSON format for PostToolUse to add context to Claude
+                        hook_output = {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PostToolUse",
+                                "additionalContext": result
+                            }
+                        }
+                        print(json_module.dumps(hook_output))
+        except Exception:
+            pass  # Silent failure
 
     elif hook_type == "error":
         error_msg = sys.argv[2] if len(sys.argv) > 2 else ""

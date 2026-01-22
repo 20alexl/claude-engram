@@ -7,7 +7,7 @@ Give Claude Code **persistent memory** across all your projects with smart habit
 ## What is This?
 
 Mini Claude is an MCP server that gives Claude Code:
-- 🧠 **Persistent memory** - Remembers discoveries and mistakes across sessions
+- 🧠 **Smart memory** - Auto-tagged, clustered, contextually injected memories
 - 📊 **Habit tracking** - Gamified feedback on your coding practices
 - 🎯 **Smart suggestions** - Context-aware tool recommendations
 - 🛡️ **Safety guards** - Loop detection, scope protection, output validation
@@ -354,12 +354,35 @@ After a few days of use:
 🌟 Perfect! You avoided 3 potential loop(s)
 ```
 
-### 3. Context-Aware Loop Detection
+### 3. Smart Memory Management (NEW!)
+
+Session start now automatically:
+- **Deduplicates** memories (>85% similar → merged)
+- **Clusters** related memories by tags (3+ with same tag → group)
+- **Auto-tags** memories (bootstrap, auth, testing, etc.)
+- **Indexes** memories by file for contextual lookup
+
+When editing a file, the hook shows **only relevant memories** for that file, not all 20+ memories.
+
+```python
+# Search for specific memories
+memory_search(project_path="/path", file_path="auth.py")  # By file
+memory_search(project_path="/path", tags=["bootstrap"])   # By tag
+memory_search(project_path="/path", query="httpx")        # By keyword
+
+# View grouped memories
+memory_cluster_view(project_path="/path")  # Shows clusters with summaries
+
+# Manual cleanup (decay/removal)
+memory_cleanup(project_path="/path", dry_run=False)  # Apply decay
+```
+
+### 4. Context-Aware Loop Detection
 
 - 3+ edits + tests **passing** = iterative improvement ✅
 - 3+ edits + tests **failing** = death spiral 🛑 (blocks!)
 
-### 4. Session Exit Handoff
+### 5. Session Exit Handoff
 
 Before ending a session, use the unified `session_end` tool:
 
@@ -374,12 +397,27 @@ This combines summary + save in one call and creates a comprehensive handoff:
 - Session statistics
 - Memories saved for next session
 
+### Known Limitation: Failed Command Detection
+
+Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit code ≠ 0).
+
+| Scenario | Auto-Detected? |
+|----------|----------------|
+| Test runs with failures in output | ✅ Yes |
+| Commands that produce warnings | ✅ Yes |
+| ImportError, SyntaxError crashes | ❌ No |
+| Any command with exit code ≠ 0 | ❌ No |
+
+**For actual command failures, manually call `work_log_mistake`.**
+
+See: [Claude Code Issue #6371](https://github.com/anthropics/claude-code/issues/6371)
+
 ## All Tools
 
 ### 🔑 Essential (Start Here!)
 | Tool | What It Does |
 |------|--------------|
-| `session_start` | Load memories + warnings (START EVERY SESSION) |
+| `session_start` | Load memories + warnings + **auto-cleanup** (START EVERY SESSION) |
 | `session_end` | **Summary + save** in one call (NEW!) |
 | `work_log_mistake` | Log mistakes so you don't repeat them |
 | `work_log_decision` | Log WHY you made choices |
@@ -388,9 +426,12 @@ This combines summary + save in one call and creates a comprehensive handoff:
 ### 🧠 Session & Memory
 | Tool | What It Does |
 |------|--------------|
-| `session_start` | Load project context |
-| `memory_remember` | Store discoveries |
-| `memory_recall` | Get memories |
+| `session_start` | Load project context **+ auto-cleanup** (NEW!) |
+| `memory_remember` | Store discoveries (auto-tagged!) |
+| `memory_recall` | Get all memories (flat list) |
+| `memory_search` | **Contextual search** by file, tags, query (NEW!) |
+| `memory_cluster_view` | **View grouped memories** with summaries (NEW!) |
+| `memory_cleanup` | **Clean up memories** - dedup, cluster, decay (NEW!) |
 | `memory_forget` | Clear memories |
 
 ### 📝 Work Tracking

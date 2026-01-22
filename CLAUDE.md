@@ -92,7 +92,7 @@ Next session, you'll know WHY things are the way they are.
 
 | When | Tool | Why |
 |------|------|-----|
-| Start of session | `session_start` | Load context + past mistakes + **auto-restore checkpoints** |
+| Start of session | `session_start` | Load context + past mistakes + **auto-restore checkpoints + auto-cleanup** |
 | Before editing important files | `pre_edit_check` | **Unified check**: past mistakes + loop risk + scope (use this!) |
 | Something breaks | `work_log_mistake` | Remember for next time |
 | Make a decision | `work_log_decision` | Explain WHY for future |
@@ -102,6 +102,9 @@ Next session, you'll know WHY things are the way they are.
 | Audit many files | `audit_batch` | Scan directory for issues |
 | Find similar bugs | `find_similar_issues` | Search codebase for pattern |
 | End of session | `session_end` | **Summary + save** in one call (use this!) |
+| Find related memories | `memory_search` | Contextual search by file, tags, or query (NEW!) |
+| View memory clusters | `memory_cluster_view` | See grouped memories instead of flat list (NEW!) |
+| Cleanup memories | `memory_cleanup` | Deduplicate, cluster, decay old memories (NEW!) |
 | Before long tasks | `context_checkpoint_save` | **Survive compaction + handoff** (now includes handoff!) |
 | When claiming done | `verify_completion` | **Claim + verify** in one call (NEW!) |
 
@@ -148,7 +151,7 @@ This ensures the next Claude instance knows to use Mini Claude.
 ## What Is Mini Claude?
 
 Mini Claude is an MCP server that gives you (Claude Code):
-1. **Persistent memory** - Survives across sessions
+1. **Smart memory** - Persistent, auto-tagged, clustered, with contextual injection
 2. **Mistake tracking** - Warns you about past errors
 3. **Work journaling** - Tracks what you do
 4. **Loop detection** - Warns when you're editing same file 3+ times
@@ -157,15 +160,61 @@ Mini Claude is an MCP server that gives you (Claude Code):
 
 Runs locally with Ollama + `qwen2.5-coder:7b`.
 
+### Known Limitation: Auto-Detection for Failed Commands
+
+Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit code ≠ 0).
+This means auto-mistake detection only works for:
+- ✅ Test runs that succeed but show failures in output
+- ✅ Commands that run but produce error messages
+- ❌ Commands that crash (ImportError, SyntaxError, etc.)
+
+**For actual command failures, you must manually call `work_log_mistake`.**
+
+See: [GitHub Issue #6371](https://github.com/anthropics/claude-code/issues/6371)
+
+### Smart Memory Features (NEW!)
+
+Session start now automatically:
+- **Deduplicates** memories (>85% similar → merged)
+- **Clusters** related memories by tags (3+ with same tag → group)
+- **Auto-tags** memories (bootstrap, auth, testing, etc.)
+- **Indexes** memories by file for contextual lookup
+
+When you edit a file, the hook shows **only relevant memories** for that file, not all 20+ memories.
+
+Use `memory_search` to find specific memories:
+```python
+# Find memories related to a file
+memory_search(project_path="/path", file_path="auth.py")
+
+# Find memories by tag
+memory_search(project_path="/path", tags=["bootstrap", "auth"])
+
+# Keyword search
+memory_search(project_path="/path", query="httpx timeout")
+```
+
+Use `memory_cleanup` for manual control over decay/removal:
+```python
+# Preview what would be cleaned (dry_run=True by default)
+memory_cleanup(project_path="/path")
+
+# Apply cleanup including decay
+memory_cleanup(project_path="/path", dry_run=False)
+```
+
 ---
 
 ## All Tools
 
 ### Session & Memory (USE THESE!)
-- `session_start` - **START HERE** every session
-- `session_end` - **END HERE** - summarizes + saves (NEW!)
+- `session_start` - **START HERE** every session (now auto-cleans duplicates + creates clusters!)
+- `session_end` - **END HERE** - summarizes + saves
 - `memory_remember` - Store something important
-- `memory_recall` - Get memories
+- `memory_recall` - Get all memories (flat list)
+- `memory_search` - **Search contextually** by file, tags, or keyword (NEW!)
+- `memory_cluster_view` - **View grouped memories** with summaries (NEW!)
+- `memory_cleanup` - **Clean up memories** - dedup, cluster, decay (NEW!)
 - `memory_forget` - Clear project memories
 
 ### Work Tracking (YOUR JUNIOR TAKING NOTES)

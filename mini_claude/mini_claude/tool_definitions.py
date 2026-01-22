@@ -185,6 +185,122 @@ Use this when:
     ),
 
     # -------------------------------------------------------------------------
+    # Memory - Cleanup (v2)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="memory_cleanup",
+        description="""Clean up and consolidate memories for a project.
+
+Actions:
+- Find and merge duplicate memories (>85% similar)
+- Decay old low-relevance memories that haven't been accessed
+- Create clusters from related memories (by common tags)
+- Remove memories that decay below minimum relevance
+
+Use this periodically to keep memories organized and relevant.
+Run with dry_run=True first to see what would be cleaned up.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory to clean up"
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, only report what would be done without applying changes",
+                    "default": True
+                },
+                "min_relevance": {
+                    "type": "integer",
+                    "description": "Minimum relevance to keep (memories below this after decay are removed)",
+                    "default": 3
+                },
+                "max_age_days": {
+                    "type": "integer",
+                    "description": "Days after which unused memories start decaying",
+                    "default": 30
+                },
+            },
+            "required": ["project_path"],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
+    # Memory - Search (v2)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="memory_search",
+        description="""Search memories contextually instead of recalling ALL memories.
+
+Use this to find RELEVANT memories only:
+- Search by file path (what memories relate to this file?)
+- Search by tags (what memories about "auth" or "testing"?)
+- Search by keyword query (what memories mention "bootstrap"?)
+
+Much better than memory_recall for targeted lookup.
+Returns only matching memories, sorted by relevance.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory to search in"
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "Find memories related to this file"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Find memories with these tags (e.g., ['auth', 'testing'])"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Keyword search in memory content"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results",
+                    "default": 5
+                },
+            },
+            "required": ["project_path"],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
+    # Memory - Cluster View (v2)
+    # -------------------------------------------------------------------------
+    Tool(
+        name="memory_cluster_view",
+        description="""View memory clusters for a project.
+
+Shows grouped memories instead of a flat list:
+- Each cluster with its summary
+- Cluster relevance scores
+- Option to expand a specific cluster
+
+Use this to see memories organized by topic (auth, testing, bootstrap, etc.)
+instead of scrolling through 20+ individual memories.""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory to get clusters for"
+                },
+                "cluster_id": {
+                    "type": "string",
+                    "description": "Optional: expand a specific cluster to see all its memories"
+                },
+            },
+            "required": ["project_path"],
+        },
+    ),
+
+    # -------------------------------------------------------------------------
     # File Summarizer
     # -------------------------------------------------------------------------
     Tool(

@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m mini_claude.hooks.remind bash \"$TOOL_INPUT_COMMAND\" \"$TOOL_EXIT_CODE\" 2>/dev/null || echo ''",
+            "command": "python3 -m mini_claude.hooks.remind bash_json 2>/dev/null || echo ''",
             "timeout": 1000
           }
         ]

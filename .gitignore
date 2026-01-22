@@ -70,3 +70,7 @@ pip-delete-this-directory.txt
 /tmp/
 *.tmp
 *.temp
+
+# User-specific configs (not part of core project)
+scripts/
+.mcp.json

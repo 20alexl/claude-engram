@@ -6,22 +6,51 @@ Allows mini_claude to remember:
 - Previous discoveries and searches
 - Priorities and important notes
 - Claude's preferences
+
+v2: Smart memory management with:
+- Auto-tagging and indexing
+- Deduplication
+- Memory decay
+- Contextual search
+- Clustering
 """
 
 import json
+import re
 import time
+import hashlib
 from pathlib import Path
 from typing import Optional
+from collections import defaultdict
 from pydantic import BaseModel, Field
 
 
 class MemoryEntry(BaseModel):
-    """A single memory entry."""
+    """A single memory entry with smart features."""
     content: str
-    category: str  # "discovery", "priority", "preference", "note"
+    category: str  # "discovery", "priority", "preference", "note", "mistake", "decision"
     created_at: float = Field(default_factory=time.time)
     source: Optional[str] = None  # What operation created this memory
     relevance: int = 5  # 1-10, higher = more important
+
+    # v2: Smart memory fields
+    id: str = Field(default="")  # Unique identifier (set on creation)
+    last_accessed: float = Field(default_factory=time.time)  # For decay tracking
+    access_count: int = 1  # How often this memory was relevant
+    tags: list[str] = Field(default_factory=list)  # Auto-extracted: ["auth", "bootstrap"]
+    related_files: list[str] = Field(default_factory=list)  # Files this memory relates to
+    cluster_id: Optional[str] = None  # Which cluster this belongs to
+
+
+class MemoryCluster(BaseModel):
+    """A group of related memories."""
+    cluster_id: str
+    name: str  # "Bootstrap Discoveries", "Auth Memories"
+    memory_ids: list[str] = Field(default_factory=list)
+    summary: str = ""  # LLM-generated or auto-generated summary
+    tags: list[str] = Field(default_factory=list)  # Common tags across memories
+    created_at: float = Field(default_factory=time.time)
+    relevance: int = 5  # Average relevance of memories
 
 
 class ProjectMemory(BaseModel):
@@ -46,6 +75,12 @@ class ProjectMemory(BaseModel):
 
     last_updated: float = Field(default_factory=time.time)
 
+    # v2: Smart memory indexes
+    file_memory_index: dict[str, list[str]] = Field(default_factory=dict)  # file -> memory IDs
+    tag_memory_index: dict[str, list[str]] = Field(default_factory=dict)  # tag -> memory IDs
+    clusters: dict[str, MemoryCluster] = Field(default_factory=dict)  # cluster_id -> cluster
+    last_cleanup: float = Field(default_factory=time.time)  # Track when last cleaned
+
 
 class MemoryStore:
     """
@@ -53,7 +88,27 @@ class MemoryStore:
 
     Persists knowledge across sessions so I don't have to rediscover
     the same things repeatedly.
+
+    v2: Smart memory management with auto-tagging, deduplication, and contextual search.
     """
+
+    # Tag extraction patterns
+    TAG_PATTERNS = {
+        r"BOOTSTRAP|bootstrap": "bootstrap",
+        r"ROUND\s*\d+|round-?\d+": "bootstrap",
+        r"MISTAKE|mistake": "mistake",
+        r"DECISION|decision": "decision",
+        r"\bauth\b|login|password|authentication|authorization": "auth",
+        r"test|pytest|unittest|jest|mocha": "testing",
+        r"config|settings|\.env": "config",
+        r"database|db|sql|migration": "database",
+        r"api|endpoint|route|handler": "api",
+        r"security|vulnerability|CVE": "security",
+        r"performance|optimize|slow|fast": "performance",
+        r"bug|fix|error|crash": "bugfix",
+        r"refactor|cleanup|improve": "refactor",
+        r"install|setup|dependency": "setup",
+    }
 
     def __init__(self, storage_dir: str = "~/.mini_claude"):
         self.storage_dir = Path(storage_dir).expanduser()
@@ -68,23 +123,167 @@ class MemoryStore:
         self._load()
 
     def _load(self):
-        """Load memory from disk."""
+        """Load memory from disk with v1 -> v2 migration support."""
         if self.memory_file.exists():
             try:
                 data = json.loads(self.memory_file.read_text())
+                version = data.get("version", 1)
 
                 for path, proj_data in data.get("projects", {}).items():
+                    # Migrate entries if needed
+                    if version == 1:
+                        proj_data = self._migrate_project_v1_to_v2(proj_data)
                     self._projects[path] = ProjectMemory(**proj_data)
 
                 for entry_data in data.get("global", []):
+                    if version == 1:
+                        entry_data = self._migrate_entry_v1_to_v2(entry_data)
                     self._global_entries.append(MemoryEntry(**entry_data))
+
+                # Save migrated data
+                if version == 1:
+                    self._save()
 
             except Exception:
                 pass  # Start fresh if corrupted
 
+    def _migrate_entry_v1_to_v2(self, entry_data: dict) -> dict:
+        """Migrate a v1 entry to v2 format."""
+        content = entry_data.get("content", "")
+
+        # Add ID if missing
+        if not entry_data.get("id"):
+            entry_data["id"] = hashlib.md5(content.encode()).hexdigest()[:12]
+
+        # Add tags if missing
+        if "tags" not in entry_data:
+            entry_data["tags"] = self._extract_tags(content)
+
+        # Add related_files if missing
+        if "related_files" not in entry_data:
+            entry_data["related_files"] = self._extract_file_refs(content)
+
+        # Add last_accessed if missing
+        if "last_accessed" not in entry_data:
+            entry_data["last_accessed"] = entry_data.get("created_at", time.time())
+
+        # Add access_count if missing
+        if "access_count" not in entry_data:
+            entry_data["access_count"] = 1
+
+        return entry_data
+
+    def _migrate_project_v1_to_v2(self, proj_data: dict) -> dict:
+        """Migrate a v1 project to v2 format."""
+        # Migrate all entries
+        entries = proj_data.get("entries", [])
+        for i, entry in enumerate(entries):
+            entries[i] = self._migrate_entry_v1_to_v2(entry)
+
+        # Build indexes
+        file_index = defaultdict(list)
+        tag_index = defaultdict(list)
+
+        for entry in entries:
+            entry_id = entry.get("id", "")
+            for f in entry.get("related_files", []):
+                if entry_id not in file_index[f]:
+                    file_index[f].append(entry_id)
+            for t in entry.get("tags", []):
+                if entry_id not in tag_index[t]:
+                    tag_index[t].append(entry_id)
+
+        proj_data["file_memory_index"] = dict(file_index)
+        proj_data["tag_memory_index"] = dict(tag_index)
+        proj_data["clusters"] = proj_data.get("clusters", {})
+        proj_data["last_cleanup"] = proj_data.get("last_cleanup", time.time())
+
+        return proj_data
+
+    def _extract_tags(self, content: str) -> list[str]:
+        """Extract tags from memory content using pattern matching."""
+        tags = set()
+        content_lower = content.lower()
+
+        for pattern, tag in self.TAG_PATTERNS.items():
+            if re.search(pattern, content, re.IGNORECASE):
+                tags.add(tag)
+
+        # Extract round numbers for bootstrap memories
+        round_match = re.search(r"round\s*(\d+)", content_lower)
+        if round_match:
+            tags.add(f"round-{round_match.group(1)}")
+
+        return list(tags)
+
+    def _extract_file_refs(self, content: str) -> list[str]:
+        """Extract file references from memory content."""
+        files = set()
+
+        # Match common file patterns
+        patterns = [
+            r"[\w/\\.-]+\.(py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
+            r"[\w-]+\.py",
+            r"handlers\.py|server\.py|memory\.py|remind\.py",
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, content)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]
+                # Clean up the match
+                if "." in match:
+                    files.add(match)
+
+        return list(files)
+
+    def _generate_entry_id(self, content: str) -> str:
+        """Generate a unique ID for a memory entry."""
+        return hashlib.md5(f"{content}{time.time()}".encode()).hexdigest()[:12]
+
+    def _is_duplicate(self, content: str, entries: list[MemoryEntry], threshold: float = 0.85) -> Optional[MemoryEntry]:
+        """
+        Check if content is a duplicate of an existing memory.
+        Uses Jaccard similarity on word sets.
+        Returns the duplicate entry if found, None otherwise.
+        """
+        new_words = set(content.lower().split())
+        if not new_words:
+            return None
+
+        for entry in entries:
+            existing_words = set(entry.content.lower().split())
+            if not existing_words:
+                continue
+
+            # Jaccard similarity
+            intersection = len(new_words & existing_words)
+            union = len(new_words | existing_words)
+
+            if union > 0 and intersection / union >= threshold:
+                return entry
+
+        return None
+
+    def _update_indexes(self, proj: ProjectMemory, entry: MemoryEntry):
+        """Update file and tag indexes for a new entry."""
+        for f in entry.related_files:
+            if f not in proj.file_memory_index:
+                proj.file_memory_index[f] = []
+            if entry.id not in proj.file_memory_index[f]:
+                proj.file_memory_index[f].append(entry.id)
+
+        for t in entry.tags:
+            if t not in proj.tag_memory_index:
+                proj.tag_memory_index[t] = []
+            if entry.id not in proj.tag_memory_index[t]:
+                proj.tag_memory_index[t].append(entry.id)
+
     def _save(self):
-        """Save memory to disk."""
+        """Save memory to disk with version marker."""
         data = {
+            "version": 2,
             "projects": {
                 path: proj.model_dump()
                 for path, proj in self._projects.items()
@@ -144,17 +343,48 @@ class MemoryStore:
         content: str,
         source: Optional[str] = None,
         relevance: int = 5,
-    ):
-        """Remember something discovered about a project."""
+        tags: Optional[list[str]] = None,
+        related_files: Optional[list[str]] = None,
+    ) -> tuple[bool, str]:
+        """
+        Remember something discovered about a project.
+
+        Returns:
+            (added, message) - whether memory was added and a status message
+        """
         proj = self.remember_project(project_path)
-        proj.entries.append(MemoryEntry(
+
+        # Check for duplicates
+        duplicate = self._is_duplicate(content, proj.entries)
+        if duplicate:
+            # Update access count and relevance of existing entry
+            duplicate.access_count += 1
+            duplicate.last_accessed = time.time()
+            if relevance > duplicate.relevance:
+                duplicate.relevance = relevance
+            self._save()
+            return (False, f"Duplicate of existing memory (id={duplicate.id}), updated access count")
+
+        # Auto-extract tags and files if not provided
+        auto_tags = self._extract_tags(content)
+        auto_files = self._extract_file_refs(content)
+
+        entry = MemoryEntry(
+            id=self._generate_entry_id(content),
             content=content,
             category="discovery",
             source=source,
             relevance=relevance,
-        ))
+            tags=list(set((tags or []) + auto_tags)),
+            related_files=list(set((related_files or []) + auto_files)),
+        )
+
+        proj.entries.append(entry)
+        self._update_indexes(proj, entry)
         proj.last_updated = time.time()
         self._save()
+
+        return (True, f"Memory added with id={entry.id}, tags={entry.tags}")
 
     def add_priority(
         self,
@@ -276,3 +506,360 @@ class MemoryStore:
             "global_entries": len(self._global_entries),
             "storage_path": str(self.memory_file),
         }
+
+    # =========================================================================
+    # v2: Smart Memory Methods
+    # =========================================================================
+
+    def search_memories(
+        self,
+        project_path: str,
+        file_path: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        query: Optional[str] = None,
+        limit: int = 5,
+    ) -> list[MemoryEntry]:
+        """
+        Search memories contextually.
+
+        Args:
+            project_path: The project to search in
+            file_path: Find memories related to this file
+            tags: Find memories with these tags
+            query: Keyword search in memory content
+            limit: Maximum number of results
+
+        Returns:
+            List of matching MemoryEntry objects, sorted by relevance
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        results = []
+        seen_ids = set()
+
+        # Search by file
+        if file_path:
+            file_name = Path(file_path).name
+            # Check both full path and filename
+            for f in [file_path, file_name]:
+                for entry_id in proj.file_memory_index.get(f, []):
+                    if entry_id not in seen_ids:
+                        entry = self._get_entry_by_id(proj, entry_id)
+                        if entry:
+                            results.append(entry)
+                            seen_ids.add(entry_id)
+
+        # Search by tags
+        if tags:
+            for tag in tags:
+                for entry_id in proj.tag_memory_index.get(tag, []):
+                    if entry_id not in seen_ids:
+                        entry = self._get_entry_by_id(proj, entry_id)
+                        if entry:
+                            results.append(entry)
+                            seen_ids.add(entry_id)
+
+        # Search by keyword query
+        if query:
+            query_words = set(query.lower().split())
+            for entry in proj.entries:
+                if entry.id in seen_ids:
+                    continue
+                content_words = set(entry.content.lower().split())
+                if query_words & content_words:
+                    results.append(entry)
+                    seen_ids.add(entry.id)
+
+        # Update access tracking for returned results
+        for entry in results:
+            entry.last_accessed = time.time()
+            entry.access_count += 1
+
+        # Sort by relevance and limit
+        results = sorted(results, key=lambda x: x.relevance, reverse=True)[:limit]
+
+        if results:
+            self._save()
+
+        return results
+
+    def _get_entry_by_id(self, proj: ProjectMemory, entry_id: str) -> Optional[MemoryEntry]:
+        """Get an entry by ID from a project."""
+        for entry in proj.entries:
+            if entry.id == entry_id:
+                return entry
+        return None
+
+    def cleanup_memories(
+        self,
+        project_path: str,
+        dry_run: bool = True,
+        min_relevance: int = 3,
+        max_age_days: int = 30,
+        apply_decay: bool = True,
+    ) -> dict:
+        """
+        Clean up and consolidate memories.
+
+        Actions:
+        1. Find and optionally merge duplicates
+        2. Decay old low-relevance memories (if apply_decay=True)
+        3. Create clusters from related memories
+
+        Args:
+            project_path: The project to clean up
+            dry_run: If True, only report what would be done
+            min_relevance: Minimum relevance to keep after decay
+            max_age_days: Days after which unused memories start decaying
+            apply_decay: If False, skip decay/removal (useful for auto-cleanup)
+
+        Returns:
+            Cleanup report with actions taken/proposed
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"error": "Project not found"}
+
+        report = {
+            "duplicates_found": [],
+            "duplicates_merged": [],
+            "decayed": [],
+            "removed": [],
+            "clusters_created": [],
+            "dry_run": dry_run,
+        }
+
+        # Find duplicates
+        seen_content = {}
+        for entry in proj.entries:
+            dup = self._is_duplicate(entry.content, list(seen_content.values()), threshold=0.85)
+            if dup:
+                report["duplicates_found"].append({
+                    "entry_id": entry.id,
+                    "duplicate_of": dup.id,
+                    "content_preview": entry.content[:50] + "...",
+                })
+            else:
+                seen_content[entry.id] = entry
+
+        # Calculate decay for old memories (only if apply_decay is True)
+        if apply_decay:
+            now = time.time()
+            for entry in proj.entries:
+                age_days = (now - entry.last_accessed) / 86400
+                if age_days > max_age_days and entry.relevance < 7:
+                    # Calculate decay
+                    decay_amount = int((age_days - max_age_days) / 7)  # -1 per week over threshold
+                    new_relevance = max(1, entry.relevance - decay_amount)
+
+                    if new_relevance < entry.relevance:
+                        report["decayed"].append({
+                            "entry_id": entry.id,
+                            "old_relevance": entry.relevance,
+                            "new_relevance": new_relevance,
+                            "age_days": int(age_days),
+                            "content_preview": entry.content[:50] + "...",
+                        })
+
+                        if new_relevance < min_relevance:
+                            report["removed"].append({
+                                "entry_id": entry.id,
+                                "reason": f"Relevance decayed to {new_relevance} (below {min_relevance})",
+                            })
+
+        # Auto-cluster by common tags
+        tag_groups = defaultdict(list)
+        for entry in proj.entries:
+            for tag in entry.tags:
+                tag_groups[tag].append(entry.id)
+
+        for tag, entry_ids in tag_groups.items():
+            if len(entry_ids) >= 3:
+                # Check if cluster already exists
+                existing = any(
+                    c.name == f"{tag.title()} Memories"
+                    for c in proj.clusters.values()
+                )
+                if not existing:
+                    report["clusters_created"].append({
+                        "name": f"{tag.title()} Memories",
+                        "tag": tag,
+                        "memory_count": len(entry_ids),
+                    })
+
+        # Apply changes if not dry run
+        if not dry_run:
+            self._apply_cleanup(proj, report)
+            proj.last_cleanup = time.time()
+            self._save()
+
+        return report
+
+    def _apply_cleanup(self, proj: ProjectMemory, report: dict):
+        """Apply cleanup actions from a report."""
+        # Merge duplicates (keep the one with higher relevance)
+        ids_to_remove = set()
+        for dup in report["duplicates_found"]:
+            entry = self._get_entry_by_id(proj, dup["entry_id"])
+            original = self._get_entry_by_id(proj, dup["duplicate_of"])
+            if entry and original:
+                # Merge metadata into original
+                original.tags = list(set(original.tags + entry.tags))
+                original.related_files = list(set(original.related_files + entry.related_files))
+                original.access_count += entry.access_count
+                if entry.relevance > original.relevance:
+                    original.relevance = entry.relevance
+                ids_to_remove.add(entry.id)
+                report["duplicates_merged"].append(dup["entry_id"])
+
+        # Apply decay
+        for decay_info in report["decayed"]:
+            entry = self._get_entry_by_id(proj, decay_info["entry_id"])
+            if entry:
+                entry.relevance = decay_info["new_relevance"]
+
+        # Remove low-relevance entries
+        for removal in report["removed"]:
+            ids_to_remove.add(removal["entry_id"])
+
+        # Remove entries
+        proj.entries = [e for e in proj.entries if e.id not in ids_to_remove]
+
+        # Rebuild indexes
+        proj.file_memory_index = defaultdict(list)
+        proj.tag_memory_index = defaultdict(list)
+        for entry in proj.entries:
+            self._update_indexes(proj, entry)
+
+        # Create clusters
+        for cluster_info in report["clusters_created"]:
+            tag = cluster_info["tag"]
+            cluster_id = f"cluster_{tag}_{int(time.time())}"
+
+            # Get entries with this tag
+            entry_ids = [e.id for e in proj.entries if tag in e.tags]
+
+            # Generate summary
+            contents = [e.content[:100] for e in proj.entries if e.id in entry_ids][:5]
+            summary = f"Memories about {tag}: " + "; ".join(contents)
+
+            proj.clusters[cluster_id] = MemoryCluster(
+                cluster_id=cluster_id,
+                name=cluster_info["name"],
+                memory_ids=entry_ids,
+                summary=summary[:200],
+                tags=[tag],
+                relevance=5,
+            )
+
+            # Update entries with cluster_id
+            for entry in proj.entries:
+                if entry.id in entry_ids:
+                    entry.cluster_id = cluster_id
+
+    def get_clusters(self, project_path: str, cluster_id: Optional[str] = None) -> dict:
+        """
+        Get memory clusters for a project.
+
+        Args:
+            project_path: The project to get clusters for
+            cluster_id: Optional specific cluster to expand
+
+        Returns:
+            Cluster information with summaries
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"error": "Project not found", "clusters": []}
+
+        if cluster_id:
+            # Return specific cluster with full memories
+            cluster = proj.clusters.get(cluster_id)
+            if not cluster:
+                return {"error": f"Cluster {cluster_id} not found", "clusters": []}
+
+            memories = [
+                self._get_entry_by_id(proj, mid)
+                for mid in cluster.memory_ids
+            ]
+            memories = [m for m in memories if m]
+
+            return {
+                "cluster": {
+                    "id": cluster.cluster_id,
+                    "name": cluster.name,
+                    "summary": cluster.summary,
+                    "tags": cluster.tags,
+                    "memory_count": len(memories),
+                    "memories": [
+                        {
+                            "id": m.id,
+                            "content": m.content,
+                            "relevance": m.relevance,
+                            "tags": m.tags,
+                        }
+                        for m in sorted(memories, key=lambda x: x.relevance, reverse=True)
+                    ],
+                }
+            }
+
+        # Return all cluster summaries
+        clusters = []
+        for cluster in proj.clusters.values():
+            clusters.append({
+                "id": cluster.cluster_id,
+                "name": cluster.name,
+                "summary": cluster.summary,
+                "tags": cluster.tags,
+                "memory_count": len(cluster.memory_ids),
+                "relevance": cluster.relevance,
+            })
+
+        # Also include unclustered memories count
+        clustered_ids = set()
+        for c in proj.clusters.values():
+            clustered_ids.update(c.memory_ids)
+
+        unclustered = [e for e in proj.entries if e.id not in clustered_ids]
+
+        return {
+            "clusters": sorted(clusters, key=lambda x: x["relevance"], reverse=True),
+            "unclustered_count": len(unclustered),
+            "total_memories": len(proj.entries),
+        }
+
+    def get_contextual_memories(
+        self,
+        project_path: str,
+        file_path: str,
+        limit: int = 3,
+    ) -> list[MemoryEntry]:
+        """
+        Get memories relevant to a specific file context.
+        Used by hooks for contextual injection.
+
+        Args:
+            project_path: The project
+            file_path: The file being edited
+            limit: Max memories to return
+
+        Returns:
+            List of relevant memories
+        """
+        # Extract potential tags from file path
+        path_lower = file_path.lower()
+        inferred_tags = []
+
+        for pattern, tag in self.TAG_PATTERNS.items():
+            if re.search(pattern, path_lower):
+                inferred_tags.append(tag)
+
+        # Search by file and inferred tags
+        return self.search_memories(
+            project_path=project_path,
+            file_path=file_path,
+            tags=inferred_tags if inferred_tags else None,
+            limit=limit,
+        )

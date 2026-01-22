@@ -344,6 +344,188 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
+    # Memory - Cleanup (v2)
+    # -------------------------------------------------------------------------
+
+    async def memory_cleanup(
+        self,
+        project_path: str,
+        dry_run: bool = True,
+        min_relevance: int = 3,
+        max_age_days: int = 30,
+    ) -> list[TextContent]:
+        """Handle memory cleanup requests."""
+        if not project_path:
+            return self._needs_clarification("No project path provided", "Which project should I clean up?")
+
+        work_log = WorkLog()
+        work_log.what_i_tried.append(f"Cleaning up memories for: {project_path}")
+
+        try:
+            report = self.memory.cleanup_memories(
+                project_path=project_path,
+                dry_run=dry_run,
+                min_relevance=min_relevance,
+                max_age_days=max_age_days,
+            )
+
+            action = "would be" if dry_run else "were"
+            work_log.what_worked.append(
+                f"Found {len(report.get('duplicates_found', []))} duplicates, "
+                f"{len(report.get('decayed', []))} {action} decayed, "
+                f"{len(report.get('clusters_created', []))} clusters {action} created"
+            )
+
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"Memory cleanup {'preview' if dry_run else 'completed'} for: {project_path}",
+                work_log=work_log,
+                data=report,
+            )
+        except Exception as e:
+            work_log.what_failed.append(str(e))
+            response = MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Failed to clean up memories: {e}",
+                work_log=work_log,
+            )
+
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Memory - Search (v2)
+    # -------------------------------------------------------------------------
+
+    async def memory_search(
+        self,
+        project_path: str,
+        file_path: str | None = None,
+        tags: list[str] | None = None,
+        query: str | None = None,
+        limit: int = 5,
+    ) -> list[TextContent]:
+        """Handle contextual memory search requests."""
+        if not project_path:
+            return self._needs_clarification("No project path provided", "Which project should I search?")
+
+        if not file_path and not tags and not query:
+            return self._needs_clarification(
+                "No search criteria provided",
+                "Provide file_path, tags, or query to search"
+            )
+
+        work_log = WorkLog()
+        criteria = []
+        if file_path:
+            criteria.append(f"file={file_path}")
+        if tags:
+            criteria.append(f"tags={tags}")
+        if query:
+            criteria.append(f"query={query}")
+        work_log.what_i_tried.append(f"Searching memories: {', '.join(criteria)}")
+
+        try:
+            results = self.memory.search_memories(
+                project_path=project_path,
+                file_path=file_path,
+                tags=tags,
+                query=query,
+                limit=limit,
+            )
+
+            work_log.what_worked.append(f"Found {len(results)} relevant memories")
+
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"Found {len(results)} memories matching criteria",
+                work_log=work_log,
+                data={
+                    "count": len(results),
+                    "memories": [
+                        {
+                            "id": m.id,
+                            "content": m.content,
+                            "relevance": m.relevance,
+                            "tags": m.tags,
+                            "related_files": m.related_files,
+                            "access_count": m.access_count,
+                        }
+                        for m in results
+                    ],
+                },
+            )
+        except Exception as e:
+            work_log.what_failed.append(str(e))
+            response = MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Failed to search memories: {e}",
+                work_log=work_log,
+            )
+
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
+    # Memory - Cluster View (v2)
+    # -------------------------------------------------------------------------
+
+    async def memory_cluster_view(
+        self,
+        project_path: str,
+        cluster_id: str | None = None,
+    ) -> list[TextContent]:
+        """Handle memory cluster view requests."""
+        if not project_path:
+            return self._needs_clarification("No project path provided", "Which project's clusters should I show?")
+
+        work_log = WorkLog()
+        work_log.what_i_tried.append(
+            f"Getting memory clusters for: {project_path}"
+            + (f" (cluster: {cluster_id})" if cluster_id else "")
+        )
+
+        try:
+            result = self.memory.get_clusters(
+                project_path=project_path,
+                cluster_id=cluster_id,
+            )
+
+            if "error" in result and result["error"]:
+                work_log.what_failed.append(result["error"])
+                response = MiniClaudeResponse(
+                    status="failed",
+                    confidence="high",
+                    reasoning=result["error"],
+                    work_log=work_log,
+                )
+            else:
+                if cluster_id:
+                    work_log.what_worked.append(f"Retrieved cluster: {result.get('cluster', {}).get('name', cluster_id)}")
+                else:
+                    work_log.what_worked.append(f"Found {len(result.get('clusters', []))} clusters")
+
+                response = MiniClaudeResponse(
+                    status="success",
+                    confidence="high",
+                    reasoning="Memory clusters retrieved" if not cluster_id else f"Cluster {cluster_id} details",
+                    work_log=work_log,
+                    data=result,
+                )
+        except Exception as e:
+            work_log.what_failed.append(str(e))
+            response = MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Failed to get clusters: {e}",
+                work_log=work_log,
+            )
+
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # -------------------------------------------------------------------------
     # File Summarizer
     # -------------------------------------------------------------------------
 
@@ -451,9 +633,35 @@ class Handlers:
         except Exception:
             pass  # Non-critical if checkpoint restore fails
 
+        # Auto-cleanup memories (non-destructive: dedup + cluster only)
+        cleanup_info = ""
+        try:
+            if project_path:
+                cleanup_result = self.memory.cleanup_memories(
+                    project_path=project_path,
+                    dry_run=False,
+                    apply_decay=False,  # Don't auto-decay - requires manual control
+                    min_relevance=1,  # Don't auto-remove any memories
+                )
+                # Only show summary if something was cleaned up
+                dups = len(cleanup_result.get("duplicates_merged", []))
+                clusters = len(cleanup_result.get("clusters_created", []))
+                if dups > 0 or clusters > 0:
+                    cleanup_info = "\n\n🧹 Auto-cleanup: "
+                    parts = []
+                    if dups > 0:
+                        parts.append(f"merged {dups} duplicates")
+                    if clusters > 0:
+                        parts.append(f"created {clusters} clusters")
+                    cleanup_info += ", ".join(parts)
+        except Exception:
+            pass  # Non-critical if cleanup fails
+
         output = response.to_formatted_string()
         if checkpoint_info:
             output += checkpoint_info
+        if cleanup_info:
+            output += cleanup_info
 
         return [TextContent(type="text", text=output)]
 

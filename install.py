@@ -233,7 +233,7 @@ def get_hooks_config():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'"{hook_cmd}" bash "$TOOL_INPUT_COMMAND" "$TOOL_EXIT_CODE" {stderr_redirect} || echo ""',
+                            "command": f'"{hook_cmd}" bash_json {stderr_redirect} || echo ""',
                             "timeout": 1000
                         }
                     ]
