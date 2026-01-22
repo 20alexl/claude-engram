@@ -6,9 +6,9 @@ NEW APPROACH (Round 3):
 Instead of REMINDING Claude to use tools, we AUTOMATICALLY use them.
 
 Auto-injection:
-1. Before edit → Auto-run work_pre_edit_check, show results
-2. After edit → Auto-record loop_record_edit
-3. On error → Auto-log work_log_mistake
+1. Before edit → Auto-run pre_edit_check, show results
+2. After edit → Auto-record loop(operation='record_edit')
+3. On error → Auto-log work(operation='log_mistake')
 4. Results show IMMEDIATE value (not just future benefit)
 
 The goal: Remove friction, add immediate value, make tools invisible but always-on.
@@ -27,7 +27,7 @@ try:
 except ImportError:
     # Fallback if habit tracker not available
     def suggest_tool_for_context(context, risk_reason=""):
-        return ("think_explore", "Explore solution space before coding")
+        return ("think(operation='explore')", "Explore solution space before coding")
     def get_habit_feedback():
         return ""
     def record_risky_edit_without_thinking(file_path, risk_reason):
@@ -183,13 +183,13 @@ def get_underused_tools() -> list[str]:
     usage = state.get("tool_usage", {})
     suggestions = []
 
-    # Key tools that should be used often
+    # Key tools that should be used often (v2 combined tools)
     key_tools = {
-        "work_log_mistake": "Log mistakes to avoid repeating them",
-        "work_log_decision": "Log decisions so future sessions know why",
-        "work_pre_edit_check": "Check for past mistakes before editing",
-        "loop_record_edit": "Track edits to detect loops",
-        "scope_declare": "Declare scope to prevent over-refactoring",
+        "work(operation='log_mistake')": "Log mistakes to avoid repeating them",
+        "work(operation='log_decision')": "Log decisions so future sessions know why",
+        "pre_edit_check": "Check for past mistakes before editing",
+        "loop(operation='record_edit')": "Track edits to detect loops",
+        "scope(operation='declare')": "Declare scope to prevent over-refactoring",
     }
 
     session_count = usage.get("session_start", 0)
@@ -499,7 +499,7 @@ def check_recent_thinker_usage(minutes: int = 5) -> tuple[bool, str]:
 
 def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     """
-    Automatically run work_pre_edit_check and return results.
+    Automatically run pre_edit_check and return results.
 
     Returns dict with:
     - past_mistakes: list of relevant mistakes
@@ -740,7 +740,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("")
             lines.append("Other tools you might need:")
             # Show other tools but de-emphasize them
-            other_tools = ["think_explore", "think_compare", "think_best_practice", "think_challenge"]
+            other_tools = ["think(operation='explore')", "think(operation='compare')", "think(operation='best_practice')", "think(operation='challenge')"]
             if suggested_tool in other_tools:
                 other_tools.remove(suggested_tool)
             for tool in other_tools[:2]:  # Show top 2 alternatives
@@ -822,23 +822,23 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         # ESCALATE based on how many times ignored
         if prompts == 1:
             lines.append("⚠️ Mini Claude session not started!")
-            lines.append(f'Run: mcp__mini-claude__session_start(project_path="{project_dir}")')
+            lines.append(f'Run: session_start(project_path="{project_dir}")')
             lines.append("")
         elif prompts <= 3:
             lines.append(f"⚠️ Mini Claude session not started (prompt #{prompts})")
-            lines.append(f'Run: mcp__mini-claude__session_start(project_path="{project_dir}")')
+            lines.append(f'Run: session_start(project_path="{project_dir}")')
             lines.append("")
         elif prompts <= 5:
             lines.append("=" * 50)
             lines.append(f"🔴 SESSION NOT STARTED - PROMPT #{prompts}")
             lines.append("=" * 50)
-            lines.append(f'RUN: mcp__mini-claude__session_start(project_path="{project_dir}")')
+            lines.append(f'RUN: session_start(project_path="{project_dir}")')
             lines.append("=" * 50)
             lines.append("")
         else:
             lines.append("🚨" * 15)
             lines.append(f"SESSION NOT STARTED - {prompts} PROMPTS IGNORED")
-            lines.append(f'RUN: mcp__mini-claude__session_start(project_path="{project_dir}")')
+            lines.append(f'RUN: session_start(project_path="{project_dir}")')
             lines.append("🚨" * 15)
             lines.append("")
     else:
@@ -863,24 +863,24 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             files_edited = state.get("files_edited_this_session", [])
             if len(files_edited) >= 3:  # Changed from 2 to 3 - less ceremony for small tasks
                 lines.append(f"💡 You've edited {len(files_edited)} files - consider declaring scope to prevent creep")
-                lines.append("  Run: scope_declare(task_description='...', in_scope_files=[...])")
+                lines.append("  Run: scope(operation='declare', task_description='...', in_scope_files=[...])")
                 lines.append("")
 
-    # ALWAYS show the checklist
+    # ALWAYS show the checklist (v2 combined tool syntax)
     lines.append("Mini Claude reminders:")
-    lines.append("- BEFORE editing shared files: work_pre_edit_check(file_path)")
-    lines.append("- AFTER editing: loop_record_edit(file_path, description)")
-    lines.append("- WHEN something breaks: work_log_mistake(description, file_path)")
-    lines.append("- WHEN making decisions: work_log_decision(decision, reason)")
-    lines.append("- FOR multi-file tasks: scope_declare(task_description, in_scope_files)")
+    lines.append("- BEFORE editing: pre_edit_check(file_path)")
+    lines.append("- AFTER editing: loop(operation='record_edit', file_path, description)")
+    lines.append("- WHEN something breaks: work(operation='log_mistake', description, file_path)")
+    lines.append("- WHEN making decisions: work(operation='log_decision', decision, reason)")
+    lines.append("- FOR multi-file tasks: scope(operation='declare', task_description, in_scope_files)")
     lines.append("")
 
     # THINKING TOOLS - Tier 1 gentle reminder for complex tasks
     lines.append("💡 For complex tasks, consider THINKING FIRST:")
-    lines.append("- think_compare: Compare multiple approaches with pros/cons")
-    lines.append("- think_explore: Explore solution space before picking first idea")
-    lines.append("- think_challenge: Challenge your assumptions")
-    lines.append("- think_research: Deep research with web + codebase + LLM")
+    lines.append("- think(operation='compare'): Compare multiple approaches")
+    lines.append("- think(operation='explore'): Explore solution space")
+    lines.append("- think(operation='challenge'): Challenge your assumptions")
+    lines.append("- think(operation='research'): Deep research with codebase + LLM")
     lines.append("Remember: Mistakes cost 2x to fix later!")
 
     lines.append("</mini-claude-reminder>")
@@ -892,7 +892,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     Generate reminder for PreToolUse hook (Edit/Write).
 
     NOW WITH AUTO-INJECTION:
-    - Automatically calls work_pre_edit_check and shows results
+    - Automatically calls pre_edit_check and shows results
     - Automatically checks loops and scope
     - Makes tools useful NOW, not just future sessions
 
@@ -908,7 +908,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     lines = ["<mini-claude-edit-reminder>"]
     has_content = False
 
-    # AUTO-INJECTION: Run work_pre_edit_check automatically
+    # AUTO-INJECTION: Run pre_edit_check automatically
     auto_check_results = None
     if session_active and file_path:
         try:
@@ -968,9 +968,9 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
         lines.append("  - You need to THINK, not code more")
         lines.append("")
         lines.append("🛑 REQUIRED: Use these tools BEFORE editing again:")
-        lines.append("  1. think_challenge: Challenge your current approach")
-        lines.append("  2. think_explore: Explore alternative solutions")
-        lines.append("  3. think_research: Research the problem deeper")
+        lines.append("  1. think(operation='challenge'): Challenge your current approach")
+        lines.append("  2. think(operation='explore'): Explore alternative solutions")
+        lines.append("  3. think(operation='research'): Research the problem deeper")
         lines.append("")
         lines.append("Death spirals waste hours. Step back, think, then code.")
         lines.append("")
@@ -1010,9 +1010,9 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
                 lines.append(f"WHY: {tool_reason}")
                 lines.append("")
                 lines.append("Other options:")
-                lines.append("  • think_best_practice: Check 2026 security standards")
-                lines.append("  • think_research: Research secure implementation patterns")
-                lines.append("  • think_compare: Compare security approaches")
+                lines.append("  • think(operation='best_practice'): Check 2026 security standards")
+                lines.append("  • think(operation='research'): Research secure implementation patterns")
+                lines.append("  • think(operation='compare'): Compare security approaches")
                 lines.append("")
                 lines.append("Mistakes here are expensive:")
                 lines.append("  • Security bugs = data breaches")
@@ -1070,7 +1070,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
         lines.append("  - Scope guard won't protect you")
         lines.append("")
         lines.append("STOP. Run this first:")
-        lines.append(f'  mcp__mini-claude__session_start(project_path="{project_dir}")')
+        lines.append(f'  session_start(project_path="{project_dir}")')
         lines.append("")
         lines.append("🚫" * 15)
         has_content = True
@@ -1157,8 +1157,8 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
     Generate reminder for PostToolUse hook on Bash.
 
     Enforces:
-    1. If tests ran, demand loop_record_test
-    2. If command failed, demand work_log_mistake
+    1. If tests ran, demand loop(operation='record_test')
+    2. If command failed, demand work(operation='log_mistake')
     3. NEW: Auto-log detected mistakes from common error patterns
     """
     lines = []
@@ -1172,7 +1172,7 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
         passed = exit_code == "0"
         lines.append("<mini-claude-test-reminder>")
         lines.append("You just ran tests. Record the result:")
-        lines.append(f'  loop_record_test(passed={passed}, error_message="...")')
+        lines.append(f"  loop(operation='record_test', passed={passed}, error_message='...')")
         lines.append("")
         lines.append("This helps detect when you're stuck in a loop.")
         lines.append("</mini-claude-test-reminder>")
@@ -1200,10 +1200,10 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
                 lines.append("")
             lines.append("Something failed. Log this mistake:")
             lines.append("")
-            lines.append("  mcp__mini-claude__work_log_mistake(")
-            lines.append('    description="<what went wrong>",')
-            lines.append('    how_to_avoid="<how to prevent this>"')
-            lines.append("  )")
+            lines.append("  work(operation='log_mistake',")
+            lines.append("    description='<what went wrong>',")
+            lines.append("    how_to_avoid='<how to prevent this>')")
+            lines.append("")
             lines.append("")
             lines.append("This will warn you if you're about to make the same mistake.")
         lines.append("</mini-claude-error-reminder>")
@@ -1328,10 +1328,9 @@ def reminder_for_error(project_dir: str, error_message: str = "") -> str:
 
     lines.append("Something went wrong. Log this mistake so you don't repeat it:")
     lines.append("")
-    lines.append("  mcp__mini-claude__work_log_mistake(")
-    lines.append('    description="<what went wrong>",')
-    lines.append('    how_to_avoid="<how to prevent this>"')
-    lines.append("  )")
+    lines.append("  work(operation='log_mistake',")
+    lines.append("    description='<what went wrong>',")
+    lines.append("    how_to_avoid='<how to prevent this>')")
     lines.append("")
     lines.append("This will warn you if you're about to make the same mistake.")
     lines.append("</mini-claude-error-reminder>")

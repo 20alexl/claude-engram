@@ -6,6 +6,8 @@ via the Model Context Protocol.
 
 This file is intentionally kept as a thin routing layer.
 All handler logic is in handlers.py.
+
+v2: Uses combined tools for 75% token reduction (66 tools -> 25 tools)
 """
 
 import asyncio
@@ -14,7 +16,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .handlers import Handlers
-from .tool_definitions import TOOL_DEFINITIONS
+from .tool_definitions_v2 import TOOL_DEFINITIONS
 
 
 # Initialize handlers (contains all tool instances)
@@ -39,8 +41,107 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
     # Route to handler based on tool name
     match name:
+        # =====================================================================
+        # ESSENTIAL TOOLS (always needed)
+        # =====================================================================
+
         case "mini_claude_status":
             return await handlers.status()
+
+        case "session_start":
+            return await handlers.session_start(
+                project_path=arguments.get("project_path", ""),
+            )
+
+        case "session_end":
+            return await handlers.session_end(
+                project_path=arguments.get("project_path"),
+            )
+
+        case "pre_edit_check":
+            return await handlers.pre_edit_check(
+                file_path=arguments.get("file_path", ""),
+            )
+
+        # =====================================================================
+        # COMBINED TOOLS (grouped by domain)
+        # =====================================================================
+
+        case "memory":
+            return await handlers.handle_memory(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "work":
+            return await handlers.handle_work(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "scope":
+            return await handlers.handle_scope(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "loop":
+            return await handlers.handle_loop(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "context":
+            return await handlers.handle_context(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "momentum":
+            return await handlers.handle_momentum(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "think":
+            return await handlers.handle_think(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "habit":
+            return await handlers.handle_habit(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "convention":
+            return await handlers.handle_convention(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "output":
+            return await handlers.handle_output(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "test":
+            return await handlers.handle_test(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        case "git":
+            return await handlers.handle_git(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
+        # =====================================================================
+        # STANDALONE TOOLS (unique functionality)
+        # =====================================================================
 
         case "scout_search":
             return await handlers.search(
@@ -53,47 +154,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await handlers.analyze(
                 code=arguments.get("code", ""),
                 question=arguments.get("question", ""),
-            )
-
-        case "memory_remember":
-            return await handlers.remember(
-                content=arguments.get("content", ""),
-                category=arguments.get("category", "note"),
-                project_path=arguments.get("project_path"),
-                relevance=arguments.get("relevance", 5),
-            )
-
-        case "memory_recall":
-            return await handlers.recall(
-                project_path=arguments.get("project_path"),
-            )
-
-        case "memory_forget":
-            return await handlers.forget(
-                project_path=arguments.get("project_path", ""),
-            )
-
-        case "memory_cleanup":
-            return await handlers.memory_cleanup(
-                project_path=arguments.get("project_path", ""),
-                dry_run=arguments.get("dry_run", True),
-                min_relevance=arguments.get("min_relevance", 3),
-                max_age_days=arguments.get("max_age_days", 30),
-            )
-
-        case "memory_search":
-            return await handlers.memory_search(
-                project_path=arguments.get("project_path", ""),
-                file_path=arguments.get("file_path"),
-                tags=arguments.get("tags"),
-                query=arguments.get("query"),
-                limit=arguments.get("limit", 5),
-            )
-
-        case "memory_cluster_view":
-            return await handlers.memory_cluster_view(
-                project_path=arguments.get("project_path", ""),
-                cluster_id=arguments.get("cluster_id"),
             )
 
         case "file_summarize":
@@ -109,16 +169,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 include_reverse=arguments.get("include_reverse", False),
             )
 
-        case "session_start":
-            return await handlers.session_start(
-                project_path=arguments.get("project_path", ""),
-            )
-
-        case "session_end":
-            return await handlers.session_end(
-                project_path=arguments.get("project_path"),
-            )
-
         case "impact_analyze":
             return await handlers.impact_analyze(
                 file_path=arguments.get("file_path", ""),
@@ -126,296 +176,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 proposed_changes=arguments.get("proposed_changes"),
             )
 
-        case "convention_add":
-            return await handlers.convention_add(
-                project_path=arguments.get("project_path", ""),
-                rule=arguments.get("rule", ""),
-                category=arguments.get("category", "pattern"),
-                examples=arguments.get("examples"),
-                reason=arguments.get("reason"),
-                importance=arguments.get("importance", 5),
-            )
-
-        case "convention_get":
-            return await handlers.convention_get(
-                project_path=arguments.get("project_path", ""),
-                category=arguments.get("category"),
-            )
-
-        case "convention_check":
-            return await handlers.convention_check(
-                project_path=arguments.get("project_path", ""),
-                code_or_filename=arguments.get("code_or_filename", ""),
-            )
-
-        case "work_log_mistake":
-            return await handlers.work_log_mistake(
-                description=arguments.get("description", ""),
-                file_path=arguments.get("file_path"),
-                how_to_avoid=arguments.get("how_to_avoid"),
-            )
-
-        case "work_log_decision":
-            return await handlers.work_log_decision(
-                decision=arguments.get("decision", ""),
-                reason=arguments.get("reason", ""),
-                alternatives=arguments.get("alternatives"),
-            )
-
-        case "work_session_summary":
-            return await handlers.work_session_summary()
-
-        case "work_pre_edit_check":
-            return await handlers.work_pre_edit_check(
-                file_path=arguments.get("file_path", ""),
-            )
-
-        case "work_save_session":
-            return await handlers.work_save_session()
-
-        # Unified Pre-Edit Check (combines work + loop + scope checks)
-        case "pre_edit_check":
-            return await handlers.pre_edit_check(
-                file_path=arguments.get("file_path", ""),
-            )
-
-        # Code Quality Checker
         case "code_quality_check":
             return await handlers.code_quality_check(
                 code=arguments.get("code", ""),
                 language=arguments.get("language", "python"),
             )
 
-        # Loop Detector
-        case "loop_record_edit":
-            return await handlers.loop_record_edit(
-                file_path=arguments.get("file_path", ""),
-                description=arguments.get("description", ""),
-            )
-
-        case "loop_check_before_edit":
-            return await handlers.loop_check_before_edit(
-                file_path=arguments.get("file_path", ""),
-            )
-
-        case "loop_record_test":
-            return await handlers.loop_record_test(
-                passed=arguments.get("passed", False),
-                error_message=arguments.get("error_message", ""),
-            )
-
-        case "loop_status":
-            return await handlers.loop_status()
-
-        # Scope Guard
-        case "scope_declare":
-            return await handlers.scope_declare(
-                task_description=arguments.get("task_description", ""),
-                in_scope_files=arguments.get("in_scope_files", []),
-                in_scope_patterns=arguments.get("in_scope_patterns"),
-                out_of_scope_files=arguments.get("out_of_scope_files"),
-                reason=arguments.get("reason", ""),
-            )
-
-        case "scope_check":
-            return await handlers.scope_check(
-                file_path=arguments.get("file_path", ""),
-            )
-
-        case "scope_expand":
-            return await handlers.scope_expand(
-                files_to_add=arguments.get("files_to_add", []),
-                reason=arguments.get("reason", ""),
-            )
-
-        case "scope_status":
-            return await handlers.scope_status()
-
-        case "scope_clear":
-            return await handlers.scope_clear()
-
-        # Context Guard - Checkpoints & Task Continuity
-        case "context_checkpoint_save":
-            return await handlers.context_checkpoint_save(
-                task_description=arguments.get("task_description", ""),
-                current_step=arguments.get("current_step", ""),
-                completed_steps=arguments.get("completed_steps", []),
-                pending_steps=arguments.get("pending_steps", []),
-                files_involved=arguments.get("files_involved", []),
-                key_decisions=arguments.get("key_decisions"),
-                blockers=arguments.get("blockers"),
-                project_path=arguments.get("project_path"),
-                # Optional handoff fields (merged from create_handoff)
-                handoff_summary=arguments.get("handoff_summary"),
-                handoff_context_needed=arguments.get("handoff_context_needed"),
-                handoff_warnings=arguments.get("handoff_warnings"),
-            )
-
-        case "context_checkpoint_restore":
-            return await handlers.context_checkpoint_restore(
-                task_id=arguments.get("task_id"),
-            )
-
-        case "context_checkpoint_list":
-            return await handlers.context_checkpoint_list()
-
-        case "context_instruction_add":
-            return await handlers.context_instruction_add(
-                instruction=arguments.get("instruction", ""),
-                reason=arguments.get("reason", ""),
-                importance=arguments.get("importance", 10),
-            )
-
-        case "context_instruction_reinforce":
-            return await handlers.context_instruction_reinforce()
-
-        case "context_claim_completion":
-            return await handlers.context_claim_completion(
-                task=arguments.get("task", ""),
-                evidence=arguments.get("evidence"),
-            )
-
-        case "context_self_check":
-            return await handlers.context_self_check(
-                task=arguments.get("task", ""),
-                verification_steps=arguments.get("verification_steps", []),
-            )
-
-        # Unified completion verification (merges claim_completion + self_check)
-        case "verify_completion":
-            return await handlers.verify_completion(
-                task=arguments.get("task", ""),
-                verification_steps=arguments.get("verification_steps", []),
-                evidence=arguments.get("evidence"),
-            )
-
-        case "context_handoff_create":
-            return await handlers.context_handoff_create(
-                summary=arguments.get("summary", ""),
-                next_steps=arguments.get("next_steps", []),
-                context_needed=arguments.get("context_needed", []),
-                warnings=arguments.get("warnings"),
-                project_path=arguments.get("project_path"),
-            )
-
-        case "context_handoff_get":
-            return await handlers.context_handoff_get()
-
-        # Output Validator
-        case "output_validate_code":
-            return await handlers.output_validate_code(
+        case "code_pattern_check":
+            return await handlers.code_pattern_check(
+                project_path=arguments.get("project_path", ""),
                 code=arguments.get("code", ""),
-                context=arguments.get("context"),
-            )
-
-        case "output_validate_result":
-            return await handlers.output_validate_result(
-                output=arguments.get("output", ""),
-                expected_format=arguments.get("expected_format"),
-                should_contain=arguments.get("should_contain"),
-                should_not_contain=arguments.get("should_not_contain"),
-            )
-
-        case "test_run":
-            return await handlers.test_run(
-                project_dir=arguments.get("project_dir", ""),
-                test_command=arguments.get("test_command"),
-                timeout=arguments.get("timeout", 300),
-            )
-
-        case "test_can_claim_completion":
-            return await handlers.test_can_claim_completion()
-
-        case "git_generate_commit_message":
-            return await handlers.git_generate_commit_message(
-                project_dir=arguments.get("project_dir", ""),
-            )
-
-        case "git_auto_commit":
-            return await handlers.git_auto_commit(
-                project_dir=arguments.get("project_dir", ""),
-                message=arguments.get("message"),
-                files=arguments.get("files"),
-            )
-
-        case "momentum_start_task":
-            return await handlers.momentum_start_task(
-                task_description=arguments.get("task_description", ""),
-                expected_steps=arguments.get("expected_steps", []),
-            )
-
-        case "momentum_complete_step":
-            return await handlers.momentum_complete_step(
-                step=arguments.get("step", ""),
-            )
-
-        case "momentum_check":
-            return await handlers.momentum_check()
-
-        case "momentum_finish_task":
-            return await handlers.momentum_finish_task()
-
-        case "momentum_status":
-            return await handlers.momentum_status()
-
-        case "think_research":
-            return await handlers.think_research(
-                question=arguments.get("question", ""),
-                context=arguments.get("context"),
-                depth=arguments.get("depth", "medium"),
-                project_path=arguments.get("project_path"),
-            )
-
-        case "think_compare":
-            return await handlers.think_compare(
-                options=arguments.get("options", []),
-                context=arguments.get("context", ""),
-                criteria=arguments.get("criteria"),
-            )
-
-        case "think_challenge":
-            return await handlers.think_challenge(
-                assumption=arguments.get("assumption", ""),
-                context=arguments.get("context"),
-            )
-
-        case "think_explore":
-            return await handlers.think_explore(
-                problem=arguments.get("problem", ""),
-                constraints=arguments.get("constraints"),
-                project_path=arguments.get("project_path"),
-            )
-
-        case "think_best_practice":
-            return await handlers.think_best_practice(
-                topic=arguments.get("topic", ""),
-                language_or_framework=arguments.get("language_or_framework"),
-                year=arguments.get("year", 2026),
-            )
-
-        # Habit Tracker Tools
-        case "habit_get_stats":
-            return await handlers.habit_get_stats(
-                days=arguments.get("days", 7),
-            )
-
-        case "habit_get_feedback":
-            return await handlers.habit_get_feedback()
-
-        case "habit_session_summary":
-            return await handlers.habit_session_summary(
-                project_path=arguments.get("project_path"),
-            )
-
-        # -------------------------------------------------------------------------
-        # New Tools: think_audit, code_pattern_check
-        # -------------------------------------------------------------------------
-
-        case "think_audit":
-            return await handlers.think_audit(
-                file_path=arguments.get("file_path", ""),
-                focus_areas=arguments.get("focus_areas"),
-                min_severity=arguments.get("min_severity"),
             )
 
         case "audit_batch":
@@ -431,12 +201,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 file_extensions=arguments.get("file_extensions"),
                 exclude_paths=arguments.get("exclude_paths"),
                 exclude_strings=arguments.get("exclude_strings", True),
-            )
-
-        case "code_pattern_check":
-            return await handlers.code_pattern_check(
-                project_path=arguments.get("project_path", ""),
-                code=arguments.get("code", ""),
             )
 
         case _:

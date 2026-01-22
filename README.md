@@ -408,77 +408,170 @@ Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit co
 | ImportError, SyntaxError crashes | ❌ No |
 | Any command with exit code ≠ 0 | ❌ No |
 
-**For actual command failures, manually call `work_log_mistake`.**
+**For actual command failures, manually call `work(operation="log_mistake")`.**
 
 See: [Claude Code Issue #6371](https://github.com/anthropics/claude-code/issues/6371)
 
-## All Tools
+## Token Efficiency (v2)
 
-### 🔑 Essential (Start Here!)
+Mini Claude v2 uses combined tools with operation parameters:
+- **Before**: 66 tools, ~20K tokens per message
+- **After**: 25 tools, ~5K tokens per message (75% reduction)
+
+This means faster responses and lower costs while maintaining full functionality.
+
+**Example of combined tool syntax:**
+```python
+# Old: 7 separate memory tools
+mcp__mini-claude__memory_remember(...)
+mcp__mini-claude__memory_search(...)
+
+# New: 1 tool with operation parameter
+mcp__mini-claude__memory(operation="remember", content="...", project_path="...")
+mcp__mini-claude__memory(operation="search", project_path="...", tags=["auth"])
+```
+
+## All Tools (v2 - Combined)
+
+### 🔑 Essential (Always Available)
 | Tool | What It Does |
 |------|--------------|
-| `session_start` | Load memories + warnings + **auto-cleanup** (START EVERY SESSION) |
-| `session_end` | **Summary + save** in one call (NEW!) |
-| `work_log_mistake` | Log mistakes so you don't repeat them |
-| `work_log_decision` | Log WHY you made choices |
-| `pre_edit_check` | **Unified pre-edit check** (NEW - combines 3 tools!) |
+| `session_start` | Load memories + warnings + auto-cleanup (START EVERY SESSION) |
+| `session_end` | Summary + save in one call |
+| `pre_edit_check` | Unified check: mistakes, loops, scope |
+| `mini_claude_status` | Health check |
 
-### 🧠 Session & Memory
-| Tool | What It Does |
-|------|--------------|
-| `session_start` | Load project context **+ auto-cleanup** (NEW!) |
-| `memory_remember` | Store discoveries (auto-tagged!) |
-| `memory_recall` | Get all memories (flat list) |
-| `memory_search` | **Contextual search** by file, tags, query (NEW!) |
-| `memory_cluster_view` | **View grouped memories** with summaries (NEW!) |
-| `memory_cleanup` | **Clean up memories** - dedup, cluster, decay (NEW!) |
-| `memory_forget` | Clear memories |
+### 🧠 Memory Tool
+```python
+memory(operation, project_path, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `remember` | Store discoveries (auto-tagged!) |
+| `recall` | Get all memories (flat list) |
+| `forget` | Clear project memories |
+| `search` | Contextual search by file, tags, query |
+| `clusters` | View grouped memories with summaries |
+| `cleanup` | Deduplicate, cluster, decay old memories |
 
-### 📝 Work Tracking
-| Tool | What It Does |
-|------|--------------|
-| `work_log_mistake` | Log when things break |
-| `work_log_decision` | Log why you did something |
-| `pre_edit_check` | **Unified pre-edit check** (NEW - replaces 3 tools!) |
-| ~~`work_pre_edit_check`~~ | DEPRECATED → use `pre_edit_check` |
-| ~~`work_session_summary`~~ | DEPRECATED → use `session_end` |
-| ~~`work_save_session`~~ | DEPRECATED → use `session_end` |
+### 📝 Work Tool
+```python
+work(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `log_mistake` | Log when things break |
+| `log_decision` | Log why you did something |
 
-### 🛡️ Safety Guards
-| Tool | What It Does |
-|------|--------------|
-| `code_quality_check` | Check code before writing |
-| `loop_record_edit` | Record edit for loop detection |
-| ~~`loop_check_before_edit`~~ | DEPRECATED → use `pre_edit_check` |
-| `loop_record_test` | Record test results |
-| `loop_status` | Get loop status |
-| `scope_declare` | Declare files in scope |
-| ~~`scope_check`~~ | DEPRECATED → use `pre_edit_check` |
-| `scope_expand` | Add files to scope |
-| `scope_status` | Get scope status |
-| `scope_clear` | Clear scope |
+### 🛡️ Scope Tool
+```python
+scope(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `declare` | Declare files in scope for task |
+| `check` | Verify file is in scope |
+| `expand` | Add files to scope |
+| `status` | Get scope violations |
+| `clear` | Clear scope |
 
-### 💾 Context Protection
-| Tool | What It Does |
-|------|--------------|
-| `context_checkpoint_save` | Save task state **+ handoff info** (enhanced!) |
-| `context_checkpoint_restore` | Restore task state (includes handoff) |
-| `context_checkpoint_list` | List checkpoints |
-| `verify_completion` | **Claim + verify** in one call (NEW!) |
-| `context_instruction_add` | Add critical instruction |
-| `context_instruction_reinforce` | Get reminders |
-| ~~`context_claim_completion`~~ | DEPRECATED → use `verify_completion` |
-| ~~`context_self_check`~~ | DEPRECATED → use `verify_completion` |
-| ~~`context_handoff_create`~~ | DEPRECATED → use `context_checkpoint_save` |
-| ~~`context_handoff_get`~~ | DEPRECATED → use `context_checkpoint_restore` |
+### 🔄 Loop Tool
+```python
+loop(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `record_edit` | Record edit for loop detection |
+| `record_test` | Record test results |
+| `check` | Check if safe to edit |
+| `status` | Get edit counts |
 
-### ✅ Output Validation
-| Tool | What It Does |
-|------|--------------|
-| `output_validate_code` | Detect silent failures |
-| `output_validate_result` | Check for fake outputs |
+### 💾 Context Tool
+```python
+context(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `checkpoint_save` | Save task state + handoff info |
+| `checkpoint_restore` | Restore task state |
+| `checkpoint_list` | List checkpoints |
+| `verify_completion` | Claim + verify in one call |
+| `instruction_add` | Add critical instruction |
+| `instruction_reinforce` | Get reminders |
 
-### 🔍 Search & Analysis
+### 🚀 Momentum Tool
+```python
+momentum(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `start` | Track multi-step task |
+| `complete` | Mark step complete |
+| `check` | Check momentum |
+| `finish` | Mark task complete |
+| `status` | Get status |
+
+### 💭 Think Tool
+```python
+think(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `research` | Deep research (codebase + LLM reasoning) |
+| `compare` | Compare options with pros/cons |
+| `challenge` | Challenge assumptions |
+| `explore` | Explore solution space |
+| `best_practice` | Find best practices (local LLM) |
+| `audit` | Audit file for anti-patterns |
+
+### 📊 Habit Tool
+```python
+habit(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `stats` | View habit statistics |
+| `feedback` | Get gamified feedback |
+| `summary` | Comprehensive session summary |
+
+### 📋 Convention Tool
+```python
+convention(operation, project_path, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `add` | Store coding rule |
+| `get` | Get project rules |
+| `check` | Check code against rules |
+
+### ✅ Output Tool
+```python
+output(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `validate_code` | Detect silent failures |
+| `validate_result` | Check for fake outputs |
+
+### 🧪 Test Tool
+```python
+test(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `run` | Auto-detect and run tests |
+| `can_claim` | Check if tests allow completion |
+
+### 📦 Git Tool
+```python
+git(operation, project_dir, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `commit_message` | Generate from work logs |
+| `commit` | Auto-commit with context |
+
+### 🔍 Standalone Tools
 | Tool | What It Does |
 |------|--------------|
 | `scout_search` | Search codebase semantically |
@@ -486,59 +579,10 @@ See: [Claude Code Issue #6371](https://github.com/anthropics/claude-code/issues/
 | `file_summarize` | Summarize a file |
 | `deps_map` | Map dependencies |
 | `impact_analyze` | Check what depends on file |
-
-### 📋 Conventions
-| Tool | What It Does |
-|------|--------------|
-| `convention_add` | Store coding rule |
-| `convention_get` | Get project rules |
-| `convention_check` | Check code against rules |
-| `code_pattern_check` | **Check code with LLM** (semantic analysis) |
-
-### 🔒 Pre-Commit Validation
-| Tool | What It Does |
-|------|--------------|
-| `think_audit` | **Audit file for anti-patterns** (with quick_fix suggestions) |
-| `audit_batch` | **Audit multiple files at once** (supports glob patterns) |
-| `find_similar_issues` | **Search codebase for bug patterns** (find all `except: pass`) |
-
-### 🧪 Testing & Git
-| Tool | What It Does |
-|------|--------------|
-| `test_run` | Auto-detect and run tests |
-| `test_can_claim_completion` | Check if tests allow completion |
-| `git_generate_commit_message` | Generate from work logs |
-| `git_auto_commit` | Auto-commit with context |
-
-### 🚀 Momentum Tracking
-| Tool | What It Does |
-|------|--------------|
-| `momentum_start_task` | Track multi-step task |
-| `momentum_complete_step` | Mark step complete |
-| `momentum_check` | Check momentum |
-| `momentum_finish_task` | Mark task complete |
-| `momentum_status` | Get status |
-
-### 💭 Thinking Partner
-| Tool | What It Does |
-|------|--------------|
-| `think_research` | Deep research (codebase + LLM reasoning) |
-| `think_compare` | Compare options with pros/cons |
-| `think_challenge` | Challenge assumptions |
-| `think_explore` | Explore solution space |
-| `think_best_practice` | Find best practices (local LLM) |
-
-### 📊 Habit Tracking (NEW!)
-| Tool | What It Does |
-|------|--------------|
-| `habit_get_stats` | View habit statistics |
-| `habit_get_feedback` | Get gamified feedback |
-| `habit_session_summary` | Comprehensive session summary |
-
-### 🔧 Status
-| Tool | What It Does |
-|------|--------------|
-| `mini_claude_status` | Health check |
+| `code_quality_check` | Check code before writing |
+| `code_pattern_check` | Check code with LLM (semantic) |
+| `audit_batch` | Audit multiple files at once |
+| `find_similar_issues` | Search for bug patterns |
 
 ## Architecture
 

@@ -47,7 +47,8 @@ This unified check combines:
 When tests fail, something errors, or you have to undo work:
 
 ```
-mcp__mini-claude__work_log_mistake(
+mcp__mini-claude__work(
+  operation="log_mistake",
   description="What went wrong",
   file_path="which file",
   how_to_avoid="How to prevent this"
@@ -63,7 +64,8 @@ mcp__mini-claude__work_log_mistake(
 When working on a task that spans multiple files:
 
 ```
-mcp__mini-claude__scope_declare(
+mcp__mini-claude__scope(
+  operation="declare",
   task_description="What you're doing",
   in_scope_files=["file1.py", "file2.py"]
 )
@@ -78,7 +80,8 @@ This prevents scope creep and over-refactoring.
 When you choose between approaches or make architectural decisions:
 
 ```
-mcp__mini-claude__work_log_decision(
+mcp__mini-claude__work(
+  operation="log_decision",
   decision="What you decided",
   reason="Why"
 )
@@ -90,23 +93,21 @@ Next session, you'll know WHY things are the way they are.
 
 ## Quick Reference
 
-| When | Tool | Why |
-|------|------|-----|
-| Start of session | `session_start` | Load context + past mistakes + **auto-restore checkpoints + auto-cleanup** |
-| Before editing important files | `pre_edit_check` | **Unified check**: past mistakes + loop risk + scope (use this!) |
-| Something breaks | `work_log_mistake` | Remember for next time |
-| Make a decision | `work_log_decision` | Explain WHY for future |
-| Multi-file task | `scope_declare` | Prevent over-refactoring |
-| Before big changes | `impact_analyze` | See what depends on file |
-| Audit a file | `think_audit` | Find anti-patterns + get quick fixes |
-| Audit many files | `audit_batch` | Scan directory for issues |
-| Find similar bugs | `find_similar_issues` | Search codebase for pattern |
-| End of session | `session_end` | **Summary + save** in one call (use this!) |
-| Find related memories | `memory_search` | Contextual search by file, tags, or query (NEW!) |
-| View memory clusters | `memory_cluster_view` | See grouped memories instead of flat list (NEW!) |
-| Cleanup memories | `memory_cleanup` | Deduplicate, cluster, decay old memories (NEW!) |
-| Before long tasks | `context_checkpoint_save` | **Survive compaction + handoff** (now includes handoff!) |
-| When claiming done | `verify_completion` | **Claim + verify** in one call (NEW!) |
+| When | Tool | Operation | Why |
+|------|------|-----------|-----|
+| Start of session | `session_start` | - | Load context + past mistakes + auto-cleanup |
+| Before editing | `pre_edit_check` | - | Past mistakes + loop risk + scope check |
+| Something breaks | `work` | `log_mistake` | Remember for next time |
+| Make a decision | `work` | `log_decision` | Explain WHY for future |
+| Multi-file task | `scope` | `declare` | Prevent over-refactoring |
+| Before big changes | `impact_analyze` | - | See what depends on file |
+| Audit a file | `think` | `audit` | Find anti-patterns |
+| Audit many files | `audit_batch` | - | Scan directory for issues |
+| End of session | `session_end` | - | Summary + save in one call |
+| Find memories | `memory` | `search` | Contextual search |
+| View clusters | `memory` | `clusters` | Grouped memories |
+| Before long tasks | `context` | `checkpoint_save` | Survive compaction |
+| When claiming done | `context` | `verify_completion` | Claim + verify |
 
 ---
 
@@ -116,23 +117,26 @@ When context gets long, it will be compacted (summarized). **You WILL lose conte
 
 To survive compaction:
 
-1. **Before long tasks**: `context_checkpoint_save(task_description, current_step, ...)`
-   - Now includes optional handoff fields: `handoff_summary`, `handoff_context_needed`, `handoff_warnings`
+1. **Before long tasks**:
+```python
+mcp__mini-claude__context(
+  operation="checkpoint_save",
+  task_description="...",
+  current_step="...",
+  completed_steps=[...],
+  pending_steps=[...],
+  files_involved=[...]
+)
+```
+
 2. **Periodically**: Save checkpoints at natural breakpoints
 3. **After compaction**: `session_start` auto-restores your checkpoint!
 
 If you notice you've lost context mid-task:
 
 ```python
-mcp__mini-claude__context_checkpoint_restore()
+mcp__mini-claude__context(operation="checkpoint_restore")
 ```
-
-This restores your last saved state including:
-
-- What task you were working on
-- Which steps are done/pending
-- Key decisions made
-- Files involved
 
 ### IMPORTANT: When Writing Continuation Summaries
 
@@ -143,8 +147,6 @@ CRITICAL: This project uses Mini Claude MCP for persistent memory.
 FIRST ACTION after resuming: Call mcp__mini-claude__session_start(project_path="<path>")
 This will restore your checkpoint and show what you were working on.
 ```
-
-This ensures the next Claude instance knows to use Mini Claude.
 
 ---
 
@@ -164,146 +166,165 @@ Runs locally with Ollama + `qwen2.5-coder:7b`.
 
 Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit code ≠ 0).
 This means auto-mistake detection only works for:
-- ✅ Test runs that succeed but show failures in output
-- ✅ Commands that run but produce error messages
-- ❌ Commands that crash (ImportError, SyntaxError, etc.)
+- Commands that run but produce error messages
+- Test runs that succeed but show failures in output
 
-**For actual command failures, you must manually call `work_log_mistake`.**
-
-See: [GitHub Issue #6371](https://github.com/anthropics/claude-code/issues/6371)
-
-### Smart Memory Features (NEW!)
-
-Session start now automatically:
-- **Deduplicates** memories (>85% similar → merged)
-- **Clusters** related memories by tags (3+ with same tag → group)
-- **Auto-tags** memories (bootstrap, auth, testing, etc.)
-- **Indexes** memories by file for contextual lookup
-
-When you edit a file, the hook shows **only relevant memories** for that file, not all 20+ memories.
-
-Use `memory_search` to find specific memories:
-```python
-# Find memories related to a file
-memory_search(project_path="/path", file_path="auth.py")
-
-# Find memories by tag
-memory_search(project_path="/path", tags=["bootstrap", "auth"])
-
-# Keyword search
-memory_search(project_path="/path", query="httpx timeout")
-```
-
-Use `memory_cleanup` for manual control over decay/removal:
-```python
-# Preview what would be cleaned (dry_run=True by default)
-memory_cleanup(project_path="/path")
-
-# Apply cleanup including decay
-memory_cleanup(project_path="/path", dry_run=False)
-```
+**For actual command failures, you must manually call `work(operation="log_mistake")`.**
 
 ---
 
-## All Tools
+## All Tools (v2 - Combined for Efficiency)
 
-### Session & Memory (USE THESE!)
-- `session_start` - **START HERE** every session (now auto-cleans duplicates + creates clusters!)
-- `session_end` - **END HERE** - summarizes + saves
-- `memory_remember` - Store something important
-- `memory_recall` - Get all memories (flat list)
-- `memory_search` - **Search contextually** by file, tags, or keyword (NEW!)
-- `memory_cluster_view` - **View grouped memories** with summaries (NEW!)
-- `memory_cleanup` - **Clean up memories** - dedup, cluster, decay (NEW!)
-- `memory_forget` - Clear project memories
+### Essential Tools (Always Available)
+| Tool | Purpose |
+|------|---------|
+| `session_start` | **START HERE** - loads memories, checkpoints, auto-cleans duplicates |
+| `session_end` | **END HERE** - summarizes work, saves to memory |
+| `pre_edit_check` | Run before editing - checks mistakes, loops, scope |
+| `mini_claude_status` | Health check |
 
-### Work Tracking (YOUR JUNIOR TAKING NOTES)
-- `work_log_mistake` - **Log when things break**
-- `work_log_decision` - Log why you did something
-- `pre_edit_check` - **Unified check before editing** (NEW - replaces 3 tools!)
-- ~~`work_pre_edit_check`~~ - DEPRECATED, use `pre_edit_check`
-- ~~`work_session_summary`~~ - Use `session_end` instead
-- ~~`work_save_session`~~ - Use `session_end` instead
+### Memory Tool
+```python
+memory(operation, project_path, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `remember` | content, category, relevance | Store discovery/note |
+| `recall` | - | Get all memories |
+| `forget` | - | Clear project memories |
+| `search` | file_path, tags, query, limit | Find relevant memories |
+| `clusters` | cluster_id | View grouped memories |
+| `cleanup` | dry_run, min_relevance, max_age_days | Dedupe/decay old memories |
 
-### Code Quality (PREVENT "AI SLOP")
-- `code_quality_check` - Check code BEFORE writing
-- `output_validate_code` - Detect fake/silent failure patterns
-- `output_validate_result` - Check outputs for fake results
+### Work Tool
+```python
+work(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `log_mistake` | description, file_path, how_to_avoid | Record errors |
+| `log_decision` | decision, reason, alternatives | Record choices |
 
-### Loop Detection (PREVENT DEATH SPIRALS)
-- `loop_record_edit` - Record file edit
-- ~~`loop_check_before_edit`~~ - DEPRECATED, use `pre_edit_check`
-- `loop_record_test` - Record test results
-- `loop_status` - Get loop detection status
+### Scope Tool
+```python
+scope(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `declare` | task_description, in_scope_files, in_scope_patterns | Set task scope |
+| `check` | file_path | Verify file is in scope |
+| `expand` | files_to_add, reason | Add files to scope |
+| `status` | - | Get violations |
+| `clear` | - | Reset scope |
 
-### Scope Guard (PREVENT OVER-REFACTORING)
-- `scope_declare` - Declare files in scope for task
-- ~~`scope_check`~~ - DEPRECATED, use `pre_edit_check`
-- `scope_expand` - Add files to scope (deliberately)
-- `scope_status` - Get scope violations
-- `scope_clear` - Clear scope when done
+### Loop Tool
+```python
+loop(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `record_edit` | file_path, description | Log file edit |
+| `record_test` | passed, error_message | Log test result |
+| `check` | file_path | Check if safe to edit |
+| `status` | - | Get edit counts |
 
-### Context Guard (SURVIVE CONTEXT LOSS)
-- `context_checkpoint_save` - **Save task state + handoff** (now includes handoff fields!)
-- `context_checkpoint_restore` - Restore previous task state (includes handoff info)
-- `context_checkpoint_list` - List all saved checkpoints
-- `verify_completion` - **Claim + verify** in one call (NEW - replaces 2 tools!)
-- `context_instruction_add` - Register critical instruction
-- `context_instruction_reinforce` - Get instructions to remember
-- ~~`context_claim_completion`~~ - DEPRECATED, use `verify_completion`
-- ~~`context_self_check`~~ - DEPRECATED, use `verify_completion`
-- ~~`context_handoff_create`~~ - DEPRECATED, use `context_checkpoint_save` with handoff params
-- ~~`context_handoff_get`~~ - DEPRECATED, use `context_checkpoint_restore`
+### Context Tool
+```python
+context(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `checkpoint_save` | task_description, current_step, completed_steps, pending_steps, files_involved | Save task state |
+| `checkpoint_restore` | task_id | Restore checkpoint |
+| `checkpoint_list` | - | List checkpoints |
+| `verify_completion` | task, evidence, verification_steps | Claim + verify done |
+| `instruction_add` | instruction, reason, importance | Register critical instruction |
+| `instruction_reinforce` | - | Get instructions to remember |
 
-### Output Validator (CATCH SILENT FAILURES)
-- `output_validate_code` - Detect fake/silent failure patterns
-- `output_validate_result` - Check outputs for fake results
+### Think Tool
+```python
+think(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `research` | question, project_path, depth | Search codebase + reason |
+| `compare` | options, context, criteria | Evaluate options |
+| `challenge` | assumption, context | Devil's advocate |
+| `explore` | problem, constraints, project_path | Solution space |
+| `best_practice` | topic, language_or_framework | Find patterns |
+| `audit` | file_path, focus_areas, min_severity | Check for anti-patterns |
 
-### Search & Analysis
-- `scout_search` - Search codebase
-- `scout_analyze` - Analyze code with LLM
-- `file_summarize` - Summarize a file
-- `deps_map` - Map dependencies
-- `impact_analyze` - Check dependencies before editing
+### Momentum Tool
+```python
+momentum(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `start` | task_description, expected_steps | Begin tracking |
+| `complete` | step | Mark step done |
+| `check` | - | Check momentum maintained |
+| `finish` | - | Mark task complete |
+| `status` | - | Get progress |
 
-### Conventions
-- `convention_add` - Store a rule
-- `convention_get` - Get rules
-- `convention_check` - Check code against rules
-- `code_pattern_check` - **Check code against conventions with LLM** (semantic analysis)
+### Habit Tool
+```python
+habit(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `stats` | days | Get habit statistics |
+| `feedback` | - | Get gamified feedback |
+| `summary` | project_path | Session summary |
 
-### Pre-Commit Validation (CATCH ISSUES BEFORE COMMITTING!)
-- `think_audit` - **Audit file for anti-patterns** (with quick_fix suggestions)
-- `audit_batch` - **Audit multiple files at once** (supports glob patterns)
-- `find_similar_issues` - **Search codebase for bug patterns** (find all `except: pass`, etc.)
+### Convention Tool
+```python
+convention(operation, project_path, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `add` | rule, category, reason, examples, importance | Store rule |
+| `get` | category | Get rules |
+| `check` | code_or_filename | Check against rules |
 
-### Testing & Git (AUTO-RUN TESTS, SMART COMMITS)
-- `test_run` - Auto-detect and run tests (pytest, npm, go, rust, make)
-- `test_can_claim_completion` - Check if tests allow completion claim
-- `git_generate_commit_message` - Generate commit message from work logs + decisions
-- `git_auto_commit` - Auto-commit with context-aware message
+### Output Tool
+```python
+output(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `validate_code` | code, context | Check for fake/silent failures |
+| `validate_result` | output, expected_format, should_contain | Check output validity |
 
-### Momentum Tracking (PREVENT STOPPING MID-TASK)
-- `momentum_start_task` - Start tracking multi-step task
-- `momentum_complete_step` - Mark step as complete
-- `momentum_check` - Check if momentum is maintained
-- `momentum_finish_task` - Mark task as finished
-- `momentum_status` - Get current momentum status
+### Test Tool
+```python
+test(operation, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `run` | project_dir, test_command, timeout | Run tests |
+| `can_claim` | - | Check if tests allow completion |
 
-### Thinking Partner (LOCAL LLM REASONING)
-- `think_research` - Search codebase + LLM reasoning (NOTE: web search is limited)
-- `think_compare` - Compare multiple approaches with pros/cons
-- `think_challenge` - Challenge assumptions (devil's advocate)
-- `think_explore` - Explore solution space (simple → ideal)
-- `think_best_practice` - Find best practices (uses local LLM)
+### Git Tool
+```python
+git(operation, project_dir, ...)
+```
+| Operation | Parameters | Purpose |
+|-----------|------------|---------|
+| `commit_message` | - | Generate from work logs |
+| `commit` | message, files | Auto-commit |
 
-### Habit Tracker (OPTIONAL)
-- `habit_get_stats` - View habit statistics (last 7 days)
-- `habit_get_feedback` - Get gamified feedback on your habits
-- `habit_session_summary` - Comprehensive session summary (or use `session_end`)
-
-### Status
-- `mini_claude_status` - Health check
+### Standalone Tools
+| Tool | Purpose |
+|------|---------|
+| `scout_search` | Search codebase semantically |
+| `scout_analyze` | Analyze code with LLM |
+| `file_summarize` | Summarize file purpose |
+| `deps_map` | Map file dependencies |
+| `impact_analyze` | Analyze change impact |
+| `code_quality_check` | Check for AI slop |
+| `code_pattern_check` | Check against conventions (LLM) |
+| `audit_batch` | Audit multiple files |
+| `find_similar_issues` | Search for bug patterns |
 
 ---
 
@@ -319,3 +340,13 @@ AI coding assistants:
 
 Mini Claude fixes this by giving you memory and self-awareness tools.
 **But they only work if you use them.**
+
+---
+
+## Token Efficiency (v2)
+
+Mini Claude v2 uses combined tools with operation parameters:
+- **Before**: 66 tools, ~20K tokens per message
+- **After**: 25 tools, ~5K tokens per message (75% reduction)
+
+This means faster responses and lower costs while maintaining full functionality.

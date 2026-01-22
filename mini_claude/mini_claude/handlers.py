@@ -1968,6 +1968,322 @@ class Handlers:
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
+    # =========================================================================
+    # COMBINED TOOL ROUTERS (v2 - token-efficient tools)
+    # =========================================================================
+
+    async def handle_memory(self, operation: str, args: dict) -> list[TextContent]:
+        """Route memory operations to existing handlers."""
+        project_path = args.get("project_path", "")
+
+        if operation == "remember":
+            return await self.remember(
+                content=args.get("content", ""),
+                category=args.get("category", "note"),
+                project_path=project_path,
+                relevance=args.get("relevance", 5),
+            )
+        elif operation == "recall":
+            return await self.recall(project_path)
+        elif operation == "forget":
+            return await self.forget(project_path)
+        elif operation == "search":
+            return await self.memory_search(
+                project_path=project_path,
+                file_path=args.get("file_path"),
+                tags=args.get("tags"),
+                query=args.get("query"),
+                limit=args.get("limit", 5),
+            )
+        elif operation == "clusters":
+            return await self.memory_cluster_view(
+                project_path=project_path,
+                cluster_id=args.get("cluster_id"),
+            )
+        elif operation == "cleanup":
+            return await self.memory_cleanup(
+                project_path=project_path,
+                dry_run=args.get("dry_run", True),
+                min_relevance=args.get("min_relevance", 3),
+                max_age_days=args.get("max_age_days", 30),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown memory operation: {operation}",
+                "Use: remember, recall, forget, search, clusters, or cleanup"
+            )
+
+    async def handle_work(self, operation: str, args: dict) -> list[TextContent]:
+        """Route work operations to existing handlers."""
+        if operation == "log_mistake":
+            return await self.work_log_mistake(
+                description=args.get("description", ""),
+                file_path=args.get("file_path"),
+                how_to_avoid=args.get("how_to_avoid"),
+            )
+        elif operation == "log_decision":
+            return await self.work_log_decision(
+                decision=args.get("decision", ""),
+                reason=args.get("reason", ""),
+                alternatives=args.get("alternatives"),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown work operation: {operation}",
+                "Use: log_mistake or log_decision"
+            )
+
+    async def handle_scope(self, operation: str, args: dict) -> list[TextContent]:
+        """Route scope operations to existing handlers."""
+        if operation == "declare":
+            return await self.scope_declare(
+                task_description=args.get("task_description", ""),
+                in_scope_files=args.get("in_scope_files", []),
+                in_scope_patterns=args.get("in_scope_patterns"),
+                out_of_scope_files=args.get("out_of_scope_files"),
+                reason=args.get("reason", ""),
+            )
+        elif operation == "check":
+            return await self.scope_check(args.get("file_path", ""))
+        elif operation == "expand":
+            return await self.scope_expand(
+                files_to_add=args.get("files_to_add", []),
+                reason=args.get("reason", ""),
+            )
+        elif operation == "status":
+            return await self.scope_status()
+        elif operation == "clear":
+            return await self.scope_clear()
+        else:
+            return self._needs_clarification(
+                f"Unknown scope operation: {operation}",
+                "Use: declare, check, expand, status, or clear"
+            )
+
+    async def handle_loop(self, operation: str, args: dict) -> list[TextContent]:
+        """Route loop operations to existing handlers."""
+        if operation == "record_edit":
+            return await self.loop_record_edit(
+                file_path=args.get("file_path", ""),
+                description=args.get("description", ""),
+            )
+        elif operation == "record_test":
+            return await self.loop_record_test(
+                passed=args.get("passed", False),
+                error_message=args.get("error_message", ""),
+            )
+        elif operation == "check":
+            return await self.loop_check_before_edit(args.get("file_path", ""))
+        elif operation == "status":
+            return await self.loop_status()
+        else:
+            return self._needs_clarification(
+                f"Unknown loop operation: {operation}",
+                "Use: record_edit, record_test, check, or status"
+            )
+
+    async def handle_context(self, operation: str, args: dict) -> list[TextContent]:
+        """Route context operations to existing handlers."""
+        if operation == "checkpoint_save":
+            return await self.context_checkpoint_save(
+                task_description=args.get("task_description", ""),
+                current_step=args.get("current_step", ""),
+                completed_steps=args.get("completed_steps", []),
+                pending_steps=args.get("pending_steps", []),
+                files_involved=args.get("files_involved", []),
+                key_decisions=args.get("key_decisions"),
+                blockers=args.get("blockers"),
+                project_path=args.get("project_path"),
+                handoff_summary=args.get("handoff_summary"),
+                handoff_context_needed=args.get("handoff_context_needed"),
+                handoff_warnings=args.get("handoff_warnings"),
+            )
+        elif operation == "checkpoint_restore":
+            return await self.context_checkpoint_restore(args.get("task_id"))
+        elif operation == "checkpoint_list":
+            return await self.context_checkpoint_list()
+        elif operation == "verify_completion":
+            return await self.verify_completion(
+                task=args.get("task", ""),
+                verification_steps=args.get("verification_steps", []),
+                evidence=args.get("evidence"),
+            )
+        elif operation == "instruction_add":
+            return await self.context_instruction_add(
+                instruction=args.get("instruction", ""),
+                reason=args.get("reason", ""),
+                importance=args.get("importance", 10),
+            )
+        elif operation == "instruction_reinforce":
+            return await self.context_instruction_reinforce()
+        else:
+            return self._needs_clarification(
+                f"Unknown context operation: {operation}",
+                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, or instruction_reinforce"
+            )
+
+    async def handle_momentum(self, operation: str, args: dict) -> list[TextContent]:
+        """Route momentum operations to existing handlers."""
+        if operation == "start":
+            return await self.momentum_start_task(
+                task_description=args.get("task_description", ""),
+                expected_steps=args.get("expected_steps", []),
+            )
+        elif operation == "complete":
+            return await self.momentum_complete_step(args.get("step", ""))
+        elif operation == "check":
+            return await self.momentum_check()
+        elif operation == "finish":
+            return await self.momentum_finish_task()
+        elif operation == "status":
+            return await self.momentum_status()
+        else:
+            return self._needs_clarification(
+                f"Unknown momentum operation: {operation}",
+                "Use: start, complete, check, finish, or status"
+            )
+
+    async def handle_think(self, operation: str, args: dict) -> list[TextContent]:
+        """Route think operations to existing handlers."""
+        if operation == "research":
+            return await self.think_research(
+                question=args.get("question", ""),
+                context=args.get("context"),
+                depth=args.get("depth", "medium"),
+                project_path=args.get("project_path"),
+            )
+        elif operation == "compare":
+            return await self.think_compare(
+                options=args.get("options", []),
+                context=args.get("context", ""),
+                criteria=args.get("criteria"),
+            )
+        elif operation == "challenge":
+            return await self.think_challenge(
+                assumption=args.get("assumption", ""),
+                context=args.get("context"),
+            )
+        elif operation == "explore":
+            return await self.think_explore(
+                problem=args.get("problem", ""),
+                constraints=args.get("constraints"),
+                project_path=args.get("project_path"),
+            )
+        elif operation == "best_practice":
+            return await self.think_best_practice(
+                topic=args.get("topic", ""),
+                language_or_framework=args.get("language_or_framework"),
+                year=args.get("year", 2026),
+            )
+        elif operation == "audit":
+            return await self.think_audit(
+                file_path=args.get("file_path", ""),
+                focus_areas=args.get("focus_areas"),
+                min_severity=args.get("min_severity"),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown think operation: {operation}",
+                "Use: research, compare, challenge, explore, best_practice, or audit"
+            )
+
+    async def handle_habit(self, operation: str, args: dict) -> list[TextContent]:
+        """Route habit operations to existing handlers."""
+        if operation == "stats":
+            return await self.habit_get_stats(args.get("days", 7))
+        elif operation == "feedback":
+            return await self.habit_get_feedback()
+        elif operation == "summary":
+            return await self.habit_session_summary(args.get("project_path"))
+        else:
+            return self._needs_clarification(
+                f"Unknown habit operation: {operation}",
+                "Use: stats, feedback, or summary"
+            )
+
+    async def handle_convention(self, operation: str, args: dict) -> list[TextContent]:
+        """Route convention operations to existing handlers."""
+        project_path = args.get("project_path", "")
+
+        if operation == "add":
+            return await self.convention_add(
+                project_path=project_path,
+                rule=args.get("rule", ""),
+                category=args.get("category", "pattern"),
+                examples=args.get("examples"),
+                reason=args.get("reason"),
+                importance=args.get("importance", 5),
+            )
+        elif operation == "get":
+            return await self.convention_get(
+                project_path=project_path,
+                category=args.get("category"),
+            )
+        elif operation == "check":
+            return await self.convention_check(
+                project_path=project_path,
+                code_or_filename=args.get("code_or_filename", ""),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown convention operation: {operation}",
+                "Use: add, get, or check"
+            )
+
+    async def handle_output(self, operation: str, args: dict) -> list[TextContent]:
+        """Route output operations to existing handlers."""
+        if operation == "validate_code":
+            return await self.output_validate_code(
+                code=args.get("code", ""),
+                context=args.get("context"),
+            )
+        elif operation == "validate_result":
+            return await self.output_validate_result(
+                output=args.get("output", ""),
+                expected_format=args.get("expected_format"),
+                should_contain=args.get("should_contain"),
+                should_not_contain=args.get("should_not_contain"),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown output operation: {operation}",
+                "Use: validate_code or validate_result"
+            )
+
+    async def handle_test(self, operation: str, args: dict) -> list[TextContent]:
+        """Route test operations to existing handlers."""
+        if operation == "run":
+            return await self.test_run(
+                project_dir=args.get("project_dir", ""),
+                test_command=args.get("test_command"),
+                timeout=args.get("timeout", 300),
+            )
+        elif operation == "can_claim":
+            return await self.test_can_claim_completion()
+        else:
+            return self._needs_clarification(
+                f"Unknown test operation: {operation}",
+                "Use: run or can_claim"
+            )
+
+    async def handle_git(self, operation: str, args: dict) -> list[TextContent]:
+        """Route git operations to existing handlers."""
+        project_dir = args.get("project_dir", "")
+
+        if operation == "commit_message":
+            return await self.git_generate_commit_message(project_dir)
+        elif operation == "commit":
+            return await self.git_auto_commit(
+                project_dir=project_dir,
+                message=args.get("message"),
+                files=args.get("files"),
+            )
+        else:
+            return self._needs_clarification(
+                f"Unknown git operation: {operation}",
+                "Use: commit_message or commit"
+            )
+
     # -------------------------------------------------------------------------
     # Helper Methods
     # -------------------------------------------------------------------------
