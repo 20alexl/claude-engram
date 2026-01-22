@@ -53,11 +53,13 @@ def load_state() -> dict:
             pass
     return {
         "prompts_without_session": 0,
+        "prompts_this_session": 0,  # Track prompts within active session
         "edits_without_session": 0,
         "edits_without_pre_check": 0,
         "edits_without_loop_record": 0,
         "tests_without_record": 0,
         "errors_without_log": 0,
+        "checkpoint_reminded": False,  # Track if we've shown checkpoint reminder
         "last_session_start": None,
         "last_pre_edit_check": None,
         "last_loop_record": None,
@@ -106,7 +108,9 @@ def mark_session_started(project_dir: str):
     """Mark that session_start was called - resets some counters."""
     state = load_state()
     state["prompts_without_session"] = 0
+    state["prompts_this_session"] = 0  # Reset session prompt counter
     state["edits_without_session"] = 0
+    state["checkpoint_reminded"] = False  # Reset checkpoint reminder flag
     state["last_session_start"] = time.time()
     state["active_project"] = project_dir
     state["files_edited_this_session"] = []
@@ -703,16 +707,69 @@ def _auto_record_edit(file_path: str, description: str = "auto-tracked"):
 # ENFORCEMENT - Make Mini Claude usage mandatory
 # ============================================================================
 
+def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool, str]:
+    """
+    Determine if we should show the full reminder block.
+
+    Returns:
+        (should_show, reason) - reason explains why we're showing/not showing
+
+    CONTEXT-AWARE LOGIC:
+    - First prompt of session: Show everything (welcome + setup)
+    - Session not started after 3+ prompts: Escalate warnings
+    - Checkpoint exists to restore: Remind once
+    - Tier 2 task detected: Show architectural warning
+    - Otherwise: SILENT (no injection)
+    """
+    state = load_state()
+    session_active = check_session_active(project_dir)
+
+    # CASE 1: Session not active - always show (with escalation)
+    if not session_active:
+        prompts_without = state.get("prompts_without_session", 0) + 1
+        return (True, f"session_not_started_prompt_{prompts_without}")
+
+    # Session IS active - track prompts within session
+    state["prompts_this_session"] = state.get("prompts_this_session", 0) + 1
+    prompts_this_session = state["prompts_this_session"]
+    save_state(state)
+
+    # CASE 2: First prompt of active session - show welcome
+    if prompts_this_session == 1:
+        return (True, "first_prompt_of_session")
+
+    # CASE 3: Checkpoint exists and we haven't reminded yet
+    checkpoint = get_checkpoint_data()
+    if checkpoint and not state.get("checkpoint_reminded", False):
+        state["checkpoint_reminded"] = True
+        save_state(state)
+        return (True, "checkpoint_exists")
+
+    # CASE 4: Tier 2 architectural task detected
+    if prompt:
+        is_complex, detected_pattern, tier = detect_complex_task(prompt)
+        if tier >= 2:
+            return (True, f"tier2_task_{detected_pattern}")
+
+    # CASE 5: Otherwise - SILENT
+    return (False, "no_reminder_needed")
+
+
 def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
     """
     Generate reminder for UserPromptSubmit hook.
 
-    Enforces:
-    1. session_start must be called
-    2. Shows past mistakes to avoid
-    3. Reminds about ALL tools to use
-    4. Tier 2 warnings for complex/architectural tasks
+    CONTEXT-AWARE: Only shows reminders when there's a good reason.
+    - First prompt of session: Full welcome + past mistakes
+    - Session not started: Escalating warnings
+    - Tier 2 architectural task: Show thinking tool suggestions
+    - Otherwise: SILENT (no spam)
     """
+    # CHECK IF WE SHOULD SHOW ANYTHING AT ALL
+    should_show, reason = should_show_full_reminder(project_dir, prompt)
+    if not should_show:
+        return ""  # SILENT - no injection
+
     state = load_state()
     session_active = check_session_active(project_dir)
     project_memory = load_project_memory(project_dir)
@@ -866,22 +923,26 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                 lines.append("  Run: scope(operation='declare', task_description='...', in_scope_files=[...])")
                 lines.append("")
 
-    # ALWAYS show the checklist (v2 combined tool syntax)
-    lines.append("Mini Claude reminders:")
-    lines.append("- BEFORE editing: pre_edit_check(file_path)")
-    lines.append("- AFTER editing: loop(operation='record_edit', file_path, description)")
-    lines.append("- WHEN something breaks: work(operation='log_mistake', description, file_path)")
-    lines.append("- WHEN making decisions: work(operation='log_decision', decision, reason)")
-    lines.append("- FOR multi-file tasks: scope(operation='declare', task_description, in_scope_files)")
-    lines.append("")
-
-    # THINKING TOOLS - Tier 1 gentle reminder for complex tasks
-    lines.append("💡 For complex tasks, consider THINKING FIRST:")
-    lines.append("- think(operation='compare'): Compare multiple approaches")
-    lines.append("- think(operation='explore'): Explore solution space")
-    lines.append("- think(operation='challenge'): Challenge your assumptions")
-    lines.append("- think(operation='research'): Deep research with codebase + LLM")
-    lines.append("Remember: Mistakes cost 2x to fix later!")
+    # Only show full tool checklist on FIRST prompt of session
+    # (Controlled by should_show_full_reminder - reason will be "first_prompt_of_session")
+    if reason == "first_prompt_of_session":
+        lines.append("📊 This Session:")
+        lines.append("")
+        lines.append("🌱 Session just started!")
+        lines.append("")
+        lines.append("Mini Claude reminders:")
+        lines.append("- BEFORE editing: pre_edit_check(file_path)")
+        lines.append("- AFTER editing: loop(operation='record_edit', file_path, description)")
+        lines.append("- WHEN something breaks: work(operation='log_mistake', description, file_path)")
+        lines.append("- WHEN making decisions: work(operation='log_decision', decision, reason)")
+        lines.append("- FOR multi-file tasks: scope(operation='declare', task_description, in_scope_files)")
+        lines.append("")
+        lines.append("💡 For complex tasks, consider THINKING FIRST:")
+        lines.append("- think(operation='compare'): Compare multiple approaches")
+        lines.append("- think(operation='explore'): Explore solution space")
+        lines.append("- think(operation='challenge'): Challenge your assumptions")
+        lines.append("- think(operation='research'): Deep research with codebase + LLM")
+        lines.append("Remember: Mistakes cost 2x to fix later!")
 
     lines.append("</mini-claude-reminder>")
     return "\n".join(lines)

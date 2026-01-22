@@ -206,29 +206,8 @@ TOOL_DEFINITIONS = [
         },
     ),
 
-    Tool(
-        name="momentum",
-        description="""Track multi-step tasks. Operations:
-- start: Begin tracking (task_description, expected_steps)
-- complete: Mark step done (step)
-- check: Check if momentum maintained
-- finish: Mark task complete
-- status: Get current progress""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["start", "complete", "check", "finish", "status"],
-                    "description": "Operation"
-                },
-                "task_description": {"type": "string"},
-                "expected_steps": {"type": "array", "items": {"type": "string"}},
-                "step": {"type": "string", "description": "For complete: step finished"},
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: momentum tool REMOVED - redundant with Claude Code's native TodoWrite
+    # Use TodoWrite for task tracking instead
 
     Tool(
         name="think",
@@ -337,43 +316,23 @@ TOOL_DEFINITIONS = [
         },
     ),
 
-    Tool(
-        name="test",
-        description="""Test running. Operations:
-- run: Auto-detect and run tests (project_dir, test_command, timeout)
-- can_claim: Check if tests allow completion claim""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["run", "can_claim"],
-                    "description": "Operation"
-                },
-                "project_dir": {"type": "string"},
-                "test_command": {"type": "string"},
-                "timeout": {"type": "integer"},
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: test tool REMOVED - redundant with Claude Code's native Bash
+    # Use Bash to run tests directly: pytest, npm test, etc.
 
     Tool(
         name="git",
         description="""Git helpers. Operations:
 - commit_message: Generate from work logs (project_dir)
-- commit: Auto-commit with context (project_dir, message, files)""",
+NOTE: Use Bash for actual git commands (commit, push, etc.)""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["commit_message", "commit"],
+                    "enum": ["commit_message"],
                     "description": "Operation"
                 },
                 "project_dir": {"type": "string"},
-                "message": {"type": "string"},
-                "files": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["operation", "project_dir"],
         },

@@ -234,6 +234,35 @@ class SearchEngine:
 
         return list(set(terms))
 
+    def _get_file_preview(self, filepath: Path, max_lines: int = 30) -> str:
+        """Get a preview of a file's content (first N lines + key patterns)."""
+        try:
+            content = filepath.read_text(errors="ignore")
+            lines = content.split("\n")
+
+            # Get first N lines
+            preview_lines = lines[:max_lines]
+
+            # Also extract key patterns: class/function definitions, imports
+            key_patterns = []
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                # Capture class and function definitions
+                if stripped.startswith(("class ", "def ", "function ", "const ", "export ")):
+                    key_patterns.append(f"L{i+1}: {stripped[:80]}")
+                # Capture imports (first 5)
+                elif stripped.startswith(("import ", "from ", "require(", "#include")):
+                    if len([p for p in key_patterns if "import" in p.lower() or "from" in p.lower()]) < 5:
+                        key_patterns.append(f"L{i+1}: {stripped[:60]}")
+
+            preview = "\n".join(preview_lines)
+            if key_patterns:
+                preview += "\n...\nKey definitions:\n" + "\n".join(key_patterns[:10])
+
+            return preview[:1500]  # Limit total size
+        except Exception:
+            return ""
+
     def _semantic_search(
         self,
         query: str,
@@ -241,22 +270,29 @@ class SearchEngine:
         base_dir: str,
         max_results: int,
     ) -> list[SearchResult]:
-        """Use LLM to understand semantic queries."""
+        """Use LLM to understand semantic queries with ACTUAL CODE CONTEXT."""
         results = []
 
-        # Build a file list summary for the LLM
-        file_list = []
-        for filepath in files[:100]:
+        # Build file list WITH code previews for the LLM
+        file_list = []  # Just paths for matching later
+        file_previews = []  # Paths + content for LLM
+        for filepath in files[:50]:  # Reduced from 100 to fit more content
             rel_path = str(filepath.relative_to(base_dir))
             file_list.append(rel_path)
+            preview = self._get_file_preview(filepath, max_lines=15)
+            if preview:
+                file_previews.append(f"=== {rel_path} ===\n{preview}\n")
+            else:
+                file_previews.append(f"=== {rel_path} ===\n(could not read)\n")
 
-        # Ask LLM which files are likely relevant
+        # Ask LLM which files are likely relevant - NOW WITH CODE CONTEXT
         prompt = f"""I need to find code related to: "{query}"
 
-Here are the files in the project:
-{chr(10).join(file_list)}
+Here are the files with their content previews:
 
-Which files (up to {max_results}) are most likely to contain code related to my query?
+{chr(10).join(file_previews)}
+
+Based on the ACTUAL CODE CONTENT above, which files (up to {max_results}) are most relevant to my query?
 List ONLY the file paths, one per line. No explanations."""
 
         response = self.llm.generate(prompt, temperature=0.0)

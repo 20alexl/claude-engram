@@ -97,11 +97,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 args=arguments,
             )
 
-        case "momentum":
-            return await handlers.handle_momentum(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "momentum" case REMOVED - use TodoWrite instead
 
         case "think":
             return await handlers.handle_think(
@@ -127,11 +123,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 args=arguments,
             )
 
-        case "test":
-            return await handlers.handle_test(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "test" case REMOVED - use Bash instead
 
         case "git":
             return await handlers.handle_git(

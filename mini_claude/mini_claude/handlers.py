@@ -2122,26 +2122,7 @@ class Handlers:
                 "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, or instruction_reinforce"
             )
 
-    async def handle_momentum(self, operation: str, args: dict) -> list[TextContent]:
-        """Route momentum operations to existing handlers."""
-        if operation == "start":
-            return await self.momentum_start_task(
-                task_description=args.get("task_description", ""),
-                expected_steps=args.get("expected_steps", []),
-            )
-        elif operation == "complete":
-            return await self.momentum_complete_step(args.get("step", ""))
-        elif operation == "check":
-            return await self.momentum_check()
-        elif operation == "finish":
-            return await self.momentum_finish_task()
-        elif operation == "status":
-            return await self.momentum_status()
-        else:
-            return self._needs_clarification(
-                f"Unknown momentum operation: {operation}",
-                "Use: start, complete, check, finish, or status"
-            )
+    # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead
 
     async def handle_think(self, operation: str, args: dict) -> list[TextContent]:
         """Route think operations to existing handlers."""
@@ -2250,38 +2231,18 @@ class Handlers:
                 "Use: validate_code or validate_result"
             )
 
-    async def handle_test(self, operation: str, args: dict) -> list[TextContent]:
-        """Route test operations to existing handlers."""
-        if operation == "run":
-            return await self.test_run(
-                project_dir=args.get("project_dir", ""),
-                test_command=args.get("test_command"),
-                timeout=args.get("timeout", 300),
-            )
-        elif operation == "can_claim":
-            return await self.test_can_claim_completion()
-        else:
-            return self._needs_clarification(
-                f"Unknown test operation: {operation}",
-                "Use: run or can_claim"
-            )
+    # NOTE: handle_test REMOVED - use Claude Code's native Bash tool instead
 
     async def handle_git(self, operation: str, args: dict) -> list[TextContent]:
-        """Route git operations to existing handlers."""
+        """Route git operations. Only commit_message is supported - use Bash for actual git commands."""
         project_dir = args.get("project_dir", "")
 
         if operation == "commit_message":
             return await self.git_generate_commit_message(project_dir)
-        elif operation == "commit":
-            return await self.git_auto_commit(
-                project_dir=project_dir,
-                message=args.get("message"),
-                files=args.get("files"),
-            )
         else:
             return self._needs_clarification(
                 f"Unknown git operation: {operation}",
-                "Use: commit_message or commit"
+                "Only commit_message is supported. Use Bash for git commit, push, etc."
             )
 
     # -------------------------------------------------------------------------

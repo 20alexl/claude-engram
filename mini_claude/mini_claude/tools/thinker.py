@@ -100,6 +100,27 @@ class Thinker:
         self.llm = llm
         self.httpx_client = httpx.Client(timeout=30.0)
 
+    def _is_codebase_question(self, question: str) -> bool:
+        """Detect if the question is about THIS codebase specifically."""
+        codebase_indicators = [
+            "in this codebase", "in this project", "in the codebase",
+            "how does", "how do", "where is", "where are", "what file",
+            "which file", "find the", "show me", "how is .* implemented",
+            "implementation of", "how .* works"
+        ]
+        question_lower = question.lower()
+        return any(indicator in question_lower for indicator in codebase_indicators)
+
+    def _read_file_for_research(self, file_path: str, max_lines: int = 200) -> str:
+        """Read a file for research purposes, with line numbers."""
+        try:
+            content = Path(file_path).read_text(errors="ignore")
+            lines = content.split("\n")[:max_lines]
+            numbered = [f"{i+1:4d}| {line}" for i, line in enumerate(lines)]
+            return "\n".join(numbered)
+        except Exception:
+            return ""
+
     def research(
         self,
         question: str,
@@ -109,6 +130,8 @@ class Thinker:
     ) -> MiniClaudeResponse:
         """
         Deep research on a question using web + codebase + reasoning.
+
+        IMPROVED: For codebase questions, reads actual code instead of generic web results.
 
         Args:
             question: The question to research
@@ -124,18 +147,25 @@ class Thinker:
 
         findings = []
         sources = []
+        code_context = []  # Actual code to send to LLM
 
-        # Step 1: Web search for current best practices
-        try:
-            web_results = self._web_search(question, max_results=5 if depth == "quick" else 10)
-            if web_results:
-                findings.append("## Web Research")
-                for result in web_results[:3]:
-                    findings.append(f"- {result['title']}: {result['snippet']}")
-                    sources.append(result['url'])
-                work_log.what_worked.append(f"Found {len(web_results)} web results")
-        except Exception as e:
-            work_log.what_failed.append(f"Web search failed: {str(e)}")
+        # Detect if this is a codebase-specific question
+        is_codebase_q = project_path and self._is_codebase_question(question)
+
+        # Step 1: Web search (SKIP for codebase questions - it's just noise)
+        if not is_codebase_q:
+            try:
+                web_results = self._web_search(question, max_results=5 if depth == "quick" else 10)
+                if web_results:
+                    findings.append("## Web Research")
+                    for result in web_results[:3]:
+                        findings.append(f"- {result['title']}: {result['snippet']}")
+                        sources.append(result['url'])
+                    work_log.what_worked.append(f"Found {len(web_results)} web results")
+            except Exception as e:
+                work_log.what_failed.append(f"Web search failed: {str(e)}")
+        else:
+            work_log.what_worked.append("Skipped web search (codebase-specific question)")
 
         # Step 2: Search codebase for existing patterns (if project provided)
         if project_path:
@@ -143,21 +173,32 @@ class Thinker:
                 codebase_results = self.search.search(
                     query=question,
                     directory=project_path,
-                    max_results=5,
+                    max_results=5 if depth == "quick" else 10,
                 )
-                if codebase_results.data and codebase_results.data.get("findings"):
-                    findings.append("\n## Existing Patterns in Codebase")
-                    for finding in codebase_results.data["findings"][:3]:
-                        if isinstance(finding, dict):
-                            findings.append(f"- {finding.get('file', 'unknown')}: {finding.get('summary', '')}")
-                        else:
-                            findings.append(f"- {str(finding)}")
-                    work_log.what_worked.append("Found existing patterns in codebase")
+                # Access findings from the response
+                if codebase_results.findings:
+                    findings.append("\n## Relevant Files in Codebase")
+                    for finding in codebase_results.findings[:5]:
+                        findings.append(f"- {finding.file}: {finding.summary}")
+
+                        # FOR CODEBASE QUESTIONS: Actually read the relevant files
+                        if is_codebase_q and len(code_context) < 3:
+                            file_path = Path(project_path) / finding.file
+                            if file_path.exists():
+                                code_content = self._read_file_for_research(str(file_path))
+                                if code_content:
+                                    code_context.append(f"=== {finding.file} ===\n{code_content}")
+                                    work_log.what_worked.append(f"Read {finding.file} for analysis")
+
+                    work_log.what_worked.append(f"Found {len(codebase_results.findings)} relevant files")
             except Exception as e:
                 work_log.what_failed.append(f"Codebase search failed: {str(e)}")
 
-        # Step 3: Use LLM to reason about findings
-        reasoning_prompt = self._build_research_prompt(question, context, findings, depth)
+        # Step 3: Use LLM to reason about findings (WITH ACTUAL CODE for codebase questions)
+        reasoning_prompt = self._build_research_prompt(
+            question, context, findings, depth,
+            code_context=code_context if is_codebase_q else None
+        )
 
         try:
             result = self.llm.generate(reasoning_prompt)
@@ -166,6 +207,8 @@ class Thinker:
                 findings.append("\n## Analysis")
                 findings.append(reasoning)
                 work_log.what_worked.append("Generated reasoning with LLM")
+                if code_context:
+                    work_log.what_worked.append(f"LLM analyzed {len(code_context)} code file(s)")
             else:
                 findings.append("\n## Analysis")
                 findings.append(f"(LLM error: {result.get('error', 'unknown')})")
@@ -550,19 +593,31 @@ Be specific and practical."""
         context: Optional[str],
         findings: list[str],
         depth: str,
+        code_context: Optional[list[str]] = None,
     ) -> str:
         """Build prompt for LLM reasoning about research."""
+
+        # For codebase questions, include actual code
+        code_section = ""
+        if code_context:
+            code_section = f"""
+
+ACTUAL CODE FROM CODEBASE (analyze this to answer the question):
+{chr(10).join(code_context)}
+
+"""
+
         prompt = f"""Analyze this research question:
 
 Question: {question}
 {f'Context: {context}' if context else ''}
-
+{code_section}
 Research findings:
-{chr(10).join(findings) if findings else 'No web/codebase findings available'}
+{chr(10).join(findings) if findings else 'No findings available'}
 
 Provide a thoughtful analysis that:
-1. Directly answers the question
-2. Synthesizes the findings
+1. Directly answers the question {"based on the actual code provided" if code_context else ""}
+2. {"Reference specific line numbers and functions from the code" if code_context else "Synthesize the findings"}
 3. Points out trade-offs and considerations
 4. Suggests what to do next
 
