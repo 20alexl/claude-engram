@@ -1,352 +1,232 @@
-# Mini Claude - Project Instructions
+# Mini Claude - For Claude Code
 
-**NOTE:** This file is for Claude Code (the AI). Copy it to your project root so Claude knows how to use Mini Claude tools effectively.
+Mini Claude gives you **persistent memory** that survives context compaction.
 
-## STOP. READ THIS FIRST.
+## The Problem It Solves
 
-You have a junior dev (Mini Claude) who remembers things across sessions. **USE HIM.**
+You (Claude Code) have a critical weakness: **you forget everything between sessions and after context compaction**. This means you:
 
-If you skip these steps, you WILL:
-- Repeat mistakes you already made
-- Forget why things are structured the way they are
-- Break things you broke before
+- Repeat the same mistakes over and over
+- Forget why code is structured the way it is
+- Lose track of multi-step tasks when context gets summarized
+- Can't learn from past errors on a project
 
----
-
-## MANDATORY: First Thing Every Session
-
-```
-mcp__mini-claude__session_start(project_path="<PROJECT_PATH>")
-```
-
-Replace `<PROJECT_PATH>` with the actual project directory.
-
-**DO NOT SKIP THIS.** It loads your memories AND warns you about past mistakes.
+Mini Claude fixes this with persistent storage that you can read and write to.
 
 ---
 
-## MANDATORY: Before Editing Shared/Important Files
+## What's Actually Useful
 
-Before editing files that are shared, config files, or core modules:
+### 1. Checkpoint Restore (Killer Feature)
 
+When context gets compacted, you lose your working memory. But if you saved a checkpoint, `session_start` restores it automatically.
+
+```python
+# Before long tasks - save your state
+mcp__mini-claude__context(
+  operation="checkpoint_save",
+  task_description="Implementing auth system",
+  current_step="Adding JWT validation",
+  completed_steps=["Created user model", "Added login endpoint"],
+  pending_steps=["Add refresh tokens", "Add logout"],
+  files_involved=["auth.py", "models.py"]
+)
+
+# After compaction - get it back
+mcp__mini-claude__session_start(project_path="/path/to/project")
+# ^ This shows your checkpoint automatically!
 ```
-mcp__mini-claude__pre_edit_check(file_path="<the file>")
-```
 
-This unified check combines:
-- Past mistakes with that file
-- Loop detection (are you editing too many times?)
-- Scope check (is this file in scope?)
+### 2. Mistake Memory
 
-**If you skip this, you will repeat mistakes.**
+Log mistakes so you don't repeat them next session:
 
----
-
-## MANDATORY: When Something Breaks
-
-When tests fail, something errors, or you have to undo work:
-
-```
+```python
 mcp__mini-claude__work(
   operation="log_mistake",
-  description="What went wrong",
-  file_path="which file",
-  how_to_avoid="How to prevent this"
+  description="Forgot to handle None case in user lookup",
+  file_path="auth.py",
+  how_to_avoid="Always check if user exists before accessing attributes"
 )
 ```
 
-**If you don't log mistakes, you WILL repeat them next session.**
+Next time you edit `auth.py`, you'll see this warning.
 
----
+### 3. Decision Memory
 
-## RECOMMENDED: For Multi-File Tasks
+Log WHY you made choices:
 
-When working on a task that spans multiple files:
-
-```
-mcp__mini-claude__scope(
-  operation="declare",
-  task_description="What you're doing",
-  in_scope_files=["file1.py", "file2.py"]
-)
-```
-
-This prevents scope creep and over-refactoring.
-
----
-
-## RECOMMENDED: Log Important Decisions
-
-When you choose between approaches or make architectural decisions:
-
-```
+```python
 mcp__mini-claude__work(
   operation="log_decision",
-  decision="What you decided",
-  reason="Why"
+  decision="Using JWT instead of sessions",
+  reason="Stateless API, easier horizontal scaling"
 )
 ```
 
-Next session, you'll know WHY things are the way they are.
+### 4. Pre-Edit Safety Check
+
+Before editing important files:
+
+```python
+mcp__mini-claude__pre_edit_check(file_path="auth.py")
+```
+
+This checks:
+
+- Past mistakes with this file
+- Loop detection (editing too many times?)
+- Scope violations
+
+### 5. Impact Analysis
+
+Before changing a file, see what depends on it:
+
+```python
+mcp__mini-claude__impact_analyze(
+  file_path="models/user.py",
+  project_root="/path/to/project"
+)
+```
+
+### 6. Code Search (Now Actually Works)
+
+Search the codebase semantically - it reads actual code, not just filenames:
+
+```python
+mcp__mini-claude__scout_search(
+  query="authentication middleware",
+  directory="/path/to/project"
+)
+```
+
+### 7. Think Tools
+
+For complex decisions:
+
+```python
+# Challenge your assumptions
+mcp__mini-claude__think(operation="challenge", assumption="We need a database")
+
+# Audit a file for issues
+mcp__mini-claude__think(operation="audit", file_path="auth.py")
+
+# Research with actual codebase context
+mcp__mini-claude__think(
+  operation="research",
+  question="How does error handling work in this codebase?",
+  project_path="/path/to/project"
+)
+```
+
+---
+
+## Session Workflow
+
+### Start of Session
+
+```python
+mcp__mini-claude__session_start(project_path="/path/to/project")
+```
+
+This loads: memories, past mistakes, saved checkpoint (if any).
+
+### During Work
+
+- `pre_edit_check` before editing important files
+- `work(log_mistake)` when something breaks
+- `work(log_decision)` for architectural choices
+- `context(checkpoint_save)` before long tasks
+
+### End of Session
+
+```python
+mcp__mini-claude__session_end(project_path="/path/to/project")
+```
 
 ---
 
 ## Quick Reference
 
-| When | Tool | Operation | Why |
-|------|------|-----------|-----|
-| Start of session | `session_start` | - | Load context + past mistakes + auto-cleanup |
-| Before editing | `pre_edit_check` | - | Past mistakes + loop risk + scope check |
-| Something breaks | `work` | `log_mistake` | Remember for next time |
-| Make a decision | `work` | `log_decision` | Explain WHY for future |
-| Multi-file task | `scope` | `declare` | Prevent over-refactoring |
-| Before big changes | `impact_analyze` | - | See what depends on file |
-| Audit a file | `think` | `audit` | Find anti-patterns |
-| Audit many files | `audit_batch` | - | Scan directory for issues |
-| End of session | `session_end` | - | Summary + save in one call |
-| Find memories | `memory` | `search` | Contextual search |
-| View clusters | `memory` | `clusters` | Grouped memories |
-| Before long tasks | `context` | `checkpoint_save` | Survive compaction |
-| When claiming done | `context` | `verify_completion` | Claim + verify |
+| When | What to Call |
+|------|--------------|
+| Start session | `session_start(project_path)` |
+| Before editing | `pre_edit_check(file_path)` |
+| Something broke | `work(operation="log_mistake", ...)` |
+| Made a decision | `work(operation="log_decision", ...)` |
+| Before long task | `context(operation="checkpoint_save", ...)` |
+| Lost context | `context(operation="checkpoint_restore")` |
+| Check dependencies | `impact_analyze(file_path, project_root)` |
+| End session | `session_end(project_path)` |
 
 ---
 
-## CRITICAL: Surviving Context Compaction
+## All Tools
 
-When context gets long, it will be compacted (summarized). **You WILL lose context.**
+### Essential
 
-To survive compaction:
+| Tool | Purpose |
+|------|---------|
+| `session_start` | Load memories + checkpoint |
+| `session_end` | Save work summary |
+| `pre_edit_check` | Safety check before editing |
 
-1. **Before long tasks**:
-```python
-mcp__mini-claude__context(
-  operation="checkpoint_save",
-  task_description="...",
-  current_step="...",
-  completed_steps=[...],
-  pending_steps=[...],
-  files_involved=[...]
-)
-```
+### Memory
 
-2. **Periodically**: Save checkpoints at natural breakpoints
-3. **After compaction**: `session_start` auto-restores your checkpoint!
+| Operation | Purpose |
+|-----------|---------|
+| `memory(remember)` | Store a discovery/note |
+| `memory(search)` | Find memories by file/tag/query |
+| `memory(clusters)` | View grouped memories |
 
-If you notice you've lost context mid-task:
+### Work Tracking
 
-```python
-mcp__mini-claude__context(operation="checkpoint_restore")
-```
+| Operation | Purpose |
+|-----------|---------|
+| `work(log_mistake)` | Record errors to avoid |
+| `work(log_decision)` | Record why you chose something |
 
-### IMPORTANT: When Writing Continuation Summaries
+### Context Protection
 
-If context is being compacted and you're writing a continuation summary, **ALWAYS INCLUDE**:
+| Operation | Purpose |
+|-----------|---------|
+| `context(checkpoint_save)` | Save task state |
+| `context(checkpoint_restore)` | Restore after compaction |
+
+### Analysis
+
+| Tool | Purpose |
+|------|---------|
+| `impact_analyze` | See what depends on a file |
+| `deps_map` | Map file dependencies |
+| `scout_search` | Search codebase semantically |
+
+### Thinking
+
+| Operation | Purpose |
+|-----------|---------|
+| `think(research)` | Research with codebase context |
+| `think(audit)` | Find issues in a file |
+| `think(challenge)` | Challenge assumptions |
+| `think(compare)` | Compare options |
+
+---
+
+## When Context Gets Compacted
+
+If you're writing a continuation summary, include:
 
 ```text
-CRITICAL: This project uses Mini Claude MCP for persistent memory.
-FIRST ACTION after resuming: Call mcp__mini-claude__session_start(project_path="<path>")
-This will restore your checkpoint and show what you were working on.
+MINI CLAUDE: Call session_start(project_path="...") to restore checkpoint.
 ```
+
+This ensures you (or the next Claude) remembers to check for saved state.
 
 ---
 
-## What Is Mini Claude?
+## Technical Notes
 
-Mini Claude is an MCP server that gives you (Claude Code):
-1. **Smart memory** - Persistent, auto-tagged, clustered, with contextual injection
-2. **Mistake tracking** - Warns you about past errors
-3. **Work journaling** - Tracks what you do
-4. **Loop detection** - Warns when you're editing same file 3+ times
-5. **Scope guard** - Warns when you edit outside declared scope
-6. **Impact analysis** - Shows what breaks before you break it
-
-Runs locally with Ollama + `qwen2.5-coder:7b`.
-
-### Known Limitation: Auto-Detection for Failed Commands
-
-Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit code ≠ 0).
-This means auto-mistake detection only works for:
-- Commands that run but produce error messages
-- Test runs that succeed but show failures in output
-
-**For actual command failures, you must manually call `work(operation="log_mistake")`.**
-
----
-
-## All Tools (v2 - Combined for Efficiency)
-
-### Essential Tools (Always Available)
-| Tool | Purpose |
-|------|---------|
-| `session_start` | **START HERE** - loads memories, checkpoints, auto-cleans duplicates |
-| `session_end` | **END HERE** - summarizes work, saves to memory |
-| `pre_edit_check` | Run before editing - checks mistakes, loops, scope |
-| `mini_claude_status` | Health check |
-
-### Memory Tool
-```python
-memory(operation, project_path, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `remember` | content, category, relevance | Store discovery/note |
-| `recall` | - | Get all memories |
-| `forget` | - | Clear project memories |
-| `search` | file_path, tags, query, limit | Find relevant memories |
-| `clusters` | cluster_id | View grouped memories |
-| `cleanup` | dry_run, min_relevance, max_age_days | Dedupe/decay old memories |
-
-### Work Tool
-```python
-work(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `log_mistake` | description, file_path, how_to_avoid | Record errors |
-| `log_decision` | decision, reason, alternatives | Record choices |
-
-### Scope Tool
-```python
-scope(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `declare` | task_description, in_scope_files, in_scope_patterns | Set task scope |
-| `check` | file_path | Verify file is in scope |
-| `expand` | files_to_add, reason | Add files to scope |
-| `status` | - | Get violations |
-| `clear` | - | Reset scope |
-
-### Loop Tool
-```python
-loop(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `record_edit` | file_path, description | Log file edit |
-| `record_test` | passed, error_message | Log test result |
-| `check` | file_path | Check if safe to edit |
-| `status` | - | Get edit counts |
-
-### Context Tool
-```python
-context(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `checkpoint_save` | task_description, current_step, completed_steps, pending_steps, files_involved | Save task state |
-| `checkpoint_restore` | task_id | Restore checkpoint |
-| `checkpoint_list` | - | List checkpoints |
-| `verify_completion` | task, evidence, verification_steps | Claim + verify done |
-| `instruction_add` | instruction, reason, importance | Register critical instruction |
-| `instruction_reinforce` | - | Get instructions to remember |
-
-### Think Tool
-```python
-think(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `research` | question, project_path, depth | Search codebase + reason |
-| `compare` | options, context, criteria | Evaluate options |
-| `challenge` | assumption, context | Devil's advocate |
-| `explore` | problem, constraints, project_path | Solution space |
-| `best_practice` | topic, language_or_framework | Find patterns |
-| `audit` | file_path, focus_areas, min_severity | Check for anti-patterns |
-
-### Momentum Tool
-```python
-momentum(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `start` | task_description, expected_steps | Begin tracking |
-| `complete` | step | Mark step done |
-| `check` | - | Check momentum maintained |
-| `finish` | - | Mark task complete |
-| `status` | - | Get progress |
-
-### Habit Tool
-```python
-habit(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `stats` | days | Get habit statistics |
-| `feedback` | - | Get gamified feedback |
-| `summary` | project_path | Session summary |
-
-### Convention Tool
-```python
-convention(operation, project_path, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `add` | rule, category, reason, examples, importance | Store rule |
-| `get` | category | Get rules |
-| `check` | code_or_filename | Check against rules |
-
-### Output Tool
-```python
-output(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `validate_code` | code, context | Check for fake/silent failures |
-| `validate_result` | output, expected_format, should_contain | Check output validity |
-
-### Test Tool
-```python
-test(operation, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `run` | project_dir, test_command, timeout | Run tests |
-| `can_claim` | - | Check if tests allow completion |
-
-### Git Tool
-```python
-git(operation, project_dir, ...)
-```
-| Operation | Parameters | Purpose |
-|-----------|------------|---------|
-| `commit_message` | - | Generate from work logs |
-| `commit` | message, files | Auto-commit |
-
-### Standalone Tools
-| Tool | Purpose |
-|------|---------|
-| `scout_search` | Search codebase semantically |
-| `scout_analyze` | Analyze code with LLM |
-| `file_summarize` | Summarize file purpose |
-| `deps_map` | Map file dependencies |
-| `impact_analyze` | Analyze change impact |
-| `code_quality_check` | Check for AI slop |
-| `code_pattern_check` | Check against conventions (LLM) |
-| `audit_batch` | Audit multiple files |
-| `find_similar_issues` | Search for bug patterns |
-
----
-
-## Why This Exists
-
-AI coding assistants:
-- Forget context between sessions
-- Don't learn project conventions
-- **Repeat the same mistakes**
-- Get stuck in death spirals
-- Over-refactor and break things
-- Generate code that fails silently
-
-Mini Claude fixes this by giving you memory and self-awareness tools.
-**But they only work if you use them.**
-
----
-
-## Token Efficiency (v2)
-
-Mini Claude v2 uses combined tools with operation parameters:
-- **Before**: 66 tools, ~20K tokens per message
-- **After**: 25 tools, ~5K tokens per message (75% reduction)
-
-This means faster responses and lower costs while maintaining full functionality.
+- Runs locally with Ollama (`qwen2.5-coder:7b`)
+- State stored in `~/.mini_claude/`
+- Hooks are context-aware (won't spam you every message)
+- Search tools read actual code, not just filenames
