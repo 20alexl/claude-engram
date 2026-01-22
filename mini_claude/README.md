@@ -7,13 +7,15 @@ Give Claude Code **persistent memory** across all your projects with smart habit
 ## What is This?
 
 Mini Claude is an MCP server that gives Claude Code:
-- 🧠 **Persistent memory** - Remembers discoveries and mistakes across sessions
+- 🧠 **Smart memory** - Auto-tagged, clustered, contextually injected memories
 - 📊 **Habit tracking** - Gamified feedback on your coding practices
 - 🎯 **Smart suggestions** - Context-aware tool recommendations
 - 🛡️ **Safety guards** - Loop detection, scope protection, output validation
 - 🤖 **Local AI** - Uses Ollama (no cloud, no API costs)
 
 ## Quick Install
+
+### Linux/Mac
 
 ```bash
 # 1. Install Ollama (if not already installed)
@@ -29,8 +31,31 @@ cd mini_claude
 
 # 4. Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+source venv/bin/activate
+
+# 5. Install the package
+pip install -e mini_claude/
+
+# 6. Run the installer
+python install.py
+```
+
+### Windows
+
+```powershell
+# 1. Install Ollama
+# Download from https://ollama.ai and run the installer
+
+# 2. Pull the model
+ollama pull qwen2.5-coder:7b
+
+# 3. Clone and install Mini Claude
+git clone https://github.com/20alexl/mini_claude.git
+cd mini_claude
+
+# 4. Create virtual environment
+python -m venv venv
+venv\Scripts\activate
 
 # 5. Install the package
 pip install -e mini_claude/
@@ -40,53 +65,101 @@ python install.py
 ```
 
 The installer will:
-- Create launcher scripts
+- Create launcher scripts (`.sh` for Linux/Mac, `.bat` for Windows)
 - Generate a global MCP configuration
 - Set up hooks
 - Show you how to use it
 
-**Note:** The `venv` directory must stay! VSCode runs Mini Claude from `venv/bin/python`. Don't delete it or move the repo after installation.
+**Note:** The `venv` directory must stay! Don't delete it or move the repo after installation.
+- Linux/Mac: VSCode runs Mini Claude from `venv/bin/python`
+- Windows: VSCode runs Mini Claude from `venv\Scripts\python.exe`
 
 ## Setup for Your Projects
 
-**Mini Claude works globally** - you install it once and it works in all projects!
+To use Mini Claude effectively, copy **both files** to your project root:
 
-### Option 1: Copy CLAUDE.md (Recommended)
+1. **`.mcp.json`** - Tells Claude Code how to connect to Mini Claude
+2. **`CLAUDE.md`** - Tells Claude how to use Mini Claude tools
 
-Copy the `CLAUDE.md` file from this repo to your project root:
+### Copy Both Files to Your Project
+
+**Linux/Mac:**
 
 ```bash
+cp /path/to/mini_claude/.mcp.json /your/project/.mcp.json
 cp /path/to/mini_claude/CLAUDE.md /your/project/CLAUDE.md
 ```
 
-**What is CLAUDE.md?**
+**Windows:**
+
+```powershell
+copy C:\path\to\mini_claude\.mcp.json C:\your\project\.mcp.json
+copy C:\path\to\mini_claude\CLAUDE.md C:\your\project\CLAUDE.md
+```
+
+**Important:** After copying `.mcp.json`, update the path inside it to point to your mini_claude installation:
+
+- Linux/Mac: `"command": "/path/to/mini_claude/run_server.sh"`
+- Windows: `"command": "C:\\path\\to\\mini_claude\\run_server.bat"`
+
+### What Do These Files Do?
+
+**`.mcp.json`** - MCP Server Configuration
+- Tells VSCode/Claude Code where to find Mini Claude
+- Required for the MCP tools to be available
+- Must contain the correct path to your mini_claude installation
+
+**`CLAUDE.md`** - Instructions for Claude
 - Instructions for Claude Code on how to use Mini Claude
 - Checked into your repo (like a README for AI)
 - Claude reads it automatically when working on your project
 - Ensures Claude uses Mini Claude tools correctly
 
-**Do you NEED it?** No, but highly recommended! Without it:
-- Claude won't know to call `session_start`
-- Won't know when to use which tools
-- Won't follow best practices
+### Do I Need Both Files?
 
-With it:
+| File | Required? | Without It |
+|------|-----------|------------|
+| `.mcp.json` | **Yes** | Mini Claude tools won't be available at all |
+| `CLAUDE.md` | Recommended | Claude won't know to call `session_start`, won't use tools effectively |
+
+With both files:
+- Mini Claude tools are available
 - Claude automatically starts sessions
 - Uses tools at the right time
 - Logs mistakes and decisions
 - Follows project conventions
 
-### Option 2: Per-Project .mcp.json (Advanced)
+### Manual .mcp.json Configuration
 
-If you want project-specific MCP configuration:
+If you need to create `.mcp.json` manually, use the appropriate format for your OS:
 
-```bash
-python install.py --setup /path/to/your/project
+**Linux/Mac:**
+
+```json
+{
+  "mcpServers": {
+    "mini-claude": {
+      "command": "/path/to/mini_claude/run_server.sh",
+      "args": []
+    }
+  }
+}
 ```
 
-This creates a `.mcp.json` in your project that overrides the global config.
+**Windows:**
 
-**Most users don't need this** - the global setup works great!
+```json
+{
+  "mcpServers": {
+    "mini-claude": {
+      "command": "C:\\path\\to\\mini_claude\\run_server.bat",
+      "args": []
+    }
+  }
+}
+```
+
+Replace the path with the actual location of your mini_claude installation.
 
 ## How to Use
 
@@ -281,87 +354,224 @@ After a few days of use:
 🌟 Perfect! You avoided 3 potential loop(s)
 ```
 
-### 3. Context-Aware Loop Detection
+### 3. Smart Memory Management (NEW!)
+
+Session start now automatically:
+- **Deduplicates** memories (>85% similar → merged)
+- **Clusters** related memories by tags (3+ with same tag → group)
+- **Auto-tags** memories (bootstrap, auth, testing, etc.)
+- **Indexes** memories by file for contextual lookup
+
+When editing a file, the hook shows **only relevant memories** for that file, not all 20+ memories.
+
+```python
+# Search for specific memories
+memory_search(project_path="/path", file_path="auth.py")  # By file
+memory_search(project_path="/path", tags=["bootstrap"])   # By tag
+memory_search(project_path="/path", query="httpx")        # By keyword
+
+# View grouped memories
+memory_cluster_view(project_path="/path")  # Shows clusters with summaries
+
+# Manual cleanup (decay/removal)
+memory_cleanup(project_path="/path", dry_run=False)  # Apply decay
+```
+
+### 4. Context-Aware Loop Detection
 
 - 3+ edits + tests **passing** = iterative improvement ✅
 - 3+ edits + tests **failing** = death spiral 🛑 (blocks!)
 
-### 4. Session Exit Handoff
+### 5. Session Exit Handoff
 
-Before ending a session:
+Before ending a session, use the unified `session_end` tool:
 
 ```
-mcp__mini-claude__habit_session_summary(project_path="/your/project")
+mcp__mini-claude__session_end(project_path="/your/project")
 ```
 
-Creates a comprehensive summary for the next Claude instance:
+This combines summary + save in one call and creates a comprehensive handoff:
 - Files edited & why
 - Decisions made & reasoning
 - Mistakes logged
-- Habit performance
-- Tips for next session
+- Session statistics
+- Memories saved for next session
 
-## All 55 Tools
+### Known Limitation: Failed Command Detection
 
-### 🔑 Essential (Start Here!)
+Claude Code's PostToolUse hooks **don't fire for failed bash commands** (exit code ≠ 0).
+
+| Scenario | Auto-Detected? |
+|----------|----------------|
+| Test runs with failures in output | ✅ Yes |
+| Commands that produce warnings | ✅ Yes |
+| ImportError, SyntaxError crashes | ❌ No |
+| Any command with exit code ≠ 0 | ❌ No |
+
+**For actual command failures, manually call `work(operation="log_mistake")`.**
+
+See: [Claude Code Issue #6371](https://github.com/anthropics/claude-code/issues/6371)
+
+## Token Efficiency (v2)
+
+Mini Claude v2 uses combined tools with operation parameters:
+- **Before**: 66 tools, ~20K tokens per message
+- **After**: 25 tools, ~5K tokens per message (75% reduction)
+
+This means faster responses and lower costs while maintaining full functionality.
+
+**Example of combined tool syntax:**
+```python
+# Old: 7 separate memory tools
+mcp__mini-claude__memory_remember(...)
+mcp__mini-claude__memory_search(...)
+
+# New: 1 tool with operation parameter
+mcp__mini-claude__memory(operation="remember", content="...", project_path="...")
+mcp__mini-claude__memory(operation="search", project_path="...", tags=["auth"])
+```
+
+## All Tools (v2 - Combined)
+
+### 🔑 Essential (Always Available)
 | Tool | What It Does |
 |------|--------------|
-| `session_start` | Load memories + warnings (START EVERY SESSION) |
-| `work_log_mistake` | Log mistakes so you don't repeat them |
-| `work_log_decision` | Log WHY you made choices |
-| `habit_session_summary` | Create handoff for next session |
+| `session_start` | Load memories + warnings + auto-cleanup (START EVERY SESSION) |
+| `session_end` | Summary + save in one call |
+| `pre_edit_check` | Unified check: mistakes, loops, scope |
+| `mini_claude_status` | Health check |
 
-### 🧠 Session & Memory
-| Tool | What It Does |
-|------|--------------|
-| `session_start` | Load project context |
-| `memory_remember` | Store discoveries |
-| `memory_recall` | Get memories |
-| `memory_forget` | Clear memories |
+### 🧠 Memory Tool
+```python
+memory(operation, project_path, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `remember` | Store discoveries (auto-tagged!) |
+| `recall` | Get all memories (flat list) |
+| `forget` | Clear project memories |
+| `search` | Contextual search by file, tags, query |
+| `clusters` | View grouped memories with summaries |
+| `cleanup` | Deduplicate, cluster, decay old memories |
 
-### 📝 Work Tracking
-| Tool | What It Does |
-|------|--------------|
-| `work_log_mistake` | Log when things break |
-| `work_log_decision` | Log why you did something |
-| `work_pre_edit_check` | Check context before editing |
-| `work_session_summary` | See what happened |
-| `work_save_session` | Persist to memory |
+### 📝 Work Tool
+```python
+work(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `log_mistake` | Log when things break |
+| `log_decision` | Log why you did something |
 
-### 🛡️ Safety Guards
-| Tool | What It Does |
-|------|--------------|
-| `code_quality_check` | Check code before writing |
-| `loop_record_edit` | Record edit for loop detection |
-| `loop_check_before_edit` | Check if editing might loop |
-| `loop_record_test` | Record test results |
-| `loop_status` | Get loop status |
-| `scope_declare` | Declare files in scope |
-| `scope_check` | Check if file in scope |
-| `scope_expand` | Add files to scope |
-| `scope_status` | Get scope status |
-| `scope_clear` | Clear scope |
+### 🛡️ Scope Tool
+```python
+scope(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `declare` | Declare files in scope for task |
+| `check` | Verify file is in scope |
+| `expand` | Add files to scope |
+| `status` | Get scope violations |
+| `clear` | Clear scope |
 
-### 💾 Context Protection
-| Tool | What It Does |
-|------|--------------|
-| `context_checkpoint_save` | Save task state |
-| `context_checkpoint_restore` | Restore task state |
-| `context_checkpoint_list` | List checkpoints |
-| `context_instruction_add` | Add critical instruction |
-| `context_instruction_reinforce` | Get reminders |
-| `context_claim_completion` | Claim task complete |
-| `context_self_check` | Verify claimed work |
-| `context_handoff_create` | Create handoff |
-| `context_handoff_get` | Get previous handoff |
+### 🔄 Loop Tool
+```python
+loop(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `record_edit` | Record edit for loop detection |
+| `record_test` | Record test results |
+| `check` | Check if safe to edit |
+| `status` | Get edit counts |
 
-### ✅ Output Validation
-| Tool | What It Does |
-|------|--------------|
-| `output_validate_code` | Detect silent failures |
-| `output_validate_result` | Check for fake outputs |
+### 💾 Context Tool
+```python
+context(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `checkpoint_save` | Save task state + handoff info |
+| `checkpoint_restore` | Restore task state |
+| `checkpoint_list` | List checkpoints |
+| `verify_completion` | Claim + verify in one call |
+| `instruction_add` | Add critical instruction |
+| `instruction_reinforce` | Get reminders |
 
-### 🔍 Search & Analysis
+### 🚀 Momentum Tool
+```python
+momentum(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `start` | Track multi-step task |
+| `complete` | Mark step complete |
+| `check` | Check momentum |
+| `finish` | Mark task complete |
+| `status` | Get status |
+
+### 💭 Think Tool
+```python
+think(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `research` | Deep research (codebase + LLM reasoning) |
+| `compare` | Compare options with pros/cons |
+| `challenge` | Challenge assumptions |
+| `explore` | Explore solution space |
+| `best_practice` | Find best practices (local LLM) |
+| `audit` | Audit file for anti-patterns |
+
+### 📊 Habit Tool
+```python
+habit(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `stats` | View habit statistics |
+| `feedback` | Get gamified feedback |
+| `summary` | Comprehensive session summary |
+
+### 📋 Convention Tool
+```python
+convention(operation, project_path, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `add` | Store coding rule |
+| `get` | Get project rules |
+| `check` | Check code against rules |
+
+### ✅ Output Tool
+```python
+output(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `validate_code` | Detect silent failures |
+| `validate_result` | Check for fake outputs |
+
+### 🧪 Test Tool
+```python
+test(operation, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `run` | Auto-detect and run tests |
+| `can_claim` | Check if tests allow completion |
+
+### 📦 Git Tool
+```python
+git(operation, project_dir, ...)
+```
+| Operation | What It Does |
+|-----------|--------------|
+| `commit_message` | Generate from work logs |
+| `commit` | Auto-commit with context |
+
+### 🔍 Standalone Tools
 | Tool | What It Does |
 |------|--------------|
 | `scout_search` | Search codebase semantically |
@@ -369,51 +579,10 @@ Creates a comprehensive summary for the next Claude instance:
 | `file_summarize` | Summarize a file |
 | `deps_map` | Map dependencies |
 | `impact_analyze` | Check what depends on file |
-
-### 📋 Conventions
-| Tool | What It Does |
-|------|--------------|
-| `convention_add` | Store coding rule |
-| `convention_get` | Get project rules |
-| `convention_check` | Check code against rules |
-
-### 🧪 Testing & Git
-| Tool | What It Does |
-|------|--------------|
-| `test_run` | Auto-detect and run tests |
-| `test_can_claim_completion` | Check if tests allow completion |
-| `git_generate_commit_message` | Generate from work logs |
-| `git_auto_commit` | Auto-commit with context |
-
-### 🚀 Momentum Tracking
-| Tool | What It Does |
-|------|--------------|
-| `momentum_start_task` | Track multi-step task |
-| `momentum_complete_step` | Mark step complete |
-| `momentum_check` | Check momentum |
-| `momentum_finish_task` | Mark task complete |
-| `momentum_status` | Get status |
-
-### 💭 Thinking Partner
-| Tool | What It Does |
-|------|--------------|
-| `think_research` | Deep research (web + codebase + LLM) |
-| `think_compare` | Compare options with pros/cons |
-| `think_challenge` | Challenge assumptions |
-| `think_explore` | Explore solution space |
-| `think_best_practice` | Find 2026 best practices |
-
-### 📊 Habit Tracking (NEW!)
-| Tool | What It Does |
-|------|--------------|
-| `habit_get_stats` | View habit statistics |
-| `habit_get_feedback` | Get gamified feedback |
-| `habit_session_summary` | Comprehensive session summary |
-
-### 🔧 Status
-| Tool | What It Does |
-|------|--------------|
-| `mini_claude_status` | Health check |
+| `code_quality_check` | Check code before writing |
+| `code_pattern_check` | Check code with LLM (semantic) |
+| `audit_batch` | Audit multiple files at once |
+| `find_similar_issues` | Search for bug patterns |
 
 ## Architecture
 
@@ -456,6 +625,8 @@ Creates a comprehensive summary for the next Claude instance:
 
 ### Use a Different Model
 
+**Linux/Mac:**
+
 ```bash
 # Use a different model
 export MINI_CLAUDE_MODEL="qwen2.5-coder:14b"
@@ -465,6 +636,18 @@ export MINI_CLAUDE_OLLAMA_URL="http://192.168.1.100:11434"
 ```
 
 Add to `~/.bashrc` or `~/.zshrc` to make permanent.
+
+**Windows (PowerShell):**
+
+```powershell
+# Use a different model
+$env:MINI_CLAUDE_MODEL="qwen2.5-coder:14b"
+
+# Custom Ollama URL
+$env:MINI_CLAUDE_OLLAMA_URL="http://192.168.1.100:11434"
+```
+
+To make permanent on Windows, set environment variables via System Properties > Environment Variables.
 
 **Recommended models:**
 - `qwen2.5-coder:7b` (default) - Fast, good quality
@@ -498,9 +681,19 @@ ollama pull qwen2.5-coder:7b  # Pull the model
 
 ### Package Not Found
 
+**Linux/Mac:**
+
 ```bash
 cd /path/to/mini_claude
 source venv/bin/activate
+pip install -e mini_claude/
+```
+
+**Windows:**
+
+```powershell
+cd C:\path\to\mini_claude
+venv\Scripts\activate
 pip install -e mini_claude/
 ```
 
@@ -560,16 +753,19 @@ With it:
 
 **Yes!** The venv must stay where you installed it. Here's why:
 
-- VSCode runs Mini Claude from `venv/bin/python`
+- Linux/Mac: VSCode runs Mini Claude from `venv/bin/python`
+- Windows: VSCode runs Mini Claude from `venv\Scripts\python.exe`
 - The MCP configuration points to this path
 - If you move/delete the venv, Mini Claude stops working
 
 **What you CAN do:**
+
 - Use Mini Claude from multiple projects (it's global)
 - Copy CLAUDE.md to different repos
 - Have different memories per project
 
 **What you CAN'T do:**
+
 - Move the mini_claude repo after installation
 - Delete the venv folder
 - Rename the venv folder
