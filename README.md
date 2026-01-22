@@ -1,15 +1,19 @@
 # Mini Claude
 
-Persistent memory for Claude Code. Stores mistakes, decisions, and task state across sessions.
+Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
 
 ## What It Does
 
-Claude Code forgets everything between sessions and after context compaction. Mini Claude stores:
+Claude Code forgets everything between sessions and after context compaction. Mini Claude provides:
 
-- **Checkpoints** - Save task state, restore after compaction
-- **Mistakes** - Log errors so you don't repeat them
-- **Decisions** - Log why you chose something
-- **Memories** - General notes and discoveries
+- **Checkpoints** - Save task state, auto-restore after compaction
+- **Mistake memory** - Log errors, get warned next time you touch that file
+- **Decision memory** - Log WHY you chose something
+- **Loop detection** - Warns when editing same file 3+ times (death spiral)
+- **Scope guards** - Declare allowed files, prevent over-refactoring
+- **Impact analysis** - See what depends on a file before changing it
+- **Convention storage** - Store project rules, check code against them
+- **Think tools** - Get second opinion from local 7B model
 
 Runs locally with Ollama. No cloud, no API costs.
 
@@ -19,7 +23,7 @@ Runs locally with Ollama. No cloud, no API costs.
 
 - Python 3.10+
 - [Ollama](https://ollama.ai) with `qwen2.5-coder:7b`
-- Claude Code (VSCode extension)
+- Claude Code (VSCode extension or CLI)
 
 ### Steps
 
@@ -52,54 +56,76 @@ The installer creates launcher scripts and MCP configuration.
 
 Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
 
-The `.mcp.json` is usually global (installed once, works everywhere).
-
 ## Tools
 
-### Essential
+### Session Management
 
 | Tool | Purpose |
 |------|---------|
-| `session_start` | Load memories + checkpoint |
+| `session_start` | Load memories, mistakes, checkpoint |
 | `session_end` | Save work summary |
-| `pre_edit_check` | Check before editing files |
+| `pre_edit_check` | Check mistakes, loops, scope before editing |
 
-### Memory
-
-```
-memory(operation="remember", content="...", project_path="...")
-memory(operation="search", project_path="...", query="...")
-```
-
-### Work Tracking
-
-```
-work(operation="log_mistake", description="...", file_path="...")
-work(operation="log_decision", decision="...", reason="...")
-```
-
-### Context (Checkpoints)
-
-```
-context(operation="checkpoint_save", task_description="...", current_step="...", ...)
-context(operation="checkpoint_restore")
-```
-
-### Analysis
+### Memory & Work Tracking
 
 | Tool | Purpose |
 |------|---------|
-| `impact_analyze` | See what depends on a file |
-| `deps_map` | Map file dependencies |
-| `scout_search` | Search codebase |
+| `memory(remember/search/clusters)` | Store and find discoveries |
+| `work(log_mistake)` | Record error + how to avoid |
+| `work(log_decision)` | Record choice + reasoning |
 
-### Think
+### Context Protection
 
-```
-think(operation="audit", file_path="...")
-think(operation="challenge", assumption="...")
-think(operation="research", question="...", project_path="...")
-```
+| Tool | Purpose |
+|------|---------|
+| `context(checkpoint_save)` | Save task state for compaction survival |
+| `context(checkpoint_restore)` | Restore after compaction |
+| `context(verify_completion)` | Verify task is actually done |
+
+### Scope & Loop Detection
+
+| Tool | Purpose |
+|------|---------|
+| `scope(declare)` | Set allowed files for task |
+| `scope(check)` | Verify file is in scope |
+| `loop(check)` | Check if editing too much |
+
+### Code Analysis
+
+| Tool | Purpose |
+|------|---------|
+| `impact_analyze` | What depends on this file |
+| `deps_map` | Map imports/dependencies |
+| `scout_search` | Semantic codebase search (reads actual code) |
+| `scout_analyze` | Analyze code snippet with LLM |
+| `file_summarize` | Quick file purpose summary |
+| `code_quality_check` | Detect AI slop |
+| `audit_batch` | Audit multiple files |
+| `find_similar_issues` | Find bug patterns |
+
+### Think (Local LLM)
+
+| Tool | Purpose |
+|------|---------|
+| `think(research)` | Research with codebase context |
+| `think(compare)` | Evaluate options |
+| `think(challenge)` | Devil's advocate |
+| `think(audit)` | Find issues in file |
+
+### Conventions
+
+| Tool | Purpose |
+|------|---------|
+| `convention(add)` | Store project rule |
+| `convention(check)` | Check code against rules |
+| `code_pattern_check` | Check against conventions with LLM |
+
+### Validation
+
+| Tool | Purpose |
+|------|---------|
+| `output(validate_code)` | Check for silent failures |
+| `git(commit_message)` | Generate commit from work logs |
 
 ## Configuration
 
@@ -128,7 +154,7 @@ ollama pull qwen2.5-coder:7b
 
 ## Architecture
 
-```
+```text
 Claude Code
     │
     ├── MCP Server (Mini Claude)
