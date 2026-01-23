@@ -56,7 +56,14 @@ The installer creates launcher scripts and MCP configuration.
 
 ## Setup Per Project
 
-Copy [`CLAUDE.md`](CLAUDE.md) to your project root. This tells Claude how to use Mini Claude.
+**Option 1: Use the installer**
+```bash
+python install.py --setup /path/to/your/project
+```
+
+**Option 2: Copy manually**
+- Copy `.mcp.json` to your project root (required - tells VSCode where the MCP server is)
+- Copy [`CLAUDE.md`](CLAUDE.md) to your project root (tells Claude how to use Mini Claude)
 
 ## Tools
 
