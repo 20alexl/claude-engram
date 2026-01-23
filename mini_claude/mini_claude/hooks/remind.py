@@ -69,6 +69,10 @@ def load_state() -> dict:
         "files_edited_this_session": [],
         "ignored_warnings": 0,
         "active_project": "",
+        # Search spiral tracking - detect when Claude is flailing on searches
+        "consecutive_search_failures": 0,
+        "last_search_query": "",
+        "search_spiral_warned": False,
         # Tool usage tracking - helps identify underused tools
         "tool_usage": {
             "session_start": 0,
@@ -179,6 +183,113 @@ def record_file_edit(file_path: str):
         files.append(file_path)
     state["files_edited_this_session"] = files[-50:]  # Keep last 50
     save_state(state)
+
+
+# ============================================================================
+# Search Spiral Detection - Detect when Claude is flailing on searches
+# ============================================================================
+
+def record_search_failure(query_hint: str = ""):
+    """Record a failed search attempt (empty results or not found)."""
+    state = load_state()
+    state["consecutive_search_failures"] = state.get("consecutive_search_failures", 0) + 1
+    if query_hint:
+        state["last_search_query"] = query_hint
+    save_state(state)
+
+
+def record_search_success():
+    """Record a successful search - resets the failure counter."""
+    state = load_state()
+    state["consecutive_search_failures"] = 0
+    state["search_spiral_warned"] = False
+    save_state(state)
+
+
+def check_search_spiral() -> tuple[bool, int]:
+    """
+    Check if Claude is in a search spiral (3+ consecutive failed searches).
+
+    Returns:
+        (in_spiral, failure_count)
+    """
+    state = load_state()
+    failures = state.get("consecutive_search_failures", 0)
+    return (failures >= 3, failures)
+
+
+def get_search_spiral_suggestion(project_dir: str) -> str:
+    """
+    Generate a suggestion for escaping search spiral.
+    Only shows once per spiral (until a search succeeds).
+    """
+    state = load_state()
+
+    # Don't repeat the warning
+    if state.get("search_spiral_warned", False):
+        return ""
+
+    in_spiral, count = check_search_spiral()
+    if not in_spiral:
+        return ""
+
+    # Mark as warned
+    state["search_spiral_warned"] = True
+    save_state(state)
+
+    last_query = state.get("last_search_query", "what you're looking for")
+
+    lines = [
+        "🔍" * 10,
+        "",
+        f"SEARCH SPIRAL DETECTED - {count} failed search attempts",
+        "",
+        "You're struggling to find something. Try:",
+        "",
+        f'  scout_search(query="{last_query}", directory="{project_dir}")',
+        "",
+        "scout_search uses semantic matching - describe WHAT you want,",
+        "not the exact filename. It reads actual code and finds relevant files.",
+        "",
+        "Or just ask the user: 'Where is the prod demo located?'",
+        "",
+        "🔍" * 10,
+    ]
+    return "\n".join(lines)
+
+
+def detect_search_failure_in_output(command: str, output: str) -> bool:
+    """
+    Detect if a bash command was a failed search attempt.
+
+    Returns True if this looks like a failed search (ls/dir/find that found nothing).
+    """
+    if not command or not output:
+        return False
+
+    command_lower = command.lower()
+    output_lower = output.lower()
+
+    # Check if this was a search-like command
+    search_commands = ["ls", "dir", "find", "locate", "where", "which"]
+    is_search = any(cmd in command_lower for cmd in search_commands)
+
+    if not is_search:
+        return False
+
+    # Check for failure patterns
+    failure_patterns = [
+        "no such file",
+        "cannot access",
+        "not found",
+        "does not exist",
+        "cannot find",
+        "no matches",
+        "0 files",
+        "nothing to show",
+    ]
+
+    return any(pattern in output_lower for pattern in failure_patterns)
 
 
 def get_underused_tools() -> list[str]:
@@ -786,8 +897,14 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
     - First prompt of session: Full welcome + past mistakes
     - Session not started: Escalating warnings
     - Tier 2 architectural task: Show thinking tool suggestions
+    - Search spiral: Suggest scout_search after 3+ failed searches
     - Otherwise: SILENT (no spam)
     """
+    # CHECK FOR SEARCH SPIRAL FIRST - always show if in spiral
+    spiral_suggestion = get_search_spiral_suggestion(project_dir)
+    if spiral_suggestion:
+        return f"<mini-claude-reminder>\n{spiral_suggestion}\n</mini-claude-reminder>"
+
     # CHECK IF WE SHOULD SHOW ANYTHING AT ALL
     should_show, reason = should_show_full_reminder(project_dir, prompt)
     if not should_show:
@@ -1143,10 +1260,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
         # Track this edit
         record_file_edit(file_path)
 
-    # Note: Auto-recording will happen post-edit now
-    if file_path and has_content:
-        lines.append("ℹ️ Edit will be auto-tracked after completion")
-        lines.append("")
+    # Auto-recording happens silently post-edit - no need to announce it
 
     lines.append("</mini-claude-edit-reminder>")
 
@@ -1472,10 +1586,24 @@ def main():
                         response = f"{stdout}\n{stderr}".strip()
                     else:
                         response = str(tool_response)
+
+                    # SEARCH SPIRAL DETECTION: Track failed search commands
+                    if detect_search_failure_in_output(command, response):
+                        record_search_failure(command[:50])
+                    elif any(cmd in command.lower() for cmd in ["ls", "dir", "find"]):
+                        # Search succeeded - reset counter
+                        record_search_success()
+
                     # Check for error patterns in output (for successful commands that show errors)
                     exit_code = "1" if "error" in response.lower() or "Error" in response or "Traceback" in response or "FAILED" in response else "0"
                     # Pass the actual output for auto-mistake detection
                     result = reminder_for_bash(project_dir, command, exit_code, output=response)
+
+                    # Add search spiral suggestion if in spiral
+                    spiral_suggestion = get_search_spiral_suggestion(project_dir)
+                    if spiral_suggestion:
+                        result = (result + "\n" + spiral_suggestion) if result else spiral_suggestion
+
                     if result:
                         # Output JSON format for PostToolUse to add context to Claude
                         hook_output = {
