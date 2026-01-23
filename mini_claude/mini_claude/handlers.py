@@ -369,17 +369,18 @@ class Handlers:
                 max_age_days=max_age_days,
             )
 
-            action = "would be" if dry_run else "were"
-            work_log.what_worked.append(
-                f"Found {len(report.get('duplicates_found', []))} duplicates, "
-                f"{len(report.get('decayed', []))} {action} decayed, "
-                f"{len(report.get('clusters_created', []))} clusters {action} created"
-            )
+            # Use the summary from the report
+            summary = report.get("summary", "Cleanup completed")
+            work_log.what_worked.append(summary)
+
+            # Build detailed reasoning
+            mode = "preview" if dry_run else "completed"
+            reasoning = f"Memory cleanup {mode}: {summary}"
 
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
-                reasoning=f"Memory cleanup {'preview' if dry_run else 'completed'} for: {project_path}",
+                reasoning=reasoning,
                 work_log=work_log,
                 data=report,
             )
@@ -630,8 +631,8 @@ class Handlers:
                         checkpoint_info += "⚠️ Warnings:\n"
                         for warn in handoff['warnings']:
                             checkpoint_info += f"  • {warn}\n"
-        except Exception:
-            pass  # Non-critical if checkpoint restore fails
+        except Exception as e:
+            checkpoint_info = f"\n\n⚠️ Could not restore checkpoint: {e}"
 
         # Auto-cleanup memories (non-destructive: dedup + cluster only)
         cleanup_info = ""
@@ -646,16 +647,19 @@ class Handlers:
                 # Only show summary if something was cleaned up
                 dups = len(cleanup_result.get("duplicates_merged", []))
                 clusters = len(cleanup_result.get("clusters_created", []))
-                if dups > 0 or clusters > 0:
+                broken = len(cleanup_result.get("broken_found", []))
+                if dups > 0 or clusters > 0 or broken > 0:
                     cleanup_info = "\n\n🧹 Auto-cleanup: "
                     parts = []
+                    if broken > 0:
+                        parts.append(f"removed {broken} broken")
                     if dups > 0:
                         parts.append(f"merged {dups} duplicates")
                     if clusters > 0:
                         parts.append(f"created {clusters} clusters")
                     cleanup_info += ", ".join(parts)
-        except Exception:
-            pass  # Non-critical if cleanup fails
+        except Exception as e:
+            cleanup_info = f"\n\n⚠️ Auto-cleanup failed: {e}"
 
         output = response.to_formatted_string()
         if checkpoint_info:

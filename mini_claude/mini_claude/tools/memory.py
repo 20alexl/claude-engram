@@ -118,6 +118,7 @@ class MemoryStore:
         # In-memory cache
         self._projects: dict[str, ProjectMemory] = {}
         self._global_entries: list[MemoryEntry] = []
+        self._load_error: str | None = None  # Track if memory file was corrupted
 
         # Load existing memory
         self._load()
@@ -144,8 +145,15 @@ class MemoryStore:
                 if version == 1:
                     self._save()
 
-            except Exception:
-                pass  # Start fresh if corrupted
+            except Exception as e:
+                # Memory file is corrupted - log it and start fresh
+                self._load_error = f"Memory file corrupted, starting fresh: {e}"
+                # Try to backup corrupted file
+                try:
+                    backup_path = self.memory_file.with_suffix(".json.corrupted")
+                    self.memory_file.rename(backup_path)
+                except Exception:
+                    pass
 
     def _migrate_entry_v1_to_v2(self, entry_data: dict) -> dict:
         """Migrate a v1 entry to v2 format."""
@@ -604,9 +612,10 @@ class MemoryStore:
         Clean up and consolidate memories.
 
         Actions:
-        1. Find and optionally merge duplicates
-        2. Decay old low-relevance memories (if apply_decay=True)
-        3. Create clusters from related memories
+        1. Find and remove broken/incomplete memories
+        2. Find and optionally merge duplicates
+        3. Decay old low-relevance memories (if apply_decay=True)
+        4. Create clusters from related memories
 
         Args:
             project_path: The project to clean up
@@ -623,17 +632,36 @@ class MemoryStore:
             return {"error": "Project not found"}
 
         report = {
+            "broken_found": [],
             "duplicates_found": [],
             "duplicates_merged": [],
             "decayed": [],
             "removed": [],
             "clusters_created": [],
             "dry_run": dry_run,
+            "total_memories": len(proj.entries),
         }
+
+        # Find broken/incomplete memories
+        for entry in proj.entries:
+            reason = self._is_broken_memory(entry.content)
+            if reason:
+                report["broken_found"].append({
+                    "entry_id": entry.id,
+                    "reason": reason,
+                    "content_preview": entry.content[:60] + "..." if len(entry.content) > 60 else entry.content,
+                })
+                report["removed"].append({
+                    "entry_id": entry.id,
+                    "reason": f"Broken memory: {reason}",
+                })
 
         # Find duplicates
         seen_content = {}
         for entry in proj.entries:
+            # Skip entries already marked for removal
+            if any(r["entry_id"] == entry.id for r in report["removed"]):
+                continue
             dup = self._is_duplicate(entry.content, list(seen_content.values()), threshold=0.85)
             if dup:
                 report["duplicates_found"].append({
@@ -648,6 +676,9 @@ class MemoryStore:
         if apply_decay:
             now = time.time()
             for entry in proj.entries:
+                # Skip entries already marked for removal
+                if any(r["entry_id"] == entry.id for r in report["removed"]):
+                    continue
                 age_days = (now - entry.last_accessed) / 86400
                 if age_days > max_age_days and entry.relevance < 7:
                     # Calculate decay
@@ -689,6 +720,23 @@ class MemoryStore:
                         "memory_count": len(entry_ids),
                     })
 
+        # Generate summary
+        actions = []
+        if report["broken_found"]:
+            actions.append(f"{len(report['broken_found'])} broken")
+        if report["duplicates_found"]:
+            actions.append(f"{len(report['duplicates_found'])} duplicates")
+        if report["decayed"]:
+            actions.append(f"{len(report['decayed'])} decayed")
+        if report["clusters_created"]:
+            actions.append(f"{len(report['clusters_created'])} new clusters")
+
+        if actions:
+            action_word = "would be cleaned" if dry_run else "cleaned"
+            report["summary"] = f"Found: {', '.join(actions)}. {len(report['removed'])} entries {action_word}."
+        else:
+            report["summary"] = f"All {len(proj.entries)} memories are clean. No action needed."
+
         # Apply changes if not dry run
         if not dry_run:
             self._apply_cleanup(proj, report)
@@ -696,6 +744,59 @@ class MemoryStore:
             self._save()
 
         return report
+
+    def _is_broken_memory(self, content: str) -> Optional[str]:
+        """
+        Check if a memory is broken/incomplete and should be removed.
+        Returns the reason if broken, None if OK.
+        """
+        if not content or not content.strip():
+            return "Empty content"
+
+        # Too short to be useful
+        if len(content.strip()) < 20:
+            return "Too short (< 20 chars)"
+
+        # Truncated mid-sentence (ends with common truncation patterns)
+        truncation_patterns = [
+            "...\n##",  # Truncated before heading
+            ". Key finding: \n",  # Incomplete research
+            "Key finding: \n##",  # Another incomplete pattern
+            ": \n##",  # Colon then heading
+        ]
+        for pattern in truncation_patterns:
+            if pattern in content:
+                return f"Truncated content (contains '{pattern.strip()}')"
+
+        # Ends abruptly (no punctuation, just whitespace)
+        stripped = content.rstrip()
+        if stripped and stripped[-1] not in ".!?\"')]:;":
+            # Check if it ends mid-word or mid-sentence
+            last_line = stripped.split("\n")[-1]
+            if len(last_line) > 10 and " " in last_line[-20:]:
+                # Has spaces near end but no ending punctuation - likely truncated
+                words = content.split()
+                if len(words) > 5:  # Only flag if substantial content
+                    # Check if last word looks incomplete
+                    last_word = words[-1] if words else ""
+                    if last_word and not last_word[-1].isalnum():
+                        pass  # Has some punctuation
+                    elif len(last_word) < 3:
+                        return "Truncated (ends abruptly)"
+
+        # Contains placeholder text
+        placeholder_patterns = [
+            "TODO:",
+            "FIXME:",
+            "...",  # Only if it's the main content
+            "[placeholder]",
+            "[TBD]",
+        ]
+        for pattern in placeholder_patterns:
+            if content.strip() == pattern or content.strip().endswith(pattern):
+                return f"Placeholder content ({pattern})"
+
+        return None
 
     def _apply_cleanup(self, proj: ProjectMemory, report: dict):
         """Apply cleanup actions from a report."""
