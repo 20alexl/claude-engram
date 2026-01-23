@@ -77,30 +77,24 @@ class SessionManager:
             work_log.what_worked.append("no conventions stored yet")
 
         # Build combined context - COMPACT version
-        # Don't include all discoveries - just summary and highlights
+        # Only return counts - protected items (mistakes, rules) are in warnings
         project = memories.get("project", {})
-
-        # Get only the most relevant discoveries (top 5 by relevance)
         discoveries = project.get("discoveries", [])
-        top_discoveries = sorted(
-            discoveries,
-            key=lambda d: d.get("relevance", 5),
-            reverse=True
-        )[:5]
+
+        # Count by type for summary
+        mistake_count = sum(1 for d in discoveries if d.get("content", "").upper().startswith("MISTAKE:"))
+        rule_count = len([c for c in conventions_data if c.get("category") == "avoid" or c.get("importance", 5) >= 9])
 
         context = {
             "project_path": project_path,
-            "memories": {
-                "global_priorities": memories.get("global_priorities", []),
-                "project": {
-                    "name": project.get("name"),
-                    "discoveries": [
-                        {"content": d.get("content", "")[:100], "relevance": d.get("relevance", 5)}
-                        for d in top_discoveries
-                    ],
-                },
+            "counts": {
+                "total_memories": len(discoveries),
+                "mistakes": mistake_count,
+                "rules": rule_count,
+                "conventions": len(conventions_data),
+                "global_priorities": len(memories.get("global_priorities", [])),
             },
-            "summary": self._build_summary(memories, conventions_data),
+            "tip": "Use memory(search, query='...') to find specific memories",
         }
 
         # Generate suggestions
