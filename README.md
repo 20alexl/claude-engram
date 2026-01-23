@@ -2,6 +2,11 @@
 
 Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
 
+# Open BUG (found myself)
+Local model stays activated and causes performance drops after using LLM tools on large repositoties. Especially thinking tools.
+Work around until i fix it: Stop ollama instance after the thinking tool responds. I think it's offloading context that was fed into the model. I will look into it in a day or two, busy with other stuff.
+
+
 ## What It Does
 
 Claude Code forgets everything between sessions and after context compaction. Mini Claude provides:
