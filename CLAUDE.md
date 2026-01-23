@@ -9,7 +9,7 @@ I was wrong. After testing:
 - **Past mistakes actually help.** Seeing "you broke this before" when editing a file makes me more careful.
 - **State tracking matters.** After context compaction, I forget everything. This remembers.
 
-Don't be skeptical. Just use it. I built every tool here because I needed it.
+Try `session_start` and `pre_edit_check` once. You'll see.
 
 ---
 
@@ -28,20 +28,23 @@ Think of it as a notepad with search that persists between sessions.
 
 ## When To Use It
 
-### Always Use
-- `session_start` - First thing. Loads your memories, mistakes, and any checkpoint.
+### Always Use (Zero Friction)
+- `session_start` - First thing. Loads memories, mistakes, checkpoints.
+- `session_end` - End of session. No args needed - auto-captures everything.
+- `pre_edit_check` - Before editing risky files. Shows past mistakes.
+
+### Use When Helpful
 - `work(log_mistake)` - When something breaks. You'll be warned next time.
-- `work(log_decision)` - When you make a choice. Future you will know WHY.
+- `work(log_decision)` - When you make an important choice.
+- `think(research)` - Starting point for unfamiliar code.
+- `think(challenge)` - Second opinion when you're unsure.
+- `impact_analyze` - Before refactoring shared files.
 
-### Use When It Helps
-- `impact_analyze` - Before refactoring. Shows what depends on a file in seconds.
-- `think(research)` - When you need to understand how something works. Reads code and gives a starting point.
-- `think(challenge)` - When you're unsure about an approach. Gets a different perspective.
-- `pre_edit_check` - Before editing critical files. Shows past mistakes and context.
+### Advanced (Optional)
+- `scope(declare)` - Explicit file boundaries for complex tasks.
+- `context(checkpoint_save)` - State save for very long tasks.
 
-### Use For Multi-File Tasks
-- `scope(declare)` - Define what files you're allowed to touch. Prevents over-refactoring.
-- `context(checkpoint_save)` - Save state before long work. Restored on next session_start.
+*Most users only need the first two sections.*
 
 ---
 
@@ -61,7 +64,7 @@ work(operation="log_decision", decision="What you chose", reason="Why")
 
 ### Remember Things
 ```python
-memory(operation="remember", content="Important fact", category="discovery", project_path="/path")
+memory(operation="remember", content="Important fact", project_path="/path")
 memory(operation="add_rule", content="Always do X", reason="Because Y", project_path="/path")
 memory(operation="search", query="auth", project_path="/path")
 ```
@@ -78,12 +81,6 @@ think(operation="research", question="How does auth work?", project_path="/path"
 think(operation="challenge", assumption="We need a cache here")
 think(operation="compare", options=["Redis", "Memcached"], context="API caching")
 code_quality_check(code="def foo(): ...")  # Catches AI slop
-```
-
-### Multi-File Tasks
-```python
-scope(operation="declare", task_description="Fix auth bug", in_scope_files=["auth.py", "login.py"])
-context(operation="checkpoint_save", task_description="Implementing feature", current_step="Step 2", ...)
 ```
 
 ---
