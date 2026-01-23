@@ -154,16 +154,16 @@ class Thinker:
 
         # Step 1: Web search (SKIP for codebase questions - it's just noise)
         if not is_codebase_q:
-            try:
-                web_results = self._web_search(question, max_results=5 if depth == "quick" else 10)
-                if web_results:
-                    findings.append("## Web Research")
-                    for result in web_results[:3]:
-                        findings.append(f"- {result['title']}: {result['snippet']}")
-                        sources.append(result['url'])
-                    work_log.what_worked.append(f"Found {len(web_results)} web results")
-            except Exception as e:
-                work_log.what_failed.append(f"Web search failed: {str(e)}")
+            search_result = self._web_search(question, max_results=5 if depth == "quick" else 10)
+            if search_result.get("error"):
+                work_log.what_failed.append(f"Web search: {search_result['error']}")
+            elif search_result.get("results"):
+                web_results = search_result["results"]
+                findings.append("## Web Research")
+                for result in web_results[:3]:
+                    findings.append(f"- {result['title']}: {result['snippet']}")
+                    sources.append(result['url'])
+                work_log.what_worked.append(f"Found {len(web_results)} web results")
         else:
             work_log.what_worked.append("Skipped web search (codebase-specific question)")
 
@@ -484,17 +484,17 @@ IMPORTANT: Don't give generic textbook answers. Analyze THIS specific problem an
         sources = []
 
         # Web search for current best practices
-        try:
-            web_results = self._web_search(query, max_results=8)
-            if web_results:
-                findings.append("## Recent Best Practices")
-                for result in web_results[:5]:
-                    findings.append(f"- {result['title']}")
-                    findings.append(f"  {result['snippet']}")
-                    sources.append(result['url'])
-                work_log.what_worked.append(f"Found {len(web_results)} sources")
-        except Exception as e:
-            work_log.what_failed.append(f"Web search failed: {str(e)}")
+        search_result = self._web_search(query, max_results=8)
+        if search_result.get("error"):
+            work_log.what_failed.append(f"Web search: {search_result['error']}")
+        elif search_result.get("results"):
+            web_results = search_result["results"]
+            findings.append("## Recent Best Practices")
+            for result in web_results[:5]:
+                findings.append(f"- {result['title']}")
+                findings.append(f"  {result['snippet']}")
+                sources.append(result['url'])
+            work_log.what_worked.append(f"Found {len(web_results)} sources")
 
         # Use LLM to synthesize best practices
         synthesis_prompt = f"""Based on these search results about {topic} best practices:
@@ -542,11 +542,12 @@ Be specific and practical."""
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    def _web_search(self, query: str, max_results: int = 10) -> list[dict]:
+    def _web_search(self, query: str, max_results: int = 10) -> dict:
         """
         Perform web search using DuckDuckGo.
 
-        Returns list of {title, snippet, url}
+        Returns: {"results": [...], "error": None} or {"results": [], "error": str}
+        Each result has {title, snippet, url}
         """
         # Use DuckDuckGo Instant Answer API (no key required)
         try:
@@ -557,7 +558,8 @@ Be specific and practical."""
                     "format": "json",
                     "no_html": 1,
                     "skip_disambig": 1,
-                }
+                },
+                timeout=10.0,
             )
             response.raise_for_status()
             data = response.json()
@@ -581,11 +583,15 @@ Be specific and practical."""
                         "url": topic.get("FirstURL", ""),
                     })
 
-            return results[:max_results]
+            if not results:
+                return {"results": [], "error": "No results found for query"}
 
-        except Exception:
-            # Fallback: return empty (don't crash on web search failure)
-            return []
+            return {"results": results[:max_results], "error": None}
+
+        except self.httpx_client.__class__.__bases__[0].TimeoutException:
+            return {"results": [], "error": "Web search timed out"}
+        except Exception as e:
+            return {"results": [], "error": f"Web search failed: {e}"}
 
     def _build_research_prompt(
         self,

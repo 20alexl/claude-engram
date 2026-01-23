@@ -21,8 +21,11 @@ class GitHelper:
         self.memory = memory_store
         self.work_tracker = work_tracker
 
-    def get_changed_files(self, project_dir: str) -> list[str]:
-        """Get list of changed files in git."""
+    def get_changed_files(self, project_dir: str) -> dict:
+        """
+        Get list of changed files in git.
+        Returns: {"files": [...], "error": None} or {"files": [], "error": "message"}
+        """
         try:
             result = subprocess.run(
                 ["git", "-C", project_dir, "status", "--porcelain"],
@@ -31,7 +34,8 @@ class GitHelper:
                 timeout=5,
             )
             if result.returncode != 0:
-                return []
+                error_msg = result.stderr.strip() or "git status failed"
+                return {"files": [], "error": error_msg}
 
             files = []
             for line in result.stdout.strip().split("\n"):
@@ -40,12 +44,19 @@ class GitHelper:
                     parts = line.strip().split(maxsplit=1)
                     if len(parts) == 2:
                         files.append(parts[1])
-            return files
-        except Exception:
-            return []
+            return {"files": files, "error": None}
+        except subprocess.TimeoutExpired:
+            return {"files": [], "error": "git status timed out"}
+        except FileNotFoundError:
+            return {"files": [], "error": "git not found - is git installed?"}
+        except Exception as e:
+            return {"files": [], "error": f"git status failed: {e}"}
 
     def get_diff_summary(self, project_dir: str) -> dict:
-        """Get summary of changes from git diff."""
+        """
+        Get summary of changes from git diff.
+        Returns: {"stat": ..., "error": None} or {"error": "message"}
+        """
         try:
             result = subprocess.run(
                 ["git", "-C", project_dir, "diff", "--stat"],
@@ -54,12 +65,13 @@ class GitHelper:
                 timeout=10,
             )
             if result.returncode != 0:
-                return {}
+                error_msg = result.stderr.strip() or "git diff failed"
+                return {"error": error_msg}
 
             # Parse diff stat
             lines = result.stdout.strip().split("\n")
-            if not lines:
-                return {}
+            if not lines or not lines[0]:
+                return {"stat": "", "summary": "No changes", "files_count": 0, "error": None}
 
             # Last line has summary: "X files changed, Y insertions(+), Z deletions(-)"
             summary_line = lines[-1]
@@ -68,9 +80,14 @@ class GitHelper:
                 "stat": result.stdout,
                 "summary": summary_line,
                 "files_count": len(lines) - 1,  # -1 for summary line
+                "error": None,
             }
-        except Exception:
-            return {}
+        except subprocess.TimeoutExpired:
+            return {"error": "git diff timed out"}
+        except FileNotFoundError:
+            return {"error": "git not found - is git installed?"}
+        except Exception as e:
+            return {"error": f"git diff failed: {e}"}
 
     def generate_commit_message(
         self,
@@ -88,7 +105,17 @@ class GitHelper:
         work_log.what_i_tried.append("Generating commit message from context")
 
         # Get changed files
-        changed_files = self.get_changed_files(project_dir)
+        changed_result = self.get_changed_files(project_dir)
+        if changed_result.get("error"):
+            return MiniClaudeResponse(
+                status="failed",
+                confidence="high",
+                reasoning=f"Git error: {changed_result['error']}",
+                work_log=work_log,
+                suggestions=["Check if this is a git repository", "Check if git is installed"],
+            )
+
+        changed_files = changed_result["files"]
         if not changed_files:
             return MiniClaudeResponse(
                 status="failed",
@@ -154,6 +181,11 @@ class GitHelper:
 
         commit_message = "\n".join(message_parts)
 
+        # Check for warnings
+        warnings = []
+        if diff_info.get("error"):
+            warnings.append(f"Could not get diff summary: {diff_info['error']}")
+
         return MiniClaudeResponse(
             status="success",
             confidence="medium",
@@ -164,6 +196,7 @@ class GitHelper:
                 "files_changed": changed_files,
                 "diff_summary": diff_info.get("summary", ""),
             },
+            warnings=warnings if warnings else None,
             suggestions=[
                 "Review the message before committing",
                 "Use: git commit -F <(echo \"$MESSAGE\")",

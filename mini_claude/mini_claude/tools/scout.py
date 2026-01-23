@@ -234,10 +234,20 @@ class SearchEngine:
 
         return list(set(terms))
 
-    def _get_file_preview(self, filepath: Path, max_lines: int = 30) -> str:
-        """Get a preview of a file's content (first N lines + key patterns)."""
+    def _get_file_preview(self, filepath: Path, max_lines: int = 30) -> dict:
+        """
+        Get a preview of a file's content (first N lines + key patterns).
+        Returns: {"content": str, "error": None} or {"content": "", "error": str}
+        """
         try:
+            if not filepath.exists():
+                return {"content": "", "error": f"File not found: {filepath}"}
+
             content = filepath.read_text(errors="ignore")
+
+            if not content.strip():
+                return {"content": "", "error": None}  # Empty file is not an error
+
             lines = content.split("\n")
 
             # Get first N lines
@@ -259,9 +269,13 @@ class SearchEngine:
             if key_patterns:
                 preview += "\n...\nKey definitions:\n" + "\n".join(key_patterns[:10])
 
-            return preview[:1500]  # Limit total size
-        except Exception:
-            return ""
+            return {"content": preview[:1500], "error": None}  # Limit total size
+        except PermissionError:
+            return {"content": "", "error": f"Permission denied: {filepath}"}
+        except UnicodeDecodeError:
+            return {"content": "", "error": f"Binary file (not text): {filepath}"}
+        except Exception as e:
+            return {"content": "", "error": f"Could not read {filepath}: {e}"}
 
     def _semantic_search(
         self,
@@ -276,14 +290,18 @@ class SearchEngine:
         # Build file list WITH code previews for the LLM
         file_list = []  # Just paths for matching later
         file_previews = []  # Paths + content for LLM
+        read_errors = []  # Track files that couldn't be read
         for filepath in files[:50]:  # Reduced from 100 to fit more content
             rel_path = str(filepath.relative_to(base_dir))
             file_list.append(rel_path)
-            preview = self._get_file_preview(filepath, max_lines=15)
-            if preview:
-                file_previews.append(f"=== {rel_path} ===\n{preview}\n")
+            preview_result = self._get_file_preview(filepath, max_lines=15)
+            if preview_result["error"]:
+                file_previews.append(f"=== {rel_path} ===\n({preview_result['error']})\n")
+                read_errors.append(f"{rel_path}: {preview_result['error']}")
+            elif preview_result["content"]:
+                file_previews.append(f"=== {rel_path} ===\n{preview_result['content']}\n")
             else:
-                file_previews.append(f"=== {rel_path} ===\n(could not read)\n")
+                file_previews.append(f"=== {rel_path} ===\n(empty file)\n")
 
         # Ask LLM which files are likely relevant - NOW WITH CODE CONTEXT
         prompt = f"""I need to find code related to: "{query}"

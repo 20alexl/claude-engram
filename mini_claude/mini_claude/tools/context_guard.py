@@ -482,10 +482,10 @@ class ContextGuard:
         """
         Unified completion verification: claim + verify in one step.
 
-        This combines claim_completion and self_check into a single tool:
-        1. Records the completion claim with evidence
-        2. Generates a verification checklist
-        3. Returns both in one response
+        This actually verifies:
+        1. Checks if evidence files exist
+        2. Validates each verification step where possible
+        3. Returns pass/fail for each check
 
         Args:
             task: What task is being claimed as complete
@@ -504,56 +504,141 @@ class ContextGuard:
         }
         self._claimed_completions.append(claim)
 
+        # ACTUALLY VERIFY - check evidence files exist
+        evidence_results = []
+        if evidence:
+            for ev in evidence:
+                # Check if it looks like a file path
+                if "/" in ev or "\\" in ev or ev.endswith((".py", ".js", ".ts", ".md", ".json", ".yaml", ".yml")):
+                    path = Path(ev)
+                    if path.exists():
+                        evidence_results.append({"item": ev, "status": "✅ exists", "valid": True})
+                    else:
+                        evidence_results.append({"item": ev, "status": "❌ NOT FOUND", "valid": False})
+                else:
+                    # Not a file path - just note it
+                    evidence_results.append({"item": ev, "status": "📝 noted", "valid": True})
+
+        # ACTUALLY VERIFY - check verification steps where possible
+        step_results = []
+        for step in verification_steps:
+            result = self._verify_step(step)
+            step_results.append(result)
+
+        # Count passes/fails
+        evidence_passed = sum(1 for r in evidence_results if r["valid"])
+        evidence_failed = sum(1 for r in evidence_results if not r["valid"])
+        steps_passed = sum(1 for r in step_results if r["valid"])
+        steps_failed = sum(1 for r in step_results if not r["valid"])
+        steps_manual = sum(1 for r in step_results if r["status"] == "manual")
+
+        all_passed = evidence_failed == 0 and steps_failed == 0
+
         # Record verification attempt
         verification = {
             "task": task,
             "steps": verification_steps,
             "timestamp": time.time(),
+            "passed": all_passed,
         }
         self._actual_verifications.append(verification)
 
-        # Build unified verification response
-        checklist = [
+        # Build response
+        lines = [
             "## Completion Verification",
             f"**Task:** {task}",
             "",
         ]
 
-        if evidence:
-            checklist.append("**Evidence provided:**")
-            for ev in evidence:
-                checklist.append(f"- {ev}")
-            checklist.append("")
+        if evidence_results:
+            lines.append("**Evidence check:**")
+            for r in evidence_results:
+                lines.append(f"  {r['status']} {r['item']}")
+            lines.append("")
 
-        checklist.append("**Verification checklist:**")
-        for i, step in enumerate(verification_steps, 1):
-            checklist.append(f"- [ ] {step}")
+        lines.append("**Verification steps:**")
+        for r in step_results:
+            if r["status"] == "passed":
+                lines.append(f"  ✅ {r['step']}")
+            elif r["status"] == "failed":
+                lines.append(f"  ❌ {r['step']} - {r.get('reason', 'failed')}")
+            else:
+                lines.append(f"  ⏳ {r['step']} (needs manual check)")
+        lines.append("")
 
-        checklist.extend([
-            "",
-            "**Instructions:** Go through each step and verify it's actually done.",
-            "If any step fails, the task is NOT complete.",
-        ])
+        # Summary
+        if all_passed and steps_manual == 0:
+            lines.append("**Result: ✅ ALL CHECKS PASSED**")
+            claim["verified"] = True
+            status = "success"
+        elif all_passed and steps_manual > 0:
+            lines.append(f"**Result: ⏳ {steps_manual} steps need manual verification**")
+            status = "success"
+        else:
+            lines.append(f"**Result: ❌ VERIFICATION FAILED** ({evidence_failed + steps_failed} checks failed)")
+            status = "failed"
 
-        work_log.what_worked.append(f"generated {len(verification_steps)} verification steps")
+        work_log.what_worked.append(f"verified {len(verification_steps)} steps: {steps_passed} passed, {steps_failed} failed, {steps_manual} manual")
 
-        warnings = ["⚠️ You MUST actually verify each step - don't just mark as done!"]
-        if not evidence:
-            warnings.append("⚠️ No evidence provided - consider adding file paths or test results")
+        warnings = []
+        if steps_manual > 0:
+            warnings.append(f"⚠️ {steps_manual} steps require manual verification")
+        if evidence_failed > 0:
+            warnings.append(f"⚠️ {evidence_failed} evidence files not found!")
 
         return MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="\n".join(checklist),
+            status=status,
+            confidence="high" if steps_manual == 0 else "medium",
+            reasoning="\n".join(lines),
             work_log=work_log,
             data={
                 "task": task,
                 "verification_steps": verification_steps,
                 "evidence": evidence or [],
-                "claim_recorded": True,
+                "evidence_results": evidence_results,
+                "step_results": step_results,
+                "all_passed": all_passed,
+                "needs_manual": steps_manual > 0,
             },
-            warnings=warnings,
+            warnings=warnings if warnings else None,
         )
+
+    def _verify_step(self, step: str) -> dict:
+        """
+        Try to automatically verify a step.
+        Returns: {"step": str, "status": "passed"|"failed"|"manual", "valid": bool, "reason": str}
+        """
+        step_lower = step.lower()
+
+        # Check for file existence patterns
+        file_patterns = [
+            "file exists", "file created", "created file", "added file",
+            "exists at", "saved to", "wrote to", "created at"
+        ]
+        if any(p in step_lower for p in file_patterns):
+            # Try to extract file path from step
+            import re
+            # Look for paths like /foo/bar.py or foo/bar.py or "filename.ext"
+            path_match = re.search(r'["\']?([a-zA-Z0-9_/\\.-]+\.[a-zA-Z0-9]+)["\']?', step)
+            if path_match:
+                path = Path(path_match.group(1))
+                if path.exists():
+                    return {"step": step, "status": "passed", "valid": True}
+                else:
+                    return {"step": step, "status": "failed", "valid": False, "reason": f"file not found: {path}"}
+
+        # Check for "no errors" patterns - can't auto-verify
+        error_patterns = ["no errors", "no warnings", "compiles", "builds successfully"]
+        if any(p in step_lower for p in error_patterns):
+            return {"step": step, "status": "manual", "valid": True}
+
+        # Check for test patterns - can't auto-verify without running tests
+        test_patterns = ["tests pass", "test passes", "all tests", "unit tests"]
+        if any(p in step_lower for p in test_patterns):
+            return {"step": step, "status": "manual", "valid": True}
+
+        # Default: needs manual verification
+        return {"step": step, "status": "manual", "valid": True}
 
     def create_handoff(
         self,
