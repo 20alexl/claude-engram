@@ -54,6 +54,8 @@ class ConventionTracker:
         self.conventions_file = self.storage_dir / "conventions.json"
 
         self._projects: dict[str, ProjectConventions] = {}
+        self._load_error: str | None = None
+        self._save_error: str | None = None
         self._load()
 
     def _load(self):
@@ -63,16 +65,42 @@ class ConventionTracker:
                 data = json.loads(self.conventions_file.read_text())
                 for path, proj_data in data.items():
                     self._projects[path] = ProjectConventions(**proj_data)
-            except Exception:
-                pass  # Start fresh if corrupted
+            except Exception as e:
+                # Track error and create backup of corrupted file
+                self._load_error = f"Conventions file corrupted: {e}"
+                try:
+                    backup = self.conventions_file.with_suffix(".json.corrupted")
+                    backup.write_text(self.conventions_file.read_text())
+                except Exception:
+                    pass  # Backup is best-effort
+                # Start fresh
+                self._projects = {}
 
-    def _save(self):
-        """Save conventions to disk."""
+    def get_health(self) -> dict:
+        """Get health status of conventions storage."""
+        return {
+            "healthy": not (self._load_error or self._save_error),
+            "load_error": self._load_error,
+            "save_error": self._save_error,
+            "storage_path": str(self.conventions_file),
+        }
+
+    def _save(self) -> bool:
+        """Save conventions to disk with atomic write."""
         data = {
             path: proj.model_dump()
             for path, proj in self._projects.items()
         }
-        self.conventions_file.write_text(json.dumps(data, indent=2))
+        try:
+            # Atomic write: write to temp file then rename
+            temp_file = self.conventions_file.with_suffix(".json.tmp")
+            temp_file.write_text(json.dumps(data, indent=2))
+            temp_file.rename(self.conventions_file)
+            self._save_error = None
+            return True
+        except Exception as e:
+            self._save_error = f"Failed to save conventions: {e}"
+            return False
 
     def add_convention(
         self,
