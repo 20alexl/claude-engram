@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 class MemoryEntry(BaseModel):
     """A single memory entry with smart features."""
     content: str
-    category: str  # "discovery", "priority", "preference", "note", "mistake", "decision"
+    category: str  # "rule", "mistake", "context", "discovery", "priority", "note", "decision"
     created_at: float = Field(default_factory=time.time)
     source: Optional[str] = None  # What operation created this memory
     relevance: int = 5  # 1-10, higher = more important
@@ -964,3 +964,229 @@ class MemoryStore:
             tags=inferred_tags if inferred_tags else None,
             limit=limit,
         )
+
+    # =========================================================================
+    # v3: Rules and Memory Management
+    # =========================================================================
+
+    def add_rule(
+        self,
+        project_path: str,
+        content: str,
+        reason: Optional[str] = None,
+        relevance: int = 9,
+    ) -> tuple[bool, str]:
+        """
+        Add a global rule that should always be followed.
+        Rules are always shown at session start and have high priority.
+
+        Args:
+            project_path: The project this rule applies to
+            content: The rule content (e.g., "Always use strict TypeScript")
+            reason: Why this rule exists
+            relevance: Importance (default 9 - rules are important)
+
+        Returns:
+            (added, message)
+        """
+        proj = self.remember_project(project_path)
+
+        # Include reason in content if provided
+        full_content = content
+        if reason:
+            full_content = f"{content} (Reason: {reason})"
+
+        # Check for duplicate rules
+        existing_rules = [e for e in proj.entries if e.category == "rule"]
+        duplicate = self._is_duplicate(full_content, existing_rules)
+        if duplicate:
+            return (False, f"Similar rule already exists (id={duplicate.id})")
+
+        entry = MemoryEntry(
+            id=self._generate_entry_id(full_content),
+            content=full_content,
+            category="rule",
+            source="add_rule",
+            relevance=relevance,
+            tags=self._extract_tags(full_content) + ["rule"],
+            related_files=self._extract_file_refs(full_content),
+        )
+
+        proj.entries.append(entry)
+        self._update_indexes(proj, entry)
+        proj.last_updated = time.time()
+        self._save()
+
+        return (True, f"Rule added with id={entry.id}")
+
+    def get_rules(self, project_path: str) -> list[MemoryEntry]:
+        """
+        Get all rules for a project, sorted by relevance.
+        Rules should always be displayed at session start.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        rules = [e for e in proj.entries if e.category == "rule"]
+        return sorted(rules, key=lambda x: x.relevance, reverse=True)
+
+    def get_recent_memories(
+        self,
+        project_path: str,
+        category: Optional[str] = None,
+        limit: int = 10,
+    ) -> list[MemoryEntry]:
+        """
+        Get recent memories, newest first.
+        Useful for showing context of where you left off.
+
+        Args:
+            project_path: The project
+            category: Optional filter by category
+            limit: Max memories to return
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        entries = proj.entries
+        if category:
+            entries = [e for e in entries if e.category == category]
+
+        # Sort by created_at descending (newest first)
+        entries = sorted(entries, key=lambda x: x.created_at, reverse=True)
+        return entries[:limit]
+
+    def modify_memory(
+        self,
+        project_path: str,
+        memory_id: str,
+        content: Optional[str] = None,
+        relevance: Optional[int] = None,
+        category: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """
+        Modify an existing memory.
+
+        Args:
+            project_path: The project
+            memory_id: ID of memory to modify
+            content: New content (optional)
+            relevance: New relevance (optional)
+            category: New category (optional)
+
+        Returns:
+            (success, message)
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return (False, "Project not found")
+
+        entry = self._get_entry_by_id(proj, memory_id)
+        if not entry:
+            return (False, f"Memory {memory_id} not found")
+
+        changes = []
+        if content is not None:
+            entry.content = content
+            entry.tags = self._extract_tags(content)
+            entry.related_files = self._extract_file_refs(content)
+            changes.append("content")
+
+        if relevance is not None:
+            entry.relevance = relevance
+            changes.append("relevance")
+
+        if category is not None:
+            entry.category = category
+            changes.append("category")
+
+        if changes:
+            # Rebuild indexes if content changed
+            if "content" in changes:
+                self._rebuild_indexes(proj)
+            self._save()
+            return (True, f"Modified: {', '.join(changes)}")
+
+        return (False, "No changes specified")
+
+    def delete_memory(
+        self,
+        project_path: str,
+        memory_id: str,
+    ) -> tuple[bool, str]:
+        """
+        Delete a memory by ID.
+
+        Args:
+            project_path: The project
+            memory_id: ID of memory to delete
+
+        Returns:
+            (success, message)
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return (False, "Project not found")
+
+        entry = self._get_entry_by_id(proj, memory_id)
+        if not entry:
+            return (False, f"Memory {memory_id} not found")
+
+        # Remove from entries
+        proj.entries = [e for e in proj.entries if e.id != memory_id]
+
+        # Rebuild indexes
+        self._rebuild_indexes(proj)
+        self._save()
+
+        return (True, f"Deleted memory {memory_id}")
+
+    def promote_to_rule(
+        self,
+        project_path: str,
+        memory_id: str,
+        reason: Optional[str] = None,
+    ) -> tuple[bool, str]:
+        """
+        Promote a memory to a rule.
+        Useful when a discovery turns out to be important enough to always follow.
+
+        Args:
+            project_path: The project
+            memory_id: ID of memory to promote
+            reason: Why this is now a rule
+
+        Returns:
+            (success, message)
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return (False, "Project not found")
+
+        entry = self._get_entry_by_id(proj, memory_id)
+        if not entry:
+            return (False, f"Memory {memory_id} not found")
+
+        if entry.category == "rule":
+            return (False, "Already a rule")
+
+        # Promote
+        entry.category = "rule"
+        entry.relevance = max(entry.relevance, 8)  # Rules should be high relevance
+        if "rule" not in entry.tags:
+            entry.tags.append("rule")
+
+        if reason:
+            entry.content = f"{entry.content} (Promoted to rule: {reason})"
+
+        self._save()
+        return (True, f"Promoted {memory_id} to rule")
+
+    def _rebuild_indexes(self, proj: ProjectMemory):
+        """Rebuild file and tag indexes from scratch."""
+        proj.file_memory_index = {}
+        proj.tag_memory_index = {}
+        for entry in proj.entries:
+            self._update_indexes(proj, entry)

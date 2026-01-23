@@ -251,17 +251,41 @@ def load_project_memory(project_dir: str) -> dict:
 
 
 def get_past_mistakes(project_memory: dict) -> list[str]:
-    """Extract past mistakes from project memory."""
+    """Extract past mistakes from project memory, newest first."""
     mistakes = []
     entries = project_memory.get("entries", [])
 
-    for entry in entries:
+    # Sort by created_at descending (newest first)
+    sorted_entries = sorted(entries, key=lambda x: x.get("created_at", 0), reverse=True)
+
+    for entry in sorted_entries:
         content = entry.get("content", "")
+        category = entry.get("category", "")
+
+        # Check both MISTAKE: prefix and category="mistake"
         if content.upper().startswith("MISTAKE:"):
             mistake_text = content[9:] if content.startswith("MISTAKE: ") else content[8:]
             mistakes.append(mistake_text)
+        elif category == "mistake":
+            mistakes.append(content)
 
     return mistakes
+
+
+def get_project_rules(project_memory: dict) -> list[str]:
+    """Extract rules from project memory (always show these)."""
+    rules = []
+    entries = project_memory.get("entries", [])
+
+    # Sort by relevance descending (most important first)
+    sorted_entries = sorted(entries, key=lambda x: x.get("relevance", 5), reverse=True)
+
+    for entry in sorted_entries:
+        category = entry.get("category", "")
+        if category == "rule":
+            rules.append(entry.get("content", ""))
+
+    return rules
 
 
 def check_session_active(project_dir: str) -> bool:
@@ -860,20 +884,34 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("🔄" * 20)
             lines.append("")
 
-        # Show past mistakes (the whole point of Mini Claude)
+        # Show RULES first (always follow these)
+        rules = get_project_rules(project_memory)
+        if rules:
+            lines.append(f"📜 RULES ({len(rules)}) - always follow:")
+            for r in rules[:5]:  # Show top 5 rules
+                lines.append(f"  • {r[:80]}")
+            lines.append("")
+
+        # Show past mistakes (newest first)
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
             lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
-            for m in mistakes[-5:]:
+            for m in mistakes[:5]:  # Already sorted newest first
                 lines.append(f"  - {m[:80]}")
             lines.append("")
     else:
-        # Session is active - show useful context + HABIT FEEDBACK
-        mistakes = get_past_mistakes(project_memory)
+        # Session is active - show rules, then mistakes, then habit feedback
+        rules = get_project_rules(project_memory)
+        if rules:
+            lines.append(f"📜 Rules ({len(rules)}):")
+            for r in rules[:3]:  # Show top 3 rules in active session
+                lines.append(f"  • {r[:60]}")
+            lines.append("")
 
+        mistakes = get_past_mistakes(project_memory)
         if mistakes:
             lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
-            for m in mistakes[-3:]:
+            for m in mistakes[:3]:  # Newest first
                 lines.append(f"  - {m[:80]}")
             lines.append("")
 

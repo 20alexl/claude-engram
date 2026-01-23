@@ -12,6 +12,7 @@ and makes it easier to add new tools.
 """
 
 import asyncio
+import time
 from mcp.types import TextContent
 
 from .llm import LLMClient
@@ -2018,10 +2019,67 @@ class Handlers:
                 min_relevance=args.get("min_relevance", 3),
                 max_age_days=args.get("max_age_days", 30),
             )
+        elif operation == "add_rule":
+            added, msg = self.memory.add_rule(
+                project_path=project_path,
+                content=args.get("content", ""),
+                reason=args.get("reason"),
+                relevance=args.get("relevance", 9),
+            )
+            return self._success(msg) if added else self._needs_clarification(msg)
+        elif operation == "list_rules":
+            rules = self.memory.get_rules(project_path)
+            if not rules:
+                return self._success("No rules defined for this project")
+            lines = [f"📜 Rules for {project_path}:", ""]
+            for r in rules:
+                lines.append(f"  [{r.id}] {r.content}")
+            return self._success("\n".join(lines), rules=[r.model_dump() for r in rules])
+        elif operation == "modify":
+            success, msg = self.memory.modify_memory(
+                project_path=project_path,
+                memory_id=args.get("memory_id", ""),
+                content=args.get("content"),
+                relevance=args.get("relevance"),
+                category=args.get("category"),
+            )
+            return self._success(msg) if success else self._needs_clarification(msg)
+        elif operation == "delete":
+            success, msg = self.memory.delete_memory(
+                project_path=project_path,
+                memory_id=args.get("memory_id", ""),
+            )
+            return self._success(msg) if success else self._needs_clarification(msg)
+        elif operation == "promote":
+            success, msg = self.memory.promote_to_rule(
+                project_path=project_path,
+                memory_id=args.get("memory_id", ""),
+                reason=args.get("reason"),
+            )
+            return self._success(msg) if success else self._needs_clarification(msg)
+        elif operation == "recent":
+            entries = self.memory.get_recent_memories(
+                project_path=project_path,
+                category=args.get("category"),
+                limit=args.get("limit", 10),
+            )
+            if not entries:
+                return self._success("No recent memories")
+            lines = ["Recent memories (newest first):", ""]
+            for e in entries:
+                age_mins = int((time.time() - e.created_at) / 60)
+                if age_mins < 60:
+                    age_str = f"{age_mins}m ago"
+                elif age_mins < 1440:
+                    age_str = f"{age_mins // 60}h ago"
+                else:
+                    age_str = f"{age_mins // 1440}d ago"
+                lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {e.content[:60]}...")
+            return self._success("\n".join(lines), memories=[e.model_dump() for e in entries])
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
-                "Use: remember, recall, forget, search, clusters, or cleanup"
+                "Use: remember, recall, forget, search, clusters, cleanup, add_rule, list_rules, modify, delete, promote, recent"
             )
 
     async def handle_work(self, operation: str, args: dict) -> list[TextContent]:

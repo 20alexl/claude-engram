@@ -67,27 +67,35 @@ TOOL_DEFINITIONS = [
 - forget: Clear project memories
 - search: Find by file/tags/query (file_path, tags, query, limit)
 - clusters: View grouped memories (cluster_id to expand)
-- cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)""",
+- cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)
+- add_rule: Add global rule (content, reason) - always shown at session start
+- list_rules: Get all rules for project
+- modify: Edit memory (memory_id, content, relevance, category)
+- delete: Remove memory (memory_id)
+- promote: Promote memory to rule (memory_id, reason)
+- recent: Get recent memories newest first (category, limit)""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup"],
+                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "add_rule", "list_rules", "modify", "delete", "promote", "recent"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
-                "content": {"type": "string", "description": "For remember: what to store"},
-                "category": {"type": "string", "enum": ["discovery", "priority", "note"], "description": "For remember: type"},
-                "relevance": {"type": "integer", "description": "For remember: importance 1-10"},
+                "content": {"type": "string", "description": "For remember/add_rule/modify: content"},
+                "category": {"type": "string", "enum": ["discovery", "priority", "note", "rule", "mistake", "context"], "description": "For remember/modify: type"},
+                "relevance": {"type": "integer", "description": "For remember/modify: importance 1-10"},
                 "file_path": {"type": "string", "description": "For search: filter by file"},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "For search: filter by tags"},
                 "query": {"type": "string", "description": "For search: keyword search"},
-                "limit": {"type": "integer", "description": "For search: max results"},
+                "limit": {"type": "integer", "description": "For search/recent: max results"},
                 "cluster_id": {"type": "string", "description": "For clusters: expand specific cluster"},
                 "dry_run": {"type": "boolean", "description": "For cleanup: preview only"},
                 "min_relevance": {"type": "integer", "description": "For cleanup: min to keep"},
                 "max_age_days": {"type": "integer", "description": "For cleanup: decay threshold"},
+                "memory_id": {"type": "string", "description": "For modify/delete/promote: memory ID"},
+                "reason": {"type": "string", "description": "For add_rule/promote: why this rule"},
             },
             "required": ["operation", "project_path"],
         },
