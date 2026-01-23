@@ -68,6 +68,7 @@ TOOL_DEFINITIONS = [
 - search: Find by file/tags/query (file_path, tags, query, limit)
 - clusters: View grouped memories (cluster_id to expand)
 - cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)
+- consolidate: LLM-powered merge of related memories (tag, dry_run)
 - add_rule: Add global rule (content, reason) - always shown at session start
 - list_rules: Get all rules for project
 - modify: Edit memory (memory_id, content, relevance, category)
@@ -79,7 +80,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "add_rule", "list_rules", "modify", "delete", "promote", "recent"],
+                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "promote", "recent"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
@@ -91,7 +92,8 @@ TOOL_DEFINITIONS = [
                 "query": {"type": "string", "description": "For search: keyword search"},
                 "limit": {"type": "integer", "description": "For search/recent: max results"},
                 "cluster_id": {"type": "string", "description": "For clusters: expand specific cluster"},
-                "dry_run": {"type": "boolean", "description": "For cleanup: preview only"},
+                "tag": {"type": "string", "description": "For consolidate: only consolidate memories with this tag"},
+                "dry_run": {"type": "boolean", "description": "For cleanup/consolidate: preview only"},
                 "min_relevance": {"type": "integer", "description": "For cleanup: min to keep"},
                 "max_age_days": {"type": "integer", "description": "For cleanup: decay threshold"},
                 "memory_id": {"type": "string", "description": "For modify/delete/promote: memory ID"},

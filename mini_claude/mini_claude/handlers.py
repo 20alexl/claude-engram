@@ -2050,6 +2050,30 @@ class Handlers:
                 min_relevance=args.get("min_relevance", 3),
                 max_age_days=args.get("max_age_days", 30),
             )
+        elif operation == "consolidate":
+            # Use LLM to intelligently merge related memories
+            tag = args.get("tag")  # Optional: consolidate specific tag only
+            dry_run = args.get("dry_run", True)
+            result = self.memory.consolidate_memories(
+                project_path=project_path,
+                llm_client=self.llm,
+                tag=tag,
+                dry_run=dry_run,
+            )
+            if "error" in result:
+                response = MiniClaudeResponse(
+                    status="needs_clarification",
+                    confidence="high",
+                    reasoning=result["error"],
+                )
+            else:
+                response = MiniClaudeResponse(
+                    status="success",
+                    confidence="high",
+                    reasoning=result.get("summary", "Consolidation complete"),
+                    data=result,
+                )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "add_rule":
             added, msg = self.memory.add_rule(
                 project_path=project_path,
