@@ -53,7 +53,7 @@ Think of it as a notepad with search that persists between sessions.
 ### Session
 ```python
 session_start(project_path="/path")  # Load everything
-session_end(project_path="/path")    # Save and summarize
+session_end()                         # Auto-captures and saves (no args needed)
 ```
 
 ### Track Your Work
