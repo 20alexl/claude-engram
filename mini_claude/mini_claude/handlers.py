@@ -2026,15 +2026,26 @@ class Handlers:
                 reason=args.get("reason"),
                 relevance=args.get("relevance", 9),
             )
-            return self._success(msg) if added else self._needs_clarification(msg)
+            response = MiniClaudeResponse(
+                status="success" if added else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "list_rules":
             rules = self.memory.get_rules(project_path)
             if not rules:
-                return self._success("No rules defined for this project")
+                return [TextContent(type="text", text="No rules defined for this project")]
             lines = [f"📜 Rules for {project_path}:", ""]
             for r in rules:
                 lines.append(f"  [{r.id}] {r.content}")
-            return self._success("\n".join(lines), rules=[r.model_dump() for r in rules])
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning="\n".join(lines),
+                data={"rules": [r.model_dump() for r in rules]},
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "modify":
             success, msg = self.memory.modify_memory(
                 project_path=project_path,
@@ -2043,20 +2054,35 @@ class Handlers:
                 relevance=args.get("relevance"),
                 category=args.get("category"),
             )
-            return self._success(msg) if success else self._needs_clarification(msg)
+            response = MiniClaudeResponse(
+                status="success" if success else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "delete":
             success, msg = self.memory.delete_memory(
                 project_path=project_path,
                 memory_id=args.get("memory_id", ""),
             )
-            return self._success(msg) if success else self._needs_clarification(msg)
+            response = MiniClaudeResponse(
+                status="success" if success else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "promote":
             success, msg = self.memory.promote_to_rule(
                 project_path=project_path,
                 memory_id=args.get("memory_id", ""),
                 reason=args.get("reason"),
             )
-            return self._success(msg) if success else self._needs_clarification(msg)
+            response = MiniClaudeResponse(
+                status="success" if success else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "recent":
             entries = self.memory.get_recent_memories(
                 project_path=project_path,
@@ -2064,7 +2090,7 @@ class Handlers:
                 limit=args.get("limit", 10),
             )
             if not entries:
-                return self._success("No recent memories")
+                return [TextContent(type="text", text="No recent memories")]
             lines = ["Recent memories (newest first):", ""]
             for e in entries:
                 age_mins = int((time.time() - e.created_at) / 60)
@@ -2075,7 +2101,13 @@ class Handlers:
                 else:
                     age_str = f"{age_mins // 1440}d ago"
                 lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {e.content[:60]}...")
-            return self._success("\n".join(lines), memories=[e.model_dump() for e in entries])
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning="\n".join(lines),
+                data={"memories": [e.model_dump() for e in entries]},
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
