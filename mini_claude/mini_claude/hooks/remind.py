@@ -73,6 +73,9 @@ def load_state() -> dict:
         "consecutive_search_failures": 0,
         "last_search_query": "",
         "search_spiral_warned": False,
+        # Test state tracking - only remind on meaningful test runs
+        "last_test_passed": None,  # None = unknown, True = passed, False = failed
+        "test_runs_this_session": 0,
         # Tool usage tracking - helps identify underused tools
         "tool_usage": {
             "session_start": 0,
@@ -1038,14 +1041,22 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append(habit_feedback)
             lines.append("")
 
-        # Check if scope is declared - only suggest for 3+ files (avoid ceremony for small tasks)
+        # Check if scope is declared - only suggest for complex multi-file tasks
+        # Threshold: 5+ files OR 3+ files spanning different directories
         scope = get_scope_status()
         if not scope.get("has_scope"):
             files_edited = state.get("files_edited_this_session", [])
-            if len(files_edited) >= 3:  # Changed from 2 to 3 - less ceremony for small tasks
-                lines.append(f"💡 You've edited {len(files_edited)} files - consider declaring scope to prevent creep")
-                lines.append("  Run: scope(operation='declare', task_description='...', in_scope_files=[...])")
-                lines.append("")
+            if len(files_edited) >= 3:
+                # Check if files span multiple directories (more likely to be a refactor)
+                import os
+                dirs = set(os.path.dirname(f) for f in files_edited)
+                spans_dirs = len(dirs) >= 2
+
+                # Only suggest if: 5+ files total, OR 3+ files across different directories
+                if len(files_edited) >= 5 or spans_dirs:
+                    lines.append(f"💡 You've edited {len(files_edited)} files across {len(dirs)} directories - consider declaring scope")
+                    lines.append("  Run: scope(operation='declare', task_description='...', in_scope_files=[...])")
+                    lines.append("")
 
     # Show full tool checklist on session start (auto or manual)
     if reason in ("first_prompt_of_session", "auto_start_session"):
@@ -1343,19 +1354,62 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
     lines = []
     has_content = False
 
-    # Check if this was a test command
-    test_patterns = ['pytest', 'npm test', 'yarn test', 'jest', 'mocha', 'unittest', 'cargo test', 'go test', 'make test']
-    is_test = any(p in command.lower() for p in test_patterns) if command else False
+    # Check if this was a test command - only remind on meaningful test runs
+    # Full suite patterns (no specific file/path after command)
+    full_suite_patterns = ['npm test', 'yarn test', 'make test', 'cargo test', 'go test ./...']
+    # Commands that might be full suite OR targeted
+    test_commands = ['pytest', 'jest', 'mocha', 'unittest']
 
-    if is_test:
+    command_lower = command.lower() if command else ""
+    is_full_suite = any(p in command_lower for p in full_suite_patterns)
+
+    # For pytest/jest etc, check if it looks like a full suite (no specific file path)
+    if not is_full_suite:
+        for cmd in test_commands:
+            if cmd in command_lower:
+                # If command is just "pytest" or "pytest -v" etc (no path), it's full suite
+                # But "pytest tests/test_foo.py" is targeted
+                parts = command_lower.split()
+                cmd_idx = next((i for i, p in enumerate(parts) if cmd in p), -1)
+                if cmd_idx >= 0:
+                    # Check remaining args for file paths
+                    remaining = parts[cmd_idx + 1:]
+                    has_path = any('.py' in arg or '/' in arg or '\\' in arg or '::' in arg for arg in remaining if not arg.startswith('-'))
+                    if not has_path:
+                        is_full_suite = True
+                break
+
+    if is_full_suite:
         passed = exit_code == "0"
-        lines.append("<mini-claude-test-reminder>")
-        lines.append("You just ran tests. Record the result:")
-        lines.append(f"  loop(operation='record_test', passed={passed}, error_message='...')")
-        lines.append("")
-        lines.append("This helps detect when you're stuck in a loop.")
-        lines.append("</mini-claude-test-reminder>")
-        has_content = True
+        state = load_state()
+        last_passed = state.get("last_test_passed")
+        state["test_runs_this_session"] = state.get("test_runs_this_session", 0) + 1
+
+        # Only remind if: first test run, OR state changed (pass->fail or fail->pass)
+        state_changed = last_passed is not None and last_passed != passed
+        first_run = last_passed is None
+
+        if first_run or state_changed:
+            state["last_test_passed"] = passed
+            save_state(state)
+
+            lines.append("<mini-claude-test-reminder>")
+            if state_changed:
+                if passed:
+                    lines.append("Tests now PASSING (were failing). Record this milestone:")
+                else:
+                    lines.append("Tests now FAILING (were passing). Record what broke:")
+            else:
+                lines.append("Full test suite run. Record the baseline:")
+            lines.append(f"  loop(operation='record_test', passed={passed}, error_message='...')")
+            lines.append("")
+            lines.append("This helps detect when you're stuck in a loop.")
+            lines.append("</mini-claude-test-reminder>")
+            has_content = True
+        else:
+            # Still update state, just don't show reminder
+            state["last_test_passed"] = passed
+            save_state(state)
 
     # Check if command failed
     if exit_code and exit_code != "0":
