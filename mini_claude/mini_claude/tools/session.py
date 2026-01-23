@@ -85,6 +85,11 @@ class SessionManager:
         mistake_count = sum(1 for d in discoveries if d.get("content", "").upper().startswith("MISTAKE:"))
         rule_count = len([c for c in conventions_data if c.get("category") == "avoid" or c.get("importance", 5) >= 9])
 
+        # Get top 3 non-mistake discoveries by relevance for discoverability
+        non_mistakes = [d for d in discoveries if not d.get("content", "").upper().startswith("MISTAKE:")]
+        top_discoveries = sorted(non_mistakes, key=lambda d: d.get("relevance", 5), reverse=True)[:3]
+        hints = [d.get("content", "")[:60] for d in top_discoveries]
+
         context = {
             "project_path": project_path,
             "counts": {
@@ -92,9 +97,9 @@ class SessionManager:
                 "mistakes": mistake_count,
                 "rules": rule_count,
                 "conventions": len(conventions_data),
-                "global_priorities": len(memories.get("global_priorities", [])),
             },
-            "tip": "Use memory(search, query='...') to find specific memories",
+            "recent_hints": hints,  # One-line summaries for discoverability
+            "tip": "memory(search, query='...') for details",
         }
 
         # Generate suggestions
