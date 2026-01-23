@@ -79,6 +79,7 @@ class Handlers:
         # Track session state to remind Claude to use tools properly
         self._active_sessions: set[str] = set()  # project paths with active sessions
         self._tool_call_count = 0  # how many tool calls since session_start
+        self._last_project_path: str | None = None  # for session_end() with no args
 
     def close(self):
         """Close all resources to prevent leaks."""
@@ -596,6 +597,7 @@ class Handlers:
         if project_path:
             self._active_sessions.add(project_path.rstrip("/"))
             self._tool_call_count = 0  # Reset counter
+            self._last_project_path = project_path  # For session_end() with no args
             # Start work tracking for this project
             self.work_tracker.start_session(project_path)
             # Start habit tracking session
@@ -718,6 +720,11 @@ class Handlers:
         Just call session_end() - it does the rest.
         """
         from pathlib import Path
+
+        # Use last session's project_path if not provided (true zero friction)
+        if not project_path:
+            project_path = self._last_project_path
+
         work_log = WorkLog()
         work_log.what_i_tried.append("Ending session")
 
