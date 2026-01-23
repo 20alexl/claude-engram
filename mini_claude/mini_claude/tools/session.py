@@ -76,11 +76,30 @@ class SessionManager:
         else:
             work_log.what_worked.append("no conventions stored yet")
 
-        # Build combined context
+        # Build combined context - COMPACT version
+        # Don't include all discoveries - just summary and highlights
+        project = memories.get("project", {})
+
+        # Get only the most relevant discoveries (top 5 by relevance)
+        discoveries = project.get("discoveries", [])
+        top_discoveries = sorted(
+            discoveries,
+            key=lambda d: d.get("relevance", 5),
+            reverse=True
+        )[:5]
+
         context = {
             "project_path": project_path,
-            "memories": memories,
-            "conventions": conventions_data,
+            "memories": {
+                "global_priorities": memories.get("global_priorities", []),
+                "project": {
+                    "name": project.get("name"),
+                    "discoveries": [
+                        {"content": d.get("content", "")[:100], "relevance": d.get("relevance", 5)}
+                        for d in top_discoveries
+                    ],
+                },
+            },
             "summary": self._build_summary(memories, conventions_data),
         }
 
