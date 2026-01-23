@@ -353,6 +353,7 @@ class MemoryStore:
         relevance: int = 5,
         tags: Optional[list[str]] = None,
         related_files: Optional[list[str]] = None,
+        category: str = "discovery",  # Can override: "mistake", "decision", "context", etc.
     ) -> tuple[bool, str]:
         """
         Remember something discovered about a project.
@@ -380,7 +381,7 @@ class MemoryStore:
         entry = MemoryEntry(
             id=self._generate_entry_id(content),
             content=content,
-            category="discovery",
+            category=category,
             source=source,
             relevance=relevance,
             tags=list(set((tags or []) + auto_tags)),

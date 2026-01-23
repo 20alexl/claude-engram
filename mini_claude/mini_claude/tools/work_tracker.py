@@ -116,6 +116,7 @@ class WorkTracker:
                 f"MISTAKE: {description}" + (f" - Fix: {how_to_avoid}" if how_to_avoid else ""),
                 source="work_tracker",
                 relevance=9,  # Mistakes are high relevance
+                category="mistake",  # Use proper category for filtering
             )
 
     def log_decision(

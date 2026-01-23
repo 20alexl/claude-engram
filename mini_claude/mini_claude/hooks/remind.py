@@ -889,7 +889,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         if rules:
             lines.append(f"📜 RULES ({len(rules)}) - always follow:")
             for r in rules[:5]:  # Show top 5 rules
-                lines.append(f"  • {r[:80]}")
+                lines.append(f"  • {r[:120]}")  # Rules are important, show more
             lines.append("")
 
         # Show past mistakes (newest first)
@@ -897,7 +897,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         if mistakes:
             lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
             for m in mistakes[:5]:  # Already sorted newest first
-                lines.append(f"  - {m[:80]}")
+                lines.append(f"  - {m[:100]}")
             lines.append("")
     else:
         # Session is active - show rules, then mistakes, then habit feedback
@@ -905,14 +905,14 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         if rules:
             lines.append(f"📜 Rules ({len(rules)}):")
             for r in rules[:3]:  # Show top 3 rules in active session
-                lines.append(f"  • {r[:60]}")
+                lines.append(f"  • {r[:100]}")  # Show more of each rule
             lines.append("")
 
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
             lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
             for m in mistakes[:3]:  # Newest first
-                lines.append(f"  - {m[:80]}")
+                lines.append(f"  - {m[:100]}")
             lines.append("")
 
         # Show habit feedback (gamification!)
