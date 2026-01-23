@@ -56,7 +56,7 @@ The installer creates launcher scripts and MCP configuration.
 
 ## Setup Per Project
 
-Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
+Copy [`CLAUDE.md`](CLAUDE.md) to your project root. This tells Claude how to use Mini Claude.
 
 ## Tools
 
