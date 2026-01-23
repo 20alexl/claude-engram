@@ -715,8 +715,8 @@ def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool,
         (should_show, reason) - reason explains why we're showing/not showing
 
     CONTEXT-AWARE LOGIC:
-    - First prompt of session: Show everything (welcome + setup)
-    - Session not started after 3+ prompts: Escalate warnings
+    - Session not active: Auto-start and show welcome
+    - First prompt of session: Show welcome
     - Checkpoint exists to restore: Remind once
     - Tier 2 task detected: Show architectural warning
     - Otherwise: SILENT (no injection)
@@ -724,10 +724,9 @@ def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool,
     state = load_state()
     session_active = check_session_active(project_dir)
 
-    # CASE 1: Session not active - always show (with escalation)
+    # CASE 1: Session not active - will auto-start, show welcome
     if not session_active:
-        prompts_without = state.get("prompts_without_session", 0) + 1
-        return (True, f"session_not_started_prompt_{prompts_without}")
+        return (True, "auto_start_session")
 
     # Session IS active - track prompts within session
     state["prompts_this_session"] = state.get("prompts_this_session", 0) + 1
@@ -812,13 +811,15 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("")
 
     if not session_active:
-        # Track ignored prompts
-        state["prompts_without_session"] = state.get("prompts_without_session", 0) + 1
-        prompts = state["prompts_without_session"]
-        save_state(state)
+        # AUTO-START SESSION - No more nagging!
+        # This is Claude's tool, built by Claude, for Claude. Just start automatically.
+        mark_session_started(project_dir)
+        session_active = True  # Update local var
 
-        # AUTO-LOAD CHECKPOINT/HANDOFF - Show context even without session_start!
-        # This is the key to surviving context compaction
+        lines.append("✅ Mini Claude session auto-started")
+        lines.append("")
+
+        # AUTO-LOAD CHECKPOINT/HANDOFF
         checkpoint = get_checkpoint_data()
         handoff = get_handoff_data()
 
@@ -826,7 +827,6 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("🔄" * 20)
             lines.append("")
             lines.append("📋 CONTEXT RESTORED FROM PREVIOUS SESSION")
-            lines.append("   (You don't need to call session_start to see this)")
             lines.append("")
 
             if checkpoint:
@@ -844,10 +844,6 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                         lines.append(f"    • {step[:60]}")
                 if checkpoint.get("files_involved"):
                     lines.append(f"  📁 Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}")
-                if checkpoint.get("key_decisions"):
-                    lines.append("  🎯 Key decisions:")
-                    for dec in checkpoint["key_decisions"][:2]:
-                        lines.append(f"    • {dec[:60]}")
                 lines.append("")
 
             if handoff:
@@ -857,10 +853,6 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                     lines.append("  Next steps:")
                     for step in handoff["next_steps"][:3]:
                         lines.append(f"    → {step[:60]}")
-                if handoff.get("warnings"):
-                    lines.append("  ⚠️ Warnings:")
-                    for warn in handoff["warnings"][:2]:
-                        lines.append(f"    • {warn[:60]}")
                 lines.append("")
 
             lines.append("⚡ CONTINUE FROM WHERE YOU LEFT OFF!")
@@ -868,35 +860,12 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("🔄" * 20)
             lines.append("")
 
-        # ALWAYS show past mistakes first - this is the compelling reason to use Mini Claude
+        # Show past mistakes (the whole point of Mini Claude)
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
-            lines.append("🔴 PAST MISTAKES YOU WILL REPEAT WITHOUT SESSION:")
-            for m in mistakes[-5:]:  # Show up to 5 most recent
-                lines.append(f"  • {m[:100]}")
-            lines.append("")
-
-        # ESCALATE based on how many times ignored
-        if prompts == 1:
-            lines.append("⚠️ Mini Claude session not started!")
-            lines.append(f'Run: session_start(project_path="{project_dir}")')
-            lines.append("")
-        elif prompts <= 3:
-            lines.append(f"⚠️ Mini Claude session not started (prompt #{prompts})")
-            lines.append(f'Run: session_start(project_path="{project_dir}")')
-            lines.append("")
-        elif prompts <= 5:
-            lines.append("=" * 50)
-            lines.append(f"🔴 SESSION NOT STARTED - PROMPT #{prompts}")
-            lines.append("=" * 50)
-            lines.append(f'RUN: session_start(project_path="{project_dir}")')
-            lines.append("=" * 50)
-            lines.append("")
-        else:
-            lines.append("🚨" * 15)
-            lines.append(f"SESSION NOT STARTED - {prompts} PROMPTS IGNORED")
-            lines.append(f'RUN: session_start(project_path="{project_dir}")')
-            lines.append("🚨" * 15)
+            lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
+            for m in mistakes[-5:]:
+                lines.append(f"  - {m[:80]}")
             lines.append("")
     else:
         # Session is active - show useful context + HABIT FEEDBACK
@@ -923,12 +892,9 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                 lines.append("  Run: scope(operation='declare', task_description='...', in_scope_files=[...])")
                 lines.append("")
 
-    # Only show full tool checklist on FIRST prompt of session
-    # (Controlled by should_show_full_reminder - reason will be "first_prompt_of_session")
-    if reason == "first_prompt_of_session":
+    # Show full tool checklist on session start (auto or manual)
+    if reason in ("first_prompt_of_session", "auto_start_session"):
         lines.append("📊 This Session:")
-        lines.append("")
-        lines.append("🌱 Session just started!")
         lines.append("")
         lines.append("Mini Claude reminders:")
         lines.append("- BEFORE editing: pre_edit_check(file_path)")

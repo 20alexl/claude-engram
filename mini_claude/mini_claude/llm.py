@@ -128,6 +128,7 @@ class LLMClient:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
+                    "keep_alive": 0,  # Unload model after use to free GPU memory
                     "options": {
                         "temperature": temperature,
                     }
