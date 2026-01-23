@@ -62,14 +62,14 @@ TOOL_DEFINITIONS = [
     Tool(
         name="memory",
         description="""Memory operations. Operations:
-- remember: Store discovery/note (content, category, relevance)
+- remember: Store a note (just content - category/relevance optional)
 - recall: Get all memories for project
 - forget: Clear project memories
 - search: Find by file/tags/query (file_path, tags, query, limit)
 - clusters: View grouped memories (cluster_id to expand)
 - cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)
 - consolidate: LLM-powered merge of related memories (tag, dry_run)
-- add_rule: Add global rule (content, reason) - always shown at session start
+- add_rule: Add permanent rule (content, reason) - never decays
 - list_rules: Get all rules for project
 - modify: Edit memory (memory_id, content, relevance, category)
 - delete: Remove memory (memory_id)
@@ -221,13 +221,13 @@ TOOL_DEFINITIONS = [
 
     Tool(
         name="think",
-        description="""Local LLM thinking tools. Operations:
-- research: Search codebase + reason (question, project_path, depth)
-- compare: Evaluate options (options, context, criteria)
-- challenge: Devil's advocate (assumption, context)
-- explore: Solution space (problem, constraints, project_path)
-- best_practice: Find patterns (topic, language_or_framework)
-- audit: Check file for issues (file_path, focus_areas, min_severity)""",
+        description="""Structured pause tools (local LLM). Value is the pause + structure, not intelligence.
+- research: Search codebase + summarize (question, project_path, depth)
+- compare: Structured tradeoffs (options, context, criteria)
+- challenge: Devil's advocate checklist (assumption, context)
+- explore: Brainstorm approaches (problem, constraints, project_path)
+- best_practice: Pattern checklist (topic, language_or_framework)
+- audit: Issue checklist (file_path, focus_areas, min_severity)""",
         inputSchema={
             "type": "object",
             "properties": {

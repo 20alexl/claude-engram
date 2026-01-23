@@ -109,6 +109,12 @@ class SessionManager:
         # Extract warnings - past mistakes are CRITICAL to surface
         warnings = self._extract_warnings(memories, conventions_data)
 
+        # Check for recent activity (auto-captured from last session_end)
+        recent_activity = self._find_recent_activity(memories)
+        if recent_activity:
+            # Insert at the beginning of warnings so it's seen first
+            warnings = [recent_activity] + warnings
+
         return MiniClaudeResponse(
             status="success",
             confidence="high",
@@ -232,3 +238,42 @@ class SessionManager:
                 warnings.append(f"  - {rule.get('rule', '')[:80]}")
 
         return warnings
+
+    def _find_recent_activity(self, memories: dict) -> str | None:
+        """
+        Find recent session activity to show 'what was I doing?'
+
+        Looks for SESSION: entries auto-saved by session_end.
+        Returns a summary if recent activity found (within ~2 hours).
+        """
+        import time
+
+        project = memories.get("project")
+        if not project:
+            return None
+
+        discoveries = project.get("discoveries", [])
+
+        # Find SESSION: entries (auto-saved by session_end)
+        session_entries = [
+            d for d in discoveries
+            if d.get("content", "").startswith("SESSION:")
+        ]
+
+        if not session_entries:
+            return None
+
+        # Check if any are recent (within 2 hours)
+        two_hours_ago = time.time() - (2 * 60 * 60)
+        recent = [
+            s for s in session_entries
+            if s.get("created_at", 0) > two_hours_ago
+        ]
+
+        if recent:
+            # Show the most recent one
+            latest = max(recent, key=lambda x: x.get("created_at", 0))
+            content = latest.get("content", "")
+            return f"📋 Recent: {content}"
+
+        return None

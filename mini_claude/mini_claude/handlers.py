@@ -707,14 +707,15 @@ class Handlers:
 
     async def session_end(self, project_path: str | None = None) -> list[TextContent]:
         """
-        End a session - summarizes work and saves to memory.
+        End a session - AUTO-CAPTURES work and saves to memory.
 
-        Combines:
-        1. work_session_summary - what was done
-        2. work_save_session - persist to memory
-        3. habit_session_summary - habit performance (optional)
+        No manual input needed. Automatically grabs:
+        - Tools used (from habit_tracker)
+        - Files edited
+        - Decisions logged
+        - Mistakes logged
 
-        Call this at the end of a session instead of separate tools.
+        Just call session_end() - it does the rest.
         """
         from pathlib import Path
         work_log = WorkLog()
@@ -725,44 +726,70 @@ class Handlers:
         lines.append("SESSION END SUMMARY")
         lines.append("=" * 50)
 
-        # 1. Get session summary
-        try:
-            summary_response = self.work_tracker.get_session_summary()
-            if summary_response.data:
-                data = summary_response.data
-                lines.append("")
-                lines.append("📊 Session Stats:")
-                lines.append(f"  Duration: {data.get('duration_minutes', 0):.1f} minutes")
-                lines.append(f"  Files edited: {data.get('edits', 0)}")
-                lines.append(f"  Searches: {data.get('searches', 0)}")
-                lines.append(f"  Decisions: {data.get('decisions', 0)}")
-                lines.append(f"  Mistakes logged: {data.get('errors', 0)}")
+        # AUTO-CAPTURE from habit_tracker (no manual input needed)
+        habit_stats = self.habit_tracker.get_session_stats()
+        tools_used = self.habit_tracker._session_tools_used
+        files_edited = self.habit_tracker._session_files_edited
 
-                if data.get('files_touched'):
-                    lines.append("")
-                    lines.append("📁 Files touched:")
-                    for f in data['files_touched'][:10]:
-                        lines.append(f"  - {Path(f).name}")
+        lines.append("")
+        lines.append("📊 Session Stats:")
+        lines.append(f"  Duration: {habit_stats.get('session_duration_minutes', 0):.1f} minutes")
+        lines.append(f"  Tools used: {habit_stats.get('total_tools_used', 0)}")
+        lines.append(f"  Decisions: {self.habit_tracker._session_decisions_logged}")
+        lines.append(f"  Mistakes: {self.habit_tracker._session_mistakes_logged}")
 
-                if data.get('mistakes'):
-                    lines.append("")
-                    lines.append("⚠️ Mistakes logged (will warn next time):")
-                    for m in data['mistakes'][:5]:
-                        lines.append(f"  - {m.get('description', '')[:60]}")
+        if files_edited:
+            lines.append("")
+            lines.append("📁 Files edited:")
+            for f in files_edited[:10]:
+                lines.append(f"  - {Path(f).name}")
 
-            work_log.what_worked.append("Got session summary")
-        except Exception as e:
-            work_log.what_failed.append(f"Summary failed: {str(e)}")
+        # Show last 5 tool calls for context
+        if tools_used:
+            lines.append("")
+            lines.append("🔧 Recent actions:")
+            for t in tools_used[-5:]:
+                ctx = t.get('context', '')[:40]
+                lines.append(f"  - {t['tool']}" + (f": {ctx}" if ctx else ""))
 
-        # 2. Save session to memory
+        work_log.what_worked.append("Auto-captured session activity")
+
+        # 2. Auto-save session summary to memory (zero effort persistence)
         memories_saved = 0
         try:
+            # First, persist any work tracker events
             save_response = self.work_tracker.persist_session_to_memory()
             if save_response.data:
                 memories_saved = save_response.data.get('memories_created', 0)
+
+            # Auto-generate compact session summary
+            if project_path and (tools_used or files_edited):
+                summary_parts = []
+                duration = habit_stats.get('session_duration_minutes', 0)
+                if duration > 0:
+                    summary_parts.append(f"{duration:.0f}min session")
+                if files_edited:
+                    file_names = [Path(f).name for f in files_edited[:3]]
+                    summary_parts.append(f"edited {', '.join(file_names)}")
+                if self.habit_tracker._session_decisions_logged > 0:
+                    summary_parts.append(f"{self.habit_tracker._session_decisions_logged} decisions")
+                if self.habit_tracker._session_mistakes_logged > 0:
+                    summary_parts.append(f"{self.habit_tracker._session_mistakes_logged} mistakes")
+
+                if summary_parts:
+                    auto_summary = "SESSION: " + " | ".join(summary_parts)
+                    self.memory.remember_discovery(
+                        project_path,
+                        auto_summary,
+                        source="session_end_auto",
+                        relevance=5,  # Medium relevance - will decay naturally
+                        category="context",
+                    )
+                    memories_saved += 1
+
             lines.append("")
-            lines.append(f"💾 Saved {memories_saved} memories for next session")
-            work_log.what_worked.append(f"Saved {memories_saved} memories")
+            lines.append(f"💾 Auto-saved {memories_saved} memories")
+            work_log.what_worked.append(f"Auto-saved {memories_saved} memories")
         except Exception as e:
             work_log.what_failed.append(f"Save failed: {str(e)}")
 
