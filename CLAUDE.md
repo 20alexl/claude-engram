@@ -1,297 +1,129 @@
-# Mini Claude - For Claude Code
+# Mini Claude - Your Memory & Research Assistant
 
-Persistent memory that survives context compaction. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
+## What This Is (And Isn't)
 
-## The Problem
+Mini Claude is **not** meant to be smarter or better than you. It's your assistant for:
 
-You forget everything between sessions and after context compaction:
+1. **Tracking state** you'll forget after context compaction
+2. **Finding things faster** than manually grepping/reading files
+3. **Giving starting points** so you don't have to dig from scratch
+4. **Remembering mistakes** so you don't repeat them
 
-- Repeat the same mistakes
-- Forget why code is structured a certain way
-- Lose track of multi-step tasks
-- Can't learn from past errors
-
-Mini Claude stores state locally and gives you tools to avoid these problems.
+Think of it as a notepad with search that persists between sessions.
 
 ---
 
-## Core Features
+## When To Use It
 
-### 1. Checkpoint Restore
+### Always Use
+- `session_start` - First thing. Loads your memories, mistakes, and any checkpoint.
+- `work(log_mistake)` - When something breaks. You'll be warned next time.
+- `work(log_decision)` - When you make a choice. Future you will know WHY.
 
-Save task state before long work. After compaction, `session_start` restores it.
+### Use When It Helps
+- `impact_analyze` - Before refactoring. Shows what depends on a file in seconds.
+- `think(research)` - When you need to understand how something works. Reads code and gives a starting point.
+- `think(challenge)` - When you're unsure about an approach. Gets a different perspective.
+- `pre_edit_check` - Before editing critical files. Shows past mistakes and context.
 
-```python
-mcp__mini-claude__context(
-  operation="checkpoint_save",
-  task_description="Implementing auth system",
-  current_step="Adding JWT validation",
-  completed_steps=["Created user model", "Added login endpoint"],
-  pending_steps=["Add refresh tokens", "Add logout"],
-  files_involved=["auth.py", "models.py"]
-)
-
-# After compaction - restored automatically
-mcp__mini-claude__session_start(project_path="/path/to/project")
-```
-
-### 2. Mistake Memory
-
-Log mistakes. They show up in `pre_edit_check` and `session_start`.
-
-```python
-mcp__mini-claude__work(
-  operation="log_mistake",
-  description="Forgot to handle None case in user lookup",
-  file_path="auth.py",
-  how_to_avoid="Always check if user exists before accessing attributes"
-)
-```
-
-### 3. Decision Memory
-
-Log WHY you chose something. Future you will thank you.
-
-```python
-mcp__mini-claude__work(
-  operation="log_decision",
-  decision="Using JWT instead of sessions",
-  reason="Stateless API, easier horizontal scaling"
-)
-```
-
-### 4. Loop Detection
-
-Warns when you're editing the same file too many times (death spiral prevention).
-
-```python
-mcp__mini-claude__loop(operation="check", file_path="auth.py")
-# Returns warning if you've edited this file 3+ times
-```
-
-### 5. Scope Guard
-
-Declare what files you're allowed to touch. Prevents over-refactoring.
-
-```python
-mcp__mini-claude__scope(
-  operation="declare",
-  task_description="Fix login bug",
-  in_scope_files=["auth.py", "login.py"]
-)
-# Now pre_edit_check warns if you try to edit other files
-```
-
-### 6. Impact Analysis
-
-See what depends on a file before changing it.
-
-```python
-mcp__mini-claude__impact_analyze(
-  file_path="models/user.py",
-  project_root="/path/to/project"
-)
-```
-
-### 7. Convention Storage
-
-Store project rules. Check code against them.
-
-```python
-mcp__mini-claude__convention(
-  operation="add",
-  project_path="/path/to/project",
-  rule="All API endpoints must return JSON with 'data' and 'error' keys",
-  category="pattern",
-  reason="Consistent API responses"
-)
-
-# Later: check if code follows conventions
-mcp__mini-claude__code_pattern_check(
-  project_path="/path/to/project",
-  code="def get_user(): return user"
-)
-```
-
-### 8. Code Quality Checks
-
-Detect AI slop: long functions, vague names, deep nesting.
-
-```python
-mcp__mini-claude__code_quality_check(code="def foo(): ...")
-```
-
-### 9. Think Tools (Local LLM)
-
-Get a second opinion from a local 7B model. Different perspective, not better.
-
-```python
-# Challenge assumptions
-mcp__mini-claude__think(operation="challenge", assumption="We need a database")
-
-# Audit a file
-mcp__mini-claude__think(operation="audit", file_path="auth.py")
-
-# Research (now reads actual code)
-mcp__mini-claude__think(
-  operation="research",
-  question="How does error handling work?",
-  project_path="/path/to/project"
-)
-
-# Compare options
-mcp__mini-claude__think(
-  operation="compare",
-  options=["Redis cache", "In-memory cache", "File cache"],
-  context="Need caching for API responses",
-  criteria=["speed", "simplicity", "persistence"]
-)
-```
-
-### 10. Output Validation
-
-Check if generated code might silently fail.
-
-```python
-mcp__mini-claude__output(
-  operation="validate_code",
-  code="try: ... except: pass",
-  context="Error handling"
-)
-```
+### Use For Multi-File Tasks
+- `scope(declare)` - Define what files you're allowed to touch. Prevents over-refactoring.
+- `context(checkpoint_save)` - Save state before long work. Restored on next session_start.
 
 ---
 
-## Session Workflow
-
-### Start
-
-```python
-mcp__mini-claude__session_start(project_path="/path/to/project")
-```
-
-Loads: memories, mistakes, checkpoint (if any).
-
-### During Work
-
-- `pre_edit_check(file_path)` before editing important files
-- `work(log_mistake)` when something breaks
-- `work(log_decision)` for choices
-- `context(checkpoint_save)` before long tasks
-- `scope(declare)` for multi-file changes
-
-### End
-
-```python
-mcp__mini-claude__session_end(project_path="/path/to/project")
-```
-
----
-
-## All Tools
+## Quick Reference
 
 ### Session
+```python
+session_start(project_path="/path")  # Load everything
+session_end(project_path="/path")    # Save and summarize
+```
 
-| Tool | Purpose |
-|------|---------|
-| `session_start` | Load memories, mistakes, checkpoint |
-| `session_end` | Save work summary |
-| `pre_edit_check` | Check mistakes, loops, scope before editing |
+### Track Your Work
+```python
+work(operation="log_mistake", description="What broke", how_to_avoid="How to prevent")
+work(operation="log_decision", decision="What you chose", reason="Why")
+```
 
-### Memory
+### Remember Things
+```python
+memory(operation="remember", content="Important fact", category="discovery", project_path="/path")
+memory(operation="add_rule", content="Always do X", reason="Because Y", project_path="/path")
+memory(operation="search", query="auth", project_path="/path")
+```
 
-| Operation | Purpose |
-|-----------|---------|
-| `memory(remember)` | Store discovery/note |
-| `memory(search)` | Find by file/tag/query |
-| `memory(clusters)` | View grouped memories |
-| `memory(cleanup)` | Dedupe and decay old memories |
+### Before Editing
+```python
+pre_edit_check(file_path="auth.py")  # Shows mistakes, loop risk, scope status
+impact_analyze(file_path="models.py", project_root="/path")  # What depends on this
+```
 
-### Work Tracking
+### Research & Analysis
+```python
+think(operation="research", question="How does auth work?", project_path="/path")
+think(operation="challenge", assumption="We need a cache here")
+think(operation="compare", options=["Redis", "Memcached"], context="API caching")
+code_quality_check(code="def foo(): ...")  # Catches AI slop
+```
 
-| Operation | Purpose |
-|-----------|---------|
-| `work(log_mistake)` | Record error + how to avoid |
-| `work(log_decision)` | Record choice + reasoning |
+### Multi-File Tasks
+```python
+scope(operation="declare", task_description="Fix auth bug", in_scope_files=["auth.py", "login.py"])
+context(operation="checkpoint_save", task_description="Implementing feature", current_step="Step 2", ...)
+```
 
-### Context Protection
+---
 
-| Operation | Purpose |
-|-----------|---------|
-| `context(checkpoint_save)` | Save task state |
-| `context(checkpoint_restore)` | Restore after compaction |
-| `context(verify_completion)` | Verify task is actually done |
+## The Local LLM (Think Tools)
 
-### Scope & Loop
+The `think` operations use a local 7B model (Ollama). It's useful because:
 
-| Tool | Purpose |
-|------|---------|
-| `scope(declare)` | Set allowed files for task |
-| `scope(check)` | Verify file is in scope |
-| `loop(check)` | Check if editing too much |
-| `loop(status)` | See edit counts |
+- **Different perspective** - Not the same model as you, might catch blind spots
+- **Reads actual code** - `think(research)` searches the codebase and summarizes
+- **Fast for simple tasks** - Good for quick comparisons, challenges, pattern checks
 
-### Code Analysis
+It's NOT better than you. Use it for:
+- Starting points when exploring unfamiliar code
+- Second opinions on architectural decisions
+- Devil's advocate when you're unsure
+- Quick file audits
 
-| Tool | Purpose |
-|------|---------|
-| `impact_analyze` | What depends on this file |
-| `deps_map` | Map imports/dependencies |
-| `scout_search` | Semantic codebase search |
-| `scout_analyze` | Analyze code snippet with LLM |
-| `file_summarize` | Quick file purpose summary |
-| `code_quality_check` | Detect AI slop |
-| `code_pattern_check` | Check against conventions |
-| `audit_batch` | Audit multiple files |
-| `find_similar_issues` | Find bug patterns in codebase |
+---
 
-### Think (Local LLM)
+## Memory Categories
 
-| Operation | Purpose |
-|-----------|---------|
-| `think(research)` | Research with codebase context |
-| `think(compare)` | Evaluate options |
-| `think(challenge)` | Devil's advocate |
-| `think(explore)` | Solution space |
-| `think(audit)` | Find issues in file |
-| `think(best_practice)` | Find patterns for topic |
+| Category | Purpose | Protected |
+|----------|---------|-----------|
+| `rule` | Project rules that always apply | Yes - never decays |
+| `mistake` | Errors to avoid repeating | Yes - never decays |
+| `discovery` | Facts learned about the codebase | No |
+| `context` | Session-specific notes | No |
 
-### Conventions
+Protected categories survive cleanup and are always shown at session start.
 
-| Operation | Purpose |
-|-----------|---------|
-| `convention(add)` | Store project rule |
-| `convention(get)` | Get rules by category |
-| `convention(check)` | Check code against rules |
+---
 
-### Validation
+## What Happens Automatically
 
-| Operation | Purpose |
-|-----------|---------|
-| `output(validate_code)` | Check for silent failures |
-| `output(validate_result)` | Check output format |
-
-### Git
-
-| Operation | Purpose |
-|-----------|---------|
-| `git(commit_message)` | Generate from work logs |
+1. **Session auto-starts** - Hooks detect when you haven't called session_start
+2. **Memory auto-cleans** - Duplicates merged, clusters created on session_start
+3. **Mistakes persist** - Logged mistakes show up in pre_edit_check forever
+4. **Checkpoints restore** - Saved checkpoints load automatically on session_start
 
 ---
 
 ## When Context Gets Compacted
 
-Include in continuation summary:
-
-```text
-MINI CLAUDE: Call session_start(project_path="...") to restore checkpoint.
+Include in your continuation summary:
+```
+MINI CLAUDE: Call session_start(project_path="...") to restore context.
 ```
 
 ---
 
 ## Technical Notes
 
-- Runs locally with Ollama (`qwen2.5-coder:7b`)
-- State stored in `~/.mini_claude/`
-- Hooks are context-aware (won't spam every message)
-- Search/research tools read actual code
+- Local LLM: Ollama with `qwen2.5-coder:7b` (configurable via `MINI_CLAUDE_MODEL`)
+- Storage: `~/.mini_claude/`
+- Keep-alive: Set `MINI_CLAUDE_KEEP_ALIVE=5m` to keep model loaded (faster, uses GPU memory)
