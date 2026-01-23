@@ -95,7 +95,7 @@ class ConventionTracker:
             # Atomic write: write to temp file then rename
             temp_file = self.conventions_file.with_suffix(".json.tmp")
             temp_file.write_text(json.dumps(data, indent=2))
-            temp_file.rename(self.conventions_file)
+            temp_file.replace(self.conventions_file)  # .replace() works on Windows
             self._save_error = None
             return True
         except Exception as e:

@@ -152,7 +152,7 @@ class MemoryStore:
                 # Try to backup corrupted file
                 try:
                     backup_path = self.memory_file.with_suffix(".json.corrupted")
-                    self.memory_file.rename(backup_path)
+                    self.memory_file.replace(backup_path)  # .replace() works on Windows
                 except Exception:
                     pass
 
@@ -308,7 +308,7 @@ class MemoryStore:
             # Write to temp file first, then rename (atomic operation)
             temp_file = self.memory_file.with_suffix(".json.tmp")
             temp_file.write_text(json.dumps(data, indent=2))
-            temp_file.rename(self.memory_file)
+            temp_file.replace(self.memory_file)  # .replace() works on both Windows and Linux
             return True
         except Exception as e:
             # Log the error but don't crash - memory operations should be resilient
