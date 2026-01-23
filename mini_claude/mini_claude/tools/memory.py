@@ -119,6 +119,7 @@ class MemoryStore:
         self._projects: dict[str, ProjectMemory] = {}
         self._global_entries: list[MemoryEntry] = []
         self._load_error: str | None = None  # Track if memory file was corrupted
+        self._save_error: str | None = None  # Track if save failed
 
         # Load existing memory
         self._load()
@@ -288,8 +289,13 @@ class MemoryStore:
             if entry.id not in proj.tag_memory_index[t]:
                 proj.tag_memory_index[t].append(entry.id)
 
-    def _save(self):
-        """Save memory to disk with version marker."""
+    def _save(self) -> bool:
+        """
+        Save memory to disk with version marker.
+
+        Returns:
+            True if save succeeded, False otherwise
+        """
         data = {
             "version": 2,
             "projects": {
@@ -298,7 +304,16 @@ class MemoryStore:
             },
             "global": [e.model_dump() for e in self._global_entries]
         }
-        self.memory_file.write_text(json.dumps(data, indent=2))
+        try:
+            # Write to temp file first, then rename (atomic operation)
+            temp_file = self.memory_file.with_suffix(".json.tmp")
+            temp_file.write_text(json.dumps(data, indent=2))
+            temp_file.rename(self.memory_file)
+            return True
+        except Exception as e:
+            # Log the error but don't crash - memory operations should be resilient
+            self._save_error = f"Failed to save memory: {e}"
+            return False
 
     def get_project(self, project_path: str) -> Optional[ProjectMemory]:
         """Get memory for a project, if it exists."""
@@ -509,12 +524,45 @@ class MemoryStore:
         total_entries = sum(len(p.entries) for p in self._projects.values())
         total_entries += len(self._global_entries)
 
-        return {
+        stats = {
             "projects_tracked": len(self._projects),
             "total_entries": total_entries,
             "global_entries": len(self._global_entries),
             "storage_path": str(self.memory_file),
         }
+
+        # Report any errors
+        if self._load_error:
+            stats["load_error"] = self._load_error
+        if self._save_error:
+            stats["save_error"] = self._save_error
+
+        return stats
+
+    def get_health(self) -> dict:
+        """
+        Get memory system health status.
+        Reports any errors that occurred during load/save.
+        """
+        health = {
+            "healthy": not (self._load_error or self._save_error),
+            "storage_path": str(self.memory_file),
+            "storage_exists": self.memory_file.exists(),
+        }
+
+        if self._load_error:
+            health["load_error"] = self._load_error
+            health["backup_created"] = self.memory_file.with_suffix(".json.corrupted").exists()
+
+        if self._save_error:
+            health["save_error"] = self._save_error
+
+        return health
+
+    def clear_errors(self):
+        """Clear error state after user acknowledges."""
+        self._load_error = None
+        self._save_error = None
 
     # =========================================================================
     # v2: Smart Memory Methods

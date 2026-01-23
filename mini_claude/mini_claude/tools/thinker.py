@@ -100,6 +100,17 @@ class Thinker:
         self.llm = llm
         self.httpx_client = httpx.Client(timeout=30.0)
 
+    def close(self):
+        """Close the HTTP client to prevent resource leaks."""
+        if self.httpx_client:
+            self.httpx_client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def _is_codebase_question(self, question: str) -> bool:
         """Detect if the question is about THIS codebase specifically."""
         codebase_indicators = [

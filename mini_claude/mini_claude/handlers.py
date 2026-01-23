@@ -80,6 +80,19 @@ class Handlers:
         self._active_sessions: set[str] = set()  # project paths with active sessions
         self._tool_call_count = 0  # how many tool calls since session_start
 
+    def close(self):
+        """Close all resources to prevent leaks."""
+        if hasattr(self, 'llm') and self.llm:
+            self.llm.close()
+        if hasattr(self, 'thinker') and self.thinker:
+            self.thinker.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def _check_session(self, project_path: str | None) -> str | None:
         """
         Check if session_start was called for this project.
@@ -662,11 +675,29 @@ class Handlers:
         except Exception as e:
             cleanup_info = f"\n\n⚠️ Auto-cleanup failed: {e}"
 
+        # Check memory health and report any errors
+        memory_health_info = ""
+        try:
+            health = self.memory.get_health()
+            if not health.get("healthy"):
+                memory_health_info = "\n\n⚠️ MEMORY SYSTEM WARNING:\n"
+                if health.get("load_error"):
+                    memory_health_info += f"  Load error: {health['load_error']}\n"
+                    if health.get("backup_created"):
+                        memory_health_info += "  (Backup of corrupted file created)\n"
+                if health.get("save_error"):
+                    memory_health_info += f"  Save error: {health['save_error']}\n"
+                memory_health_info += "  Memory operations may be degraded."
+        except Exception:
+            pass  # Non-critical
+
         output = response.to_formatted_string()
         if checkpoint_info:
             output += checkpoint_info
         if cleanup_info:
             output += cleanup_info
+        if memory_health_info:
+            output += memory_health_info
 
         return [TextContent(type="text", text=output)]
 

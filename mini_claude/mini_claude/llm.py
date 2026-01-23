@@ -8,17 +8,22 @@ Environment variables:
 - MINI_CLAUDE_MODEL: Which Ollama model to use (default: qwen2.5-coder:7b)
 - MINI_CLAUDE_OLLAMA_URL: Ollama API URL (default: http://localhost:11434)
 - MINI_CLAUDE_TIMEOUT: Timeout in seconds for LLM calls (default: 300)
+- MINI_CLAUDE_KEEP_ALIVE: How long to keep model loaded after call (default: 0)
+  - "0" = Unload immediately (saves GPU memory, slower next call)
+  - "5m" = Keep loaded 5 minutes (faster next call, uses GPU memory)
+  - "-1" = Keep loaded forever
 """
 
 import httpx
 import os
 import time
-from typing import Optional
+from typing import Optional, Union
 
 
 # Default model - can be overridden via environment variable
 DEFAULT_MODEL = "qwen2.5-coder:7b"
 DEFAULT_TIMEOUT = 300.0  # 5 minutes - local LLMs on slow machines need time
+DEFAULT_KEEP_ALIVE = 0  # Unload immediately to free GPU memory
 
 
 class LLMClient:
@@ -30,6 +35,7 @@ class LLMClient:
         model: str = None,
         timeout: float = None,
         max_retries: int = 3,
+        keep_alive: Union[int, str] = None,
     ):
         # Allow environment variables to override defaults
         self.base_url = base_url or os.environ.get("MINI_CLAUDE_OLLAMA_URL", "http://localhost:11434")
@@ -40,6 +46,19 @@ class LLMClient:
         else:
             env_timeout = os.environ.get("MINI_CLAUDE_TIMEOUT")
             self.timeout = float(env_timeout) if env_timeout else DEFAULT_TIMEOUT
+        # Keep alive: how long Ollama keeps model loaded after call
+        if keep_alive is not None:
+            self.keep_alive = keep_alive
+        else:
+            env_keep_alive = os.environ.get("MINI_CLAUDE_KEEP_ALIVE")
+            if env_keep_alive:
+                # Try to parse as int, otherwise use as string (e.g., "5m")
+                try:
+                    self.keep_alive = int(env_keep_alive)
+                except ValueError:
+                    self.keep_alive = env_keep_alive
+            else:
+                self.keep_alive = DEFAULT_KEEP_ALIVE
         self.max_retries = max_retries
         self._client = httpx.Client(timeout=self.timeout)
         self._last_health_check: Optional[float] = None
@@ -128,7 +147,7 @@ class LLMClient:
                     "model": self.model,
                     "prompt": prompt,
                     "stream": False,
-                    "keep_alive": 0,  # Unload model after use to free GPU memory
+                    "keep_alive": self.keep_alive,  # Configurable via MINI_CLAUDE_KEEP_ALIVE
                     "options": {
                         "temperature": temperature,
                     }

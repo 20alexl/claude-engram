@@ -205,7 +205,11 @@ def main():
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        # Clean up resources on shutdown
+        handlers.close()
 
 
 if __name__ == "__main__":
