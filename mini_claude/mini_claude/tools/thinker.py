@@ -327,20 +327,31 @@ Format as clear markdown with headers."""
         work_log = WorkLog()
         work_log.what_worked.append(f"Challenging assumption: {assumption}")
 
-        prompt = f"""Act as a devil's advocate and challenge this assumption:
+        prompt = f"""You are a technical reviewer challenging this assumption.
 
-Assumption: {assumption}
-{f'Context: {context}' if context else ''}
+THE ASSUMPTION BEING CHALLENGED: "{assumption}"
+{f'CONTEXT: {context}' if context else ''}
 
-Please analyze:
-1. Is this assumption actually necessary?
-2. What are the hidden costs of this assumption?
-3. What simpler alternatives might work?
-4. What questions should be asked before accepting this?
-5. What's the worst case if this assumption is wrong?
+YOUR TASK: Challenge whether this assumption is correct or necessary.
 
-Be direct and critical. Point out if this seems like premature optimization,
-over-engineering, or tunnel vision."""
+IMPORTANT: You are arguing AGAINST the assumption, not supporting it.
+If the assumption is "We need X", you should question whether X is really needed.
+If the assumption is "X is the best approach", you should suggest alternatives.
+
+ANALYZE:
+1. IS IT NECESSARY? Could this requirement be eliminated entirely?
+2. HIDDEN COSTS: What are the downsides of accepting this assumption?
+3. ALTERNATIVES: What simpler approaches could work instead?
+4. QUESTIONS TO ASK: What should be verified before accepting this?
+5. RISK: What happens if this assumption turns out to be wrong?
+
+WARNING SIGNS TO LOOK FOR:
+- Premature optimization ("we need sub-1ms latency" - do we really?)
+- Over-engineering ("we need to support 1M users" - will we ever have that many?)
+- Cargo culting ("big companies do X so we should too")
+- YAGNI violations ("we might need this later")
+
+Be skeptical and direct. Challenge the assumption, don't validate it."""
 
         try:
             result = self.llm.generate(prompt)
@@ -715,17 +726,30 @@ Depth: {depth} ({"brief overview" if depth == "quick" else "thorough analysis" i
         issues = self._pattern_audit(content, lines, language)
         work_log.what_worked.append(f"Found {len(issues)} pattern-based issues")
 
-        # Use LLM for deeper analysis if we have context
+        # Count critical issues from pattern analysis
+        critical_count = len([i for i in issues if i["severity"] == "critical"])
+
+        # Use LLM for deeper analysis ONLY if:
+        # 1. File is reasonably sized (< 10KB)
+        # 2. Pattern analysis didn't find too many issues (< 3 critical)
+        # This prevents "looping" behavior where LLM takes forever on problematic files
         llm_analysis = None
-        if len(content) < 10000:  # Only for reasonably sized files
+        if len(content) < 10000 and critical_count < 3:
             prompt = self._build_audit_prompt(content, language, focus_areas, issues)
             try:
-                result = self.llm.generate(prompt)
+                # Use shorter timeout for audit to prevent hanging
+                result = self.llm.generate(prompt, timeout=30)
                 if result.get("success"):
                     llm_analysis = result.get("response", "")
                     work_log.what_worked.append("LLM analysis complete")
+                else:
+                    work_log.what_failed.append(f"LLM analysis: {result.get('error', 'unknown error')}")
             except Exception as e:
                 work_log.what_failed.append(f"LLM analysis failed: {str(e)}")
+        elif critical_count >= 3:
+            work_log.what_worked.append(f"Skipped LLM (already found {critical_count} critical issues)")
+        elif len(content) >= 10000:
+            work_log.what_worked.append("Skipped LLM (file too large)")
 
         # Filter by minimum severity if specified
         severity_levels = {"critical": 3, "warning": 2, "info": 1}

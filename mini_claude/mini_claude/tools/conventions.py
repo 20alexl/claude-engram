@@ -406,13 +406,14 @@ class ConventionTracker:
         # Build prompt for LLM analysis
         conventions_text = "\n".join(
             f"- [{c.category}] {c.rule}" +
-            (f" (importance: {c.importance}/10)" if c.importance >= 7 else "")
+            (f" (importance: {c.importance}/10)" if c.importance >= 7 else "") +
+            (f"\n  Examples: {', '.join(c.examples[:2])}" if c.examples else "")
             for c in sorted(proj.conventions, key=lambda x: x.importance, reverse=True)
         )
 
-        prompt = f"""Check this code against the project conventions.
+        prompt = f"""You are a code reviewer checking code against project conventions.
 
-PROJECT CONVENTIONS:
+PROJECT CONVENTIONS (MUST be followed):
 {conventions_text}
 
 CODE TO CHECK:
@@ -420,28 +421,41 @@ CODE TO CHECK:
 {code[:3000]}
 ```
 
-For each convention violation found:
-1. Which convention was violated
-2. Where in the code (line/section)
-3. Severity (high/medium/low based on convention importance)
-4. Suggested fix
+INSTRUCTIONS:
+1. Check EACH convention against the code
+2. For EACH convention that is violated, report it
+3. Be STRICT - if the convention says "always" or "must", enforce it exactly
+4. Look for SPECIFIC violations, not general style preferences
 
-Only report actual violations, not style preferences.
-If the code follows all conventions, say "No violations found."
+OUTPUT FORMAT (for each violation):
+❌ VIOLATION: [convention that was violated]
+   WHERE: [line number or code snippet]
+   FIX: [how to fix it]
 
-Be concise."""
+If ALL conventions are followed correctly, respond with ONLY:
+✅ No violations found.
+
+Be thorough. Don't miss violations. Don't make up violations that aren't there."""
 
         violations = []
         llm_analysis = None
 
         try:
-            result = llm_client.generate(prompt)
+            result = llm_client.generate(prompt, timeout=60)  # 60s timeout for convention check
             if result.get("success"):
                 llm_analysis = result.get("response", "")
                 work_log.what_worked.append("LLM analysis complete")
 
-                # Check if LLM found issues
-                if "no violation" not in llm_analysis.lower():
+                # Check if LLM found violations
+                # Look for explicit violation markers or absence of "no violations" confirmation
+                has_violations = (
+                    "❌" in llm_analysis or
+                    "VIOLATION" in llm_analysis.upper() or
+                    ("no violation" not in llm_analysis.lower() and
+                     "✅" not in llm_analysis)
+                )
+
+                if has_violations:
                     violations.append({
                         "source": "llm",
                         "analysis": llm_analysis,

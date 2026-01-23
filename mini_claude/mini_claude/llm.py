@@ -100,9 +100,16 @@ class LLMClient:
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.1,
+        timeout: Optional[float] = None,
     ) -> dict:
         """
         Generate a response from the local model.
+
+        Args:
+            prompt: The prompt to send to the model
+            system: Optional system prompt
+            temperature: Sampling temperature (default 0.1)
+            timeout: Override timeout for this call (seconds). Default uses client timeout.
 
         Returns a dict with:
         - success: bool
@@ -113,6 +120,7 @@ class LLMClient:
         """
         start_time = time.time()
         last_error = None
+        call_timeout = timeout if timeout is not None else self.timeout
 
         for attempt in range(self.max_retries):
             try:
@@ -131,6 +139,7 @@ class LLMClient:
                 response = self._client.post(
                     f"{self.base_url}/api/generate",
                     json=payload,
+                    timeout=call_timeout,
                 )
 
                 if response.status_code == 200:
@@ -145,7 +154,7 @@ class LLMClient:
                     last_error = f"HTTP {response.status_code}: {response.text}"
 
             except httpx.TimeoutException:
-                last_error = f"Timeout after {self.timeout}s"
+                last_error = f"Timeout after {call_timeout}s"
             except httpx.ConnectError:
                 last_error = "Connection refused - is Ollama running?"
             except Exception as e:

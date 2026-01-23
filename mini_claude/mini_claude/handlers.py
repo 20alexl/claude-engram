@@ -861,13 +861,20 @@ class Handlers:
         project_path: str,
         code_or_filename: str,
     ) -> list[TextContent]:
-        """Handle convention check requests."""
+        """Handle convention check requests.
+
+        Uses LLM-based checking by default for accurate violation detection.
+        Falls back to simple pattern matching if LLM is unavailable.
+        """
         # Check session
         session_warning = self._check_session(project_path)
 
-        response = self.conventions.check_conventions(
+        # Use LLM-based checking for accurate results
+        # The simple keyword-based check misses most violations
+        response = self.conventions.check_code_with_llm(
             project_path=project_path,
-            code_or_filename=code_or_filename,
+            code=code_or_filename,
+            llm_client=self.llm,
         )
 
         output = response.to_formatted_string()
