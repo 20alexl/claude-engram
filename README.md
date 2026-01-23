@@ -44,8 +44,10 @@ python -m venv venv
 # Linux/Mac
 source venv/bin/activate
 
-# Windows
-venv\Scripts\activate
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+# Windows (cmd)
+venv\Scripts\activate.bat
 
 pip install -e mini_claude/
 
@@ -68,7 +70,7 @@ Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
 | Tool | Purpose |
 |------|---------|
 | `session_start` | Load memories, mistakes, checkpoint |
-| `session_end` | Save work summary |
+| `session_end` | Save work summary (no args needed) |
 | `pre_edit_check` | Check mistakes, loops, scope before editing |
 
 ### Memory & Work Tracking
@@ -170,6 +172,10 @@ Claude Code
 ```
 
 State is stored in `~/.mini_claude/` per project.
+
+## Issues
+
+Report bugs or request features: https://github.com/20alexl/mini_claude/issues
 
 ## License
 
