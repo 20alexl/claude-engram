@@ -564,6 +564,55 @@ class MemoryStore:
         self._load_error = None
         self._save_error = None
 
+    def get_memory_summary(self, project_path: str) -> dict:
+        """
+        Get a summary of memories for session start display.
+        Shows counts by category, stale warnings, and suggestions.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"total": 0, "categories": {}, "stale": [], "suggestions": []}
+
+        now = time.time()
+        categories = {}
+        stale = []
+        suggestions = []
+
+        for entry in proj.entries:
+            # Count by category
+            cat = entry.category
+            if cat not in categories:
+                categories[cat] = 0
+            categories[cat] += 1
+
+            # Check for stale memories (not accessed in 60+ days)
+            age_days = (now - entry.last_accessed) / 86400
+            if age_days > 60 and entry.category not in ("rule", "mistake"):
+                stale.append({
+                    "id": entry.id,
+                    "age_days": int(age_days),
+                    "category": entry.category,
+                    "preview": entry.content[:50] + "..." if len(entry.content) > 50 else entry.content,
+                })
+
+        # Generate suggestions
+        if len(stale) > 3:
+            suggestions.append(f"{len(stale)} memories haven't been accessed in 60+ days - consider reviewing with memory(cleanup, dry_run=true)")
+
+        if categories.get("discovery", 0) > 20:
+            suggestions.append("Many discoveries stored - consider promoting important ones to rules")
+
+        if categories.get("mistake", 0) > 10:
+            suggestions.append("Learning from many mistakes! Review if patterns have emerged")
+
+        return {
+            "total": len(proj.entries),
+            "categories": categories,
+            "stale_count": len(stale),
+            "stale": stale[:5],  # Show top 5 stale
+            "suggestions": suggestions,
+        }
+
     # =========================================================================
     # v2: Smart Memory Methods
     # =========================================================================
@@ -722,11 +771,18 @@ class MemoryStore:
                 seen_content[entry.id] = entry
 
         # Calculate decay for old memories (only if apply_decay is True)
+        # PROTECTED CATEGORIES: rules and mistakes NEVER decay
+        protected_categories = {"rule", "mistake"}
+
         if apply_decay:
             now = time.time()
             for entry in proj.entries:
                 # Skip entries already marked for removal
                 if any(r["entry_id"] == entry.id for r in report["removed"]):
+                    continue
+
+                # NEVER decay rules or mistakes - they're permanent learning
+                if entry.category in protected_categories:
                     continue
                 age_days = (now - entry.last_accessed) / 86400
                 if age_days > max_age_days and entry.relevance < 7:
@@ -1239,3 +1295,178 @@ class MemoryStore:
         proj.tag_memory_index = {}
         for entry in proj.entries:
             self._update_indexes(proj, entry)
+
+    # =========================================================================
+    # v4: LLM-Powered Memory Consolidation
+    # =========================================================================
+
+    def consolidate_memories(
+        self,
+        project_path: str,
+        llm_client,
+        tag: Optional[str] = None,
+        dry_run: bool = True,
+    ) -> dict:
+        """
+        Use LLM to intelligently consolidate related memories.
+
+        Instead of just merging duplicates, this:
+        1. Groups memories by tag or similarity
+        2. Uses LLM to summarize groups into coherent consolidated memories
+        3. Preserves important details while reducing redundancy
+
+        Args:
+            project_path: The project
+            llm_client: LLMClient instance for summarization
+            tag: Optional specific tag to consolidate (e.g., "bootstrap")
+            dry_run: If True, show what would be consolidated without doing it
+
+        Returns:
+            Consolidation report
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"error": "Project not found"}
+
+        report = {
+            "groups_found": [],
+            "consolidated": [],
+            "dry_run": dry_run,
+            "original_count": len(proj.entries),
+        }
+
+        # Group memories by tag
+        tag_groups = {}
+        for entry in proj.entries:
+            # Skip rules and mistakes - don't consolidate these
+            if entry.category in ("rule", "mistake"):
+                continue
+
+            for t in entry.tags:
+                if tag and t != tag:
+                    continue
+                if t not in tag_groups:
+                    tag_groups[t] = []
+                tag_groups[t].append(entry)
+
+        # Find groups with 3+ entries that could benefit from consolidation
+        for t, entries in tag_groups.items():
+            if len(entries) < 3:
+                continue
+
+            # Skip if already a cluster
+            if any(e.cluster_id for e in entries):
+                continue
+
+            group_info = {
+                "tag": t,
+                "count": len(entries),
+                "entries": [
+                    {"id": e.id, "preview": e.content[:60] + "..." if len(e.content) > 60 else e.content}
+                    for e in entries[:5]  # Show first 5
+                ],
+            }
+
+            if not dry_run and llm_client:
+                # Use LLM to create consolidated summary
+                consolidated = self._consolidate_group_with_llm(entries, t, llm_client)
+                if consolidated:
+                    group_info["consolidated_to"] = consolidated
+                    report["consolidated"].append({
+                        "tag": t,
+                        "original_count": len(entries),
+                        "new_memory_id": consolidated["id"],
+                    })
+
+            report["groups_found"].append(group_info)
+
+        # Summary
+        if report["groups_found"]:
+            if dry_run:
+                report["summary"] = f"Found {len(report['groups_found'])} groups that could be consolidated"
+            else:
+                report["summary"] = f"Consolidated {len(report['consolidated'])} groups"
+                report["new_count"] = len(proj.entries)
+        else:
+            report["summary"] = "No groups found that need consolidation"
+
+        return report
+
+    def _consolidate_group_with_llm(
+        self,
+        entries: list[MemoryEntry],
+        tag: str,
+        llm_client,
+    ) -> Optional[dict]:
+        """Use LLM to consolidate a group of memories into one."""
+        # Build prompt with all memory contents
+        memories_text = "\n\n".join([
+            f"Memory {i+1} (relevance {e.relevance}):\n{e.content}"
+            for i, e in enumerate(entries)
+        ])
+
+        prompt = f"""You are consolidating related memories about "{tag}".
+
+These {len(entries)} memories are related and contain overlapping information:
+
+{memories_text}
+
+Create ONE consolidated memory that:
+1. Preserves all important facts and decisions
+2. Removes redundancy
+3. Is clear and actionable
+4. Keeps the most important details
+
+Output ONLY the consolidated memory text (no explanation):"""
+
+        result = llm_client.generate(
+            prompt=prompt,
+            system="You are a memory consolidation assistant. Output only the consolidated memory.",
+            temperature=0.1,
+        )
+
+        if not result.get("success"):
+            return None
+
+        consolidated_content = result["response"].strip()
+        if not consolidated_content or len(consolidated_content) < 20:
+            return None
+
+        # Find the project this belongs to
+        proj = None
+        for p in self._projects.values():
+            if entries[0] in p.entries:
+                proj = p
+                break
+
+        if not proj:
+            return None
+
+        # Calculate max relevance from group
+        max_relevance = max(e.relevance for e in entries)
+
+        # Create new consolidated entry
+        new_entry = MemoryEntry(
+            id=self._generate_entry_id(consolidated_content),
+            content=f"[Consolidated from {len(entries)} memories] {consolidated_content}",
+            category="discovery",
+            source="consolidation",
+            relevance=max_relevance,
+            tags=list(set(t for e in entries for t in e.tags)),
+            related_files=list(set(f for e in entries for f in e.related_files)),
+        )
+
+        # Remove old entries
+        old_ids = {e.id for e in entries}
+        proj.entries = [e for e in proj.entries if e.id not in old_ids]
+
+        # Add new entry
+        proj.entries.append(new_entry)
+        self._rebuild_indexes(proj)
+        self._save()
+
+        return {
+            "id": new_entry.id,
+            "content": new_entry.content[:100] + "...",
+            "removed_count": len(old_ids),
+        }
