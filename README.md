@@ -2,7 +2,7 @@
 
 Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
 
-#KNOWN ISSUES:
+# KNOWN ISSUES:
 Current issues: Ignores hooks after tuning down. Need a balance between token usage and hooks. Will make a stable version soon. I had it working really well and effectively, but Claude said it was too annoying after I bootstrapped it and let it customize to its liking. 
 Previouse setting used the tools all the time effectively, though at the cost of extra tokens with the injections. Check back soon 
 
