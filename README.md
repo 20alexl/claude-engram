@@ -2,10 +2,6 @@
 
 Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
 
-# KNOWN ISSUES:
-Current issues: Ignores hooks after tuning down. Need a balance between token usage and hooks. Will make a stable version soon. I had it working really well and effectively, but Claude said it was too annoying after I bootstrapped it and let it customize to its liking. 
-Previouse setting used the tools all the time effectively, though at the cost of extra tokens with the injections. Check back soon 
-
 ## What It Does
 
 Claude Code forgets everything between sessions and after context compaction. Mini Claude provides:
@@ -69,14 +65,26 @@ python install.py --setup /path/to/your/project
 - Copy `.mcp.json` to your project root (required - tells VSCode where the MCP server is)
 - Copy [`CLAUDE.md`](CLAUDE.md) to your project root (tells Claude how to use Mini Claude)
 
+## Auto-Tracking
+
+Mini Claude automatically tracks without you needing to call tools:
+
+| What | How |
+|------|---------|
+| **Edits** | Auto-logged after each Edit/Write. Shows "✅ Edit tracked: file.py (#3)" |
+| **Tests** | Auto-logged after pytest/npm test. Shows "✅ Test tracked: PASSED" |
+| **Mistakes** | Auto-detected from common error patterns in output |
+
+Parallel LLM requests are automatically queued to prevent GPU contention.
+
 ## Tools
 
 ### Session Management
 
 | Tool | Purpose |
 |------|---------|
-| `session_start` | Load memories, mistakes, checkpoint |
-| `session_end` | Save work summary (no args needed) |
+| `session_start` | Load memories, mistakes, checkpoint, last session context |
+| `session_end` | Save work summary (preserves files for next session) |
 | `pre_edit_check` | Check mistakes, loops, scope before editing |
 
 ### Memory & Work Tracking

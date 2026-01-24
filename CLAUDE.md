@@ -26,15 +26,27 @@ Think of it as a notepad with search that persists between sessions.
 
 ---
 
-## When To Use It
+## What's Automatic (No Action Needed)
+
+These happen automatically via hooks - you don't need to call anything:
+
+- **Edit tracking** - Every Edit/Write is auto-logged. You'll see "✅ Edit tracked"
+- **Test tracking** - pytest/npm test results auto-logged. You'll see "✅ Test tracked: PASS/FAIL"
+- **Mistake detection** - Common errors (ImportError, SyntaxError, etc.) auto-logged from output
+- **LLM queuing** - Parallel tool calls are queued to prevent GPU contention
+
+---
+
+## When To Use Tools
 
 ### Always Use (Zero Friction)
-- `session_start` - First thing. Loads memories, mistakes, checkpoints.
-- `session_end` - End of session. No args needed - auto-captures everything.
-- `pre_edit_check` - Before editing risky files. Shows past mistakes.
+
+- `session_start` - First thing. Loads memories, mistakes, last session context.
+- `session_end` - End of session. Saves context for next session.
 
 ### Use When Helpful
-- `work(log_mistake)` - When something breaks. You'll be warned next time.
+
+- `work(log_mistake)` - When something breaks (beyond auto-detected errors).
 - `work(log_decision)` - When you make an important choice.
 - `think(research)` - Starting point for unfamiliar code.
 - `think(challenge)` - Second opinion when you're unsure.
