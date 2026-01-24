@@ -191,15 +191,11 @@ def get_hooks_config():
         hook_cmd = str(hook_launcher)
         # Windows uses 2>NUL for stderr redirection
         stderr_redirect = "2>NUL"
-        # Windows echo syntax
-        echo_cmd = 'echo <mini-claude-post-edit>Remember: loop_record_edit(file_path="%TOOL_INPUT_FILE_PATH%", description="...") to track this change</mini-claude-post-edit>'
     else:
         hook_launcher = script_dir / "run_hook.sh"
         hook_cmd = str(hook_launcher)
         # Unix uses 2>/dev/null for stderr redirection
         stderr_redirect = "2>/dev/null"
-        # Unix echo syntax
-        echo_cmd = 'echo \'<mini-claude-post-edit>Remember: loop_record_edit(file_path="$TOOL_INPUT_FILE_PATH", description="...") to track this change</mini-claude-post-edit>\''
 
     return {
         "hooks": {
@@ -243,8 +239,8 @@ def get_hooks_config():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": echo_cmd,
-                            "timeout": 500
+                            "command": f'"{hook_cmd}" post_edit_json {stderr_redirect} || echo ""',
+                            "timeout": 1000
                         }
                     ]
                 }

@@ -69,6 +69,17 @@ memory(operation="add_rule", content="Always do X", reason="Because Y", project_
 memory(operation="search", query="auth", project_path="/path")
 ```
 
+### Manage Your Memories
+
+```python
+memory(operation="recent", project_path="/path", limit=10)  # See recent memories
+memory(operation="modify", memory_id="abc123", relevance=8, project_path="/path")  # Update importance
+memory(operation="delete", memory_id="abc123", project_path="/path")  # Remove memory
+memory(operation="promote", memory_id="abc123", reason="Important rule", project_path="/path")  # Promote to rule
+memory(operation="cleanup", dry_run=True, project_path="/path")  # Preview cleanup
+memory(operation="clusters", project_path="/path")  # View grouped memories
+```
+
 ### Before Editing
 ```python
 pre_edit_check(file_path="auth.py")  # Shows mistakes, loop risk, scope status

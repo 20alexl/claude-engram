@@ -808,7 +808,15 @@ class Handlers:
         except Exception:
             pass
 
-        # 4. Remove from active sessions
+        # 4. Save last_session_files for curated context at next session_start
+        try:
+            from .hooks.remind import mark_session_ended
+            mark_session_ended()
+            lines.append("📁 Saved session files for next session context")
+        except Exception:
+            pass
+
+        # 5. Remove from active sessions
         if project_path:
             self._active_sessions.discard(project_path.rstrip("/"))
 

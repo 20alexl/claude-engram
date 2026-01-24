@@ -19,7 +19,30 @@ import os
 import json
 import time
 import re
+import threading
 from pathlib import Path
+
+
+def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
+    """
+    Cross-platform stdin reader with timeout.
+    Works on both Windows and Unix.
+    """
+    result = {"data": ""}
+
+    def read_stdin():
+        try:
+            result["data"] = sys.stdin.read()
+        except Exception:
+            pass
+
+    thread = threading.Thread(target=read_stdin)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout=timeout_secs)
+
+    return result["data"]
+
 
 # Import habit tracker for smart suggestions
 try:
@@ -67,6 +90,7 @@ def load_state() -> dict:
         "last_test_record": None,
         "last_mistake_log": None,
         "files_edited_this_session": [],
+        "last_session_files": [],  # Files from previous session (for curated context)
         "ignored_warnings": 0,
         "active_project": "",
         # Search spiral tracking - detect when Claude is flailing on searches
@@ -130,6 +154,30 @@ def mark_session_started(project_dir: str):
         marker.write_text(project_dir)
     except Exception:
         pass
+
+
+def mark_session_ended():
+    """Mark that session_end was called - preserve files for next session's context."""
+    state = load_state()
+
+    # Save current session's files as last_session_files for curated context
+    files_edited = state.get("files_edited_this_session", [])
+    if files_edited:
+        state["last_session_files"] = files_edited.copy()
+
+    # Reset session-specific state
+    state["files_edited_this_session"] = []
+    state["test_runs_this_session"] = 0
+    state["last_test_passed"] = None
+    state["active_project"] = ""
+
+    save_state(state)
+
+
+def get_last_session_files() -> list[str]:
+    """Get files edited in the last session for curated context."""
+    state = load_state()
+    return state.get("last_session_files", [])
 
 
 def mark_pre_edit_check_done(file_path: str):
@@ -841,6 +889,51 @@ def _auto_record_edit(file_path: str, description: str = "auto-tracked"):
     save_state(state)
 
 
+def _auto_record_test(passed: bool, error_message: str = "") -> str:
+    """
+    Automatically record test result in loop detector.
+    Called after test runs to track results invisibly.
+    Returns confirmation message.
+    """
+    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+    loop_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load loop detector state
+    if loop_file.exists():
+        try:
+            loop_data = json.loads(loop_file.read_text())
+        except Exception:
+            loop_data = {"edit_counts": {}, "test_results": []}
+    else:
+        loop_data = {"edit_counts": {}, "test_results": []}
+
+    # Add test result
+    test_results = loop_data.get("test_results", [])
+    test_results.append({
+        "timestamp": time.time(),
+        "passed": passed,
+        "error_message": error_message[:200] if error_message else "",
+    })
+    # Keep last 20 results
+    loop_data["test_results"] = test_results[-20:]
+
+    # Save
+    try:
+        loop_file.write_text(json.dumps(loop_data, indent=2))
+    except Exception:
+        pass  # Silently fail
+
+    # Mark in state
+    state = load_state()
+    state["last_test_record"] = time.time()
+    state["last_test_passed"] = passed
+    state["test_runs_this_session"] = state.get("test_runs_this_session", 0) + 1
+    _increment_tool_usage(state, "loop_record_test")
+    save_state(state)
+
+    return "PASSED" if passed else "FAILED"
+
+
 # ============================================================================
 # ENFORCEMENT - Make Mini Claude usage mandatory
 # ============================================================================
@@ -1383,33 +1476,29 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
         passed = exit_code == "0"
         state = load_state()
         last_passed = state.get("last_test_passed")
-        state["test_runs_this_session"] = state.get("test_runs_this_session", 0) + 1
 
-        # Only remind if: first test run, OR state changed (pass->fail or fail->pass)
+        # Check if state changed (for informative message)
         state_changed = last_passed is not None and last_passed != passed
         first_run = last_passed is None
 
-        if first_run or state_changed:
-            state["last_test_passed"] = passed
-            save_state(state)
+        # AUTO-RECORD the test result (no manual call needed)
+        error_snippet = output[:200] if output and not passed else ""
+        result = _auto_record_test(passed, error_snippet)
 
-            lines.append("<mini-claude-test-reminder>")
-            if state_changed:
-                if passed:
-                    lines.append("Tests now PASSING (were failing). Record this milestone:")
-                else:
-                    lines.append("Tests now FAILING (were passing). Record what broke:")
+        # Show confirmation (not reminder)
+        status_emoji = "✅" if passed else "❌"
+        lines.append("<mini-claude-test-tracked>")
+        if state_changed:
+            if passed:
+                lines.append(f"{status_emoji} Test tracked: NOW PASSING (were failing)")
             else:
-                lines.append("Full test suite run. Record the baseline:")
-            lines.append(f"  loop(operation='record_test', passed={passed}, error_message='...')")
-            lines.append("")
-            lines.append("This helps detect when you're stuck in a loop.")
-            lines.append("</mini-claude-test-reminder>")
-            has_content = True
+                lines.append(f"{status_emoji} Test tracked: NOW FAILING (were passing)")
+        elif first_run:
+            lines.append(f"{status_emoji} Test tracked: {result} (baseline established)")
         else:
-            # Still update state, just don't show reminder
-            state["last_test_passed"] = passed
-            save_state(state)
+            lines.append(f"{status_emoji} Test tracked: {result}")
+        lines.append("</mini-claude-test-tracked>")
+        has_content = True
 
     # Check if command failed
     if exit_code and exit_code != "0":
@@ -1623,13 +1712,10 @@ def main():
         # NOTE: This only fires for SUCCESSFUL commands. Failed commands (exit != 0) don't trigger
         # PostToolUse hooks. See: https://github.com/anthropics/claude-code/issues/6371
         import json as json_module
-        import select
         try:
-            # Check if stdin has data (non-blocking)
-            has_stdin = select.select([sys.stdin], [], [], 0.5)[0]
-            if has_stdin:
-                stdin_data = sys.stdin.read()
-                if stdin_data:
+            # Cross-platform stdin reading with timeout
+            stdin_data = _read_stdin_with_timeout(0.5)
+            if stdin_data:
                     data = json_module.loads(stdin_data)
                     command = data.get("tool_input", {}).get("command", "")
                     # tool_response is an object with stdout/stderr fields
@@ -1667,6 +1753,54 @@ def main():
                             }
                         }
                         print(json_module.dumps(hook_output))
+        except Exception:
+            pass  # Silent failure
+
+    elif hook_type == "post_edit_json":
+        # PostToolUse hook for Edit/Write - auto-record edit and show confirmation
+        import json as json_module
+        try:
+            # Cross-platform stdin reading with timeout
+            stdin_data = _read_stdin_with_timeout(0.5)
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                file_path = data.get("tool_input", {}).get("file_path", "")
+
+                if file_path:
+                    # AUTO-RECORD the edit
+                    _auto_record_edit(file_path, "auto-tracked")
+
+                    # Track in files_edited_this_session
+                    state = load_state()
+                    files_edited = state.get("files_edited_this_session", [])
+                    if file_path not in files_edited:
+                        files_edited.append(file_path)
+                        # Keep last 50 files
+                        state["files_edited_this_session"] = files_edited[-50:]
+                        save_state(state)
+
+                    # Get edit count for this file
+                    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+                    edit_count = 1
+                    if loop_file.exists():
+                        try:
+                            loop_data = json_module.loads(loop_file.read_text())
+                            edit_count = loop_data.get("edit_counts", {}).get(file_path, 1)
+                        except Exception:
+                            pass
+
+                    # Show confirmation
+                    file_name = Path(file_path).name
+                    result = f"<mini-claude-edit-tracked>✅ Edit tracked: {file_name} (edit #{edit_count})</mini-claude-edit-tracked>"
+
+                    # Output JSON format for PostToolUse
+                    hook_output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUse",
+                            "additionalContext": result
+                        }
+                    }
+                    print(json_module.dumps(hook_output))
         except Exception:
             pass  # Silent failure
 

@@ -9,6 +9,7 @@ session_end: Summarize what was done (future)
 """
 
 from typing import Optional
+from pathlib import Path
 from ..schema import MiniClaudeResponse, WorkLog
 from .memory import MemoryStore
 from .conventions import ConventionTracker
@@ -90,6 +91,9 @@ class SessionManager:
         top_discoveries = sorted(non_mistakes, key=lambda d: d.get("relevance", 5), reverse=True)[:3]
         hints = [d.get("content", "")[:60] for d in top_discoveries]
 
+        # Get memory health summary
+        memory_summary = self.memory.get_memory_summary(project_path)
+
         context = {
             "project_path": project_path,
             "counts": {
@@ -97,10 +101,31 @@ class SessionManager:
                 "mistakes": mistake_count,
                 "rules": rule_count,
                 "conventions": len(conventions_data),
+                "decisions": memory_summary.get("decision_count", 0),
+                "stale": memory_summary.get("stale_count", 0),
             },
             "recent_hints": hints,  # One-line summaries for discoverability
-            "tip": "memory(search, query='...') for details",
+            "tip": "memory(search/modify/delete, ...) for details",
         }
+
+        # Get last session files for curated context
+        try:
+            from ..hooks.remind import get_last_session_files
+            last_session_files = get_last_session_files()
+        except ImportError:
+            last_session_files = []
+
+        # Add last session context to data
+        if last_session_files:
+            context["last_session_files"] = [
+                str(Path(f).name) for f in last_session_files[:5]  # Show file names only
+            ]
+            # Get memories relevant to these files
+            curated = self.memory.get_memories_for_files(project_path, last_session_files)
+            context["curated_context"] = {
+                "file_memories": len(curated.get("file_memories", [])),
+                "other": len(curated.get("other", [])),
+            }
 
         # Generate suggestions
         suggestions = self._generate_suggestions(memories, conventions_data, project_path)
@@ -113,6 +138,11 @@ class SessionManager:
         if recent_activity:
             # Insert at the beginning of warnings so it's seen first
             warnings = [recent_activity] + warnings
+
+        # Add last session files context to warnings if present
+        if last_session_files:
+            file_names = [str(Path(f).name) for f in last_session_files[:3]]
+            warnings.insert(0, f"Last session files: {', '.join(file_names)}")
 
         return MiniClaudeResponse(
             status="success",
@@ -187,10 +217,12 @@ class SessionManager:
             recent = project["recent_searches"][-1]
             suggestions.append(f"Last search was for '{recent.get('query', '?')}' - avoid repeating")
 
-        # Always remind about impact analysis for edits
-        suggestions.append("Use impact_analyze before editing shared files")
+        # Add memory management suggestions from memory summary
+        memory_summary = self.memory.get_memory_summary(project_path)
+        if memory_summary.get("suggestions"):
+            suggestions.extend(memory_summary["suggestions"])
 
-        return suggestions[:4]  # Limit to 4 suggestions
+        return suggestions[:5]  # Limit to 5 suggestions
 
     def _extract_warnings(self, memories: dict, conventions: list) -> list[str]:
         """
@@ -236,7 +268,57 @@ class SessionManager:
             for rule in critical_rules[:3]:
                 warnings.append(f"  - {rule.get('rule', '')[:80]}")
 
+        # Find recent decisions - surface them so they're remembered
+        decisions = self._extract_decisions(memories)
+        if decisions:
+            warnings.append(f"Recent decisions ({len(decisions)}):")
+            for d in decisions[:3]:  # Show top 3
+                warnings.append(f"  - {d}")
+
         return warnings
+
+    def _extract_decisions(self, memories: dict) -> list[str]:
+        """
+        Extract recent decisions to show prominently at session start.
+
+        Decisions have DECISION: prefix or decision category.
+        Only shows decisions from last 48 hours to keep it relevant.
+        """
+        import time
+
+        decisions = []
+        project = memories.get("project")
+        if not project:
+            return decisions
+
+        discoveries = project.get("discoveries", [])
+        now = time.time()
+
+        for d in discoveries:
+            content = d.get("content", "")
+            category = d.get("category", "")
+            created_at = d.get("created_at", 0)
+
+            # Check if it's a decision
+            is_decision = (
+                content.upper().startswith("DECISION:") or
+                category == "decision"
+            )
+            if not is_decision:
+                continue
+
+            # Only show recent decisions (48 hours)
+            age_hours = (now - created_at) / 3600 if created_at else 999
+            if age_hours > 48:
+                continue
+
+            # Clean up display
+            if content.upper().startswith("DECISION:"):
+                content = content[9:].strip()
+
+            decisions.append(content[:100])
+
+        return decisions
 
     def _find_recent_activity(self, memories: dict) -> str | None:
         """

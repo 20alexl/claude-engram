@@ -595,6 +595,27 @@ class MemoryStore:
                     "preview": entry.content[:50] + "..." if len(entry.content) > 50 else entry.content,
                 })
 
+        # Count decisions separately (they have DECISION: prefix or decision category)
+        decision_count = 0
+        recent_decisions = []
+        for entry in proj.entries:
+            is_decision = (
+                entry.content.upper().startswith("DECISION:") or
+                entry.category == "decision"
+            )
+            if is_decision:
+                decision_count += 1
+                # Get recent decisions (last 24 hours)
+                age_hours = (now - entry.created_at) / 3600
+                if age_hours < 24:
+                    content = entry.content
+                    if content.upper().startswith("DECISION:"):
+                        content = content[9:].strip()
+                    recent_decisions.append({
+                        "content": content[:100],
+                        "age_hours": int(age_hours),
+                    })
+
         # Generate suggestions
         if len(stale) > 3:
             suggestions.append(f"{len(stale)} memories haven't been accessed in 60+ days - consider reviewing with memory(cleanup, dry_run=true)")
@@ -605,12 +626,95 @@ class MemoryStore:
         if categories.get("mistake", 0) > 10:
             suggestions.append("Learning from many mistakes! Review if patterns have emerged")
 
+        # Memory management hints
+        total = len(proj.entries)
+        if total > 30:
+            suggestions.append("Manage memories: memory(modify/delete/promote, memory_id='...')")
+
         return {
-            "total": len(proj.entries),
+            "total": total,
             "categories": categories,
             "stale_count": len(stale),
             "stale": stale[:5],  # Show top 5 stale
+            "decision_count": decision_count,
+            "recent_decisions": recent_decisions[:3],  # Show last 3 recent decisions
             "suggestions": suggestions,
+        }
+
+    def get_memories_for_files(
+        self,
+        project_path: str,
+        file_paths: list[str],
+        include_rules: bool = True,
+        include_mistakes: bool = True,
+    ) -> dict:
+        """
+        Get memories relevant to specific files (for curated context).
+
+        Used at session_start to show only memories related to last session's files,
+        reducing noise while keeping context relevant.
+
+        Args:
+            project_path: The project to search
+            file_paths: List of file paths to find memories for
+            include_rules: Always include rules (they apply regardless of files)
+            include_mistakes: Always include mistakes (important to remember)
+
+        Returns:
+            Dict with: rules, mistakes, file_memories, other
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"rules": [], "mistakes": [], "file_memories": [], "other": []}
+
+        rules = []
+        mistakes = []
+        file_memories = []
+        other = []
+
+        # Normalize file paths for matching
+        file_names = set(Path(f).name for f in file_paths)
+        file_paths_set = set(file_paths)
+
+        for entry in proj.entries:
+            content = entry.content
+
+            # Always include rules
+            if entry.category == "rule":
+                rules.append(entry)
+                continue
+
+            # Always include mistakes
+            if content.upper().startswith("MISTAKE:") or entry.category == "mistake":
+                mistakes.append(entry)
+                continue
+
+            # Check if memory relates to any of the files
+            related = False
+
+            # Check related_files
+            for rf in entry.related_files:
+                if rf in file_paths_set or Path(rf).name in file_names:
+                    related = True
+                    break
+
+            # Check if file name appears in content
+            if not related:
+                for fn in file_names:
+                    if fn in content:
+                        related = True
+                        break
+
+            if related:
+                file_memories.append(entry)
+            else:
+                other.append(entry)
+
+        return {
+            "rules": rules,
+            "mistakes": mistakes,
+            "file_memories": file_memories,
+            "other": other,
         }
 
     # =========================================================================
