@@ -255,26 +255,8 @@ TOOL_DEFINITIONS = [
         },
     ),
 
-    Tool(
-        name="habit",
-        description="""Habit tracking. Operations:
-- stats: Get habit statistics (days)
-- feedback: Get gamified feedback
-- summary: Session summary for handoff (project_path)""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["stats", "feedback", "summary"],
-                    "description": "Operation"
-                },
-                "days": {"type": "integer", "description": "For stats: days to analyze"},
-                "project_path": {"type": "string"},
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: habit tool REMOVED - meta-tracking of tool usage adds noise without value
+    # Work tracking (decisions, mistakes) is still available via the `work` tool
 
     Tool(
         name="convention",
@@ -329,24 +311,8 @@ TOOL_DEFINITIONS = [
     # NOTE: test tool REMOVED - redundant with Claude Code's native Bash
     # Use Bash to run tests directly: pytest, npm test, etc.
 
-    Tool(
-        name="git",
-        description="""Git helpers. Operations:
-- commit_message: Generate from work logs (project_dir)
-NOTE: Use Bash for actual git commands (commit, push, etc.)""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["commit_message"],
-                    "description": "Operation"
-                },
-                "project_dir": {"type": "string"},
-            },
-            "required": ["operation", "project_dir"],
-        },
-    ),
+    # NOTE: git tool REMOVED - Claude excels at commit messages natively
+    # Use memory(search) to get work context if needed for commits
 
     # =========================================================================
     # STANDALONE TOOLS (unique functionality, keep separate)

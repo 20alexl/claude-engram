@@ -27,7 +27,7 @@ from .tools import (
     SessionManager,
     WorkTracker,
     TestRunner,
-    GitHelper,
+    # GitHelper REMOVED - Claude excels at commit messages natively
     MomentumTracker,
     Thinker,
 )
@@ -71,7 +71,7 @@ class Handlers:
         self.context_guard = ContextGuard()
         self.output_validator = OutputValidator()
         self.test_runner = TestRunner()
-        self.git_helper = GitHelper(self.memory, self.work_tracker)
+        # git_helper REMOVED - Claude excels at commit messages natively
         self.momentum_tracker = MomentumTracker()
         self.thinker = Thinker(self.memory, self.search_engine, self.llm)
         self.habit_tracker = get_habit_tracker()
@@ -1609,54 +1609,9 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
-    # Git Helper - Commit message generation
+    # NOTE: Git Helper REMOVED - Claude excels at commit messages natively
+    # Use memory(search) to get work context if needed for commits
     # -------------------------------------------------------------------------
-
-    async def git_generate_commit_message(
-        self,
-        project_dir: str,
-    ) -> list[TextContent]:
-        """Generate commit message from work logs and changes."""
-        if not project_dir:
-            return self._needs_clarification(
-                "No project directory provided",
-                "Which project should I generate commit message for?"
-            )
-
-        # Get session summary from work tracker
-        summary_response = self.work_tracker.get_session_summary()
-        session_data = summary_response.data if hasattr(summary_response, 'data') else None
-
-        # Run in thread pool
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.git_helper.generate_commit_message(project_dir, session_data)
-        )
-
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def git_auto_commit(
-        self,
-        project_dir: str,
-        message: str | None,
-        files: list[str] | None,
-    ) -> list[TextContent]:
-        """Auto-commit with generated message."""
-        if not project_dir:
-            return self._needs_clarification(
-                "No project directory provided",
-                "Which project should I commit to?"
-            )
-
-        # Run in thread pool
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.git_helper.auto_commit(project_dir, message, files)
-        )
-
-        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
     # Momentum Tracker - Prevent stopping mid-task
@@ -1804,150 +1759,9 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
-    # Habit Tracker Tools - Track tool usage patterns and build good habits
+    # NOTE: Habit Tracker Tools REMOVED - meta-tracking of tool usage adds noise
+    # The habit_tracker is still used internally for session statistics
     # -------------------------------------------------------------------------
-
-    async def habit_get_stats(
-        self,
-        days: int,
-    ) -> list[TextContent]:
-        """Get habit formation statistics for the last N days."""
-        loop = asyncio.get_event_loop()
-        stats = await loop.run_in_executor(
-            None,
-            lambda: self.habit_tracker.get_habit_stats(days)
-        )
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=f"Retrieved habit stats for last {days} days",
-            data=stats,
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def habit_get_feedback(self) -> list[TextContent]:
-        """Get encouraging or warning feedback based on habits."""
-        loop = asyncio.get_event_loop()
-        feedback = await loop.run_in_executor(
-            None,
-            lambda: self.habit_tracker.get_habit_feedback()
-        )
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="Generated habit feedback",
-            data={"feedback": feedback},
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def habit_session_summary(
-        self,
-        project_path: str | None,
-    ) -> list[TextContent]:
-        """
-        Get a comprehensive session summary for handoff.
-
-        Combines:
-        - Habit stats
-        - Work session summary
-        - Context handoff
-        """
-        loop = asyncio.get_event_loop()
-
-        # Get habit stats
-        habit_stats = await loop.run_in_executor(
-            None,
-            lambda: self.habit_tracker.get_habit_stats(7)
-        )
-
-        # Get work summary
-        work_summary_response = await loop.run_in_executor(
-            None,
-            lambda: self.work_tracker.get_session_summary()
-        )
-        work_summary = work_summary_response.data if work_summary_response.data else {}
-
-        # Get context handoff if exists
-        handoff_response = await loop.run_in_executor(
-            None,
-            lambda: self.context_guard.get_handoff()
-        )
-        handoff = handoff_response.data if handoff_response.data else {}
-
-        # Build comprehensive summary
-        lines = []
-        lines.append("=" * 60)
-        lines.append("SESSION SUMMARY")
-        lines.append("=" * 60)
-        lines.append("")
-
-        # Work accomplished
-        if work_summary.get("edits"):
-            lines.append(f"📝 Files Edited ({len(work_summary['edits'])}):")
-            for edit in work_summary['edits'][:10]:
-                lines.append(f"  • {edit.get('file_path', 'unknown')}: {edit.get('description', '')}")
-            lines.append("")
-
-        # Decisions made
-        if work_summary.get("decisions"):
-            lines.append(f"🧠 Decisions Made ({len(work_summary['decisions'])}):")
-            for dec in work_summary['decisions'][:5]:
-                lines.append(f"  • {dec.get('decision', '')}")
-                lines.append(f"    → {dec.get('reason', '')}")
-            lines.append("")
-
-        # Mistakes logged
-        if work_summary.get("mistakes"):
-            lines.append(f"⚠️  Mistakes Logged ({len(work_summary['mistakes'])}):")
-            for mistake in work_summary['mistakes'][:3]:
-                lines.append(f"  • {mistake.get('description', '')}")
-            lines.append("")
-
-        # Habit performance
-        lines.append("📊 Habit Performance:")
-        think_rate = habit_stats.get('think_rate', 0)
-        if think_rate >= 80:
-            lines.append(f"  ✅ Excellent! {think_rate:.0f}% thought before risky work")
-        elif think_rate >= 50:
-            lines.append(f"  ⚠️  {think_rate:.0f}% thought before risky work (goal: 80%)")
-        elif think_rate > 0:
-            lines.append(f"  🔴 Only {think_rate:.0f}% thought before risky work")
-        else:
-            lines.append("  🔴 Didn't use Thinker tools for risky work")
-
-        if habit_stats.get('loops_hit', 0) > 0:
-            lines.append(f"  ⚠️  Hit {habit_stats['loops_hit']} loop(s)")
-        elif habit_stats.get('loops_avoided', 0) > 0:
-            lines.append(f"  ✅ Avoided {habit_stats['loops_avoided']} loop(s)")
-        lines.append("")
-
-        # Next session tips
-        lines.append("💡 For Next Session:")
-        if think_rate < 80:
-            lines.append("  • Use Thinker tools more before architectural work")
-        if habit_stats.get('loops_hit', 0) > 0:
-            lines.append("  • When stuck, step back and use think_challenge or think_explore")
-        lines.append("  • Run session_start at the beginning")
-        if handoff.get('next_steps'):
-            lines.append("  • Check context_handoff_get for continuation plan")
-        lines.append("")
-        lines.append("=" * 60)
-
-        summary_text = "\n".join(lines)
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="Generated comprehensive session summary",
-            data={
-                "summary": summary_text,
-                "habit_stats": habit_stats,
-                "work_summary": work_summary,
-            },
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
     # Think Audit - Audit file for common issues
@@ -2375,19 +2189,8 @@ class Handlers:
                 "Use: research, compare, challenge, explore, best_practice, or audit"
             )
 
-    async def handle_habit(self, operation: str, args: dict) -> list[TextContent]:
-        """Route habit operations to existing handlers."""
-        if operation == "stats":
-            return await self.habit_get_stats(args.get("days", 7))
-        elif operation == "feedback":
-            return await self.habit_get_feedback()
-        elif operation == "summary":
-            return await self.habit_session_summary(args.get("project_path"))
-        else:
-            return self._needs_clarification(
-                f"Unknown habit operation: {operation}",
-                "Use: stats, feedback, or summary"
-            )
+    # NOTE: handle_habit REMOVED - meta-tracking of tool usage adds noise without value
+    # The habit_tracker is still used internally for session statistics
 
     async def handle_convention(self, operation: str, args: dict) -> list[TextContent]:
         """Route convention operations to existing handlers."""
@@ -2440,17 +2243,8 @@ class Handlers:
 
     # NOTE: handle_test REMOVED - use Claude Code's native Bash tool instead
 
-    async def handle_git(self, operation: str, args: dict) -> list[TextContent]:
-        """Route git operations. Only commit_message is supported - use Bash for actual git commands."""
-        project_dir = args.get("project_dir", "")
-
-        if operation == "commit_message":
-            return await self.git_generate_commit_message(project_dir)
-        else:
-            return self._needs_clarification(
-                f"Unknown git operation: {operation}",
-                "Only commit_message is supported. Use Bash for git commit, push, etc."
-            )
+    # NOTE: handle_git REMOVED - Claude excels at commit messages natively
+    # Use memory(search) to get work context if needed for commits
 
     # -------------------------------------------------------------------------
     # Helper Methods

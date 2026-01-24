@@ -125,7 +125,6 @@ Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
 | Tool | Purpose |
 |------|---------|
 | `output(validate_code)` | Check for silent failures |
-| `git(commit_message)` | Generate commit from work logs |
 
 ## Configuration
 

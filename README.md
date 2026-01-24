@@ -146,7 +146,6 @@ Parallel LLM requests are automatically queued to prevent GPU contention.
 | Tool | Purpose |
 |------|---------|
 | `output(validate_code)` | Check for silent failures |
-| `git(commit_message)` | Generate commit from work logs |
 
 ## Configuration
 
