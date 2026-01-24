@@ -123,6 +123,7 @@ class Handlers:
         """Check Mini Claude's health status."""
         health = self.llm.health_check()
         stats = self.memory.get_stats()
+        queue_stats = self.llm.get_queue_stats()
 
         if health["healthy"]:
             # Build suggestions - always nudge to use session_start first
@@ -132,6 +133,13 @@ class Handlers:
                 "Use memory_remember to store what you learn",
             ]
 
+            # Add queue info if there's been queueing
+            queue_info = []
+            if queue_stats["total_requests"] > 0:
+                queue_info.append(f"LLM requests: {queue_stats['total_requests']}")
+                if queue_stats["queued_requests"] > 0:
+                    queue_info.append(f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)")
+
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
@@ -140,10 +148,11 @@ class Handlers:
                     "LLM connection verified",
                     f"Model '{self.llm.model}' is available",
                     f"Memory tracking {stats['projects_tracked']} projects",
-                ]),
+                ] + queue_info),
                 data={
                     "model": self.llm.model,
                     "memory_stats": stats,
+                    "queue_stats": queue_stats,
                 },
                 suggestions=suggestions,
                 warnings=["Remember: session_start loads memories + conventions in one call"],

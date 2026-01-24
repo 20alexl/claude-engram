@@ -2,7 +2,12 @@
 LLM Client for Mini Claude
 
 Handles communication with the local Ollama instance.
-Includes retry logic and health checking.
+Includes retry logic, health checking, and request queueing.
+
+The queue is important because:
+- Claude may call multiple Mini Claude tools in parallel
+- Ollama can't efficiently handle parallel requests (they compete for GPU)
+- Queueing serializes requests for better throughput
 
 Environment variables:
 - MINI_CLAUDE_MODEL: Which Ollama model to use (default: qwen2.5-coder:7b)
@@ -17,6 +22,7 @@ Environment variables:
 import httpx
 import os
 import time
+import threading
 from typing import Optional, Union
 
 
@@ -63,6 +69,14 @@ class LLMClient:
         self._client = httpx.Client(timeout=self.timeout)
         self._last_health_check: Optional[float] = None
         self._is_healthy: bool = False
+
+        # Request queue - prevents parallel LLM calls from competing for GPU
+        self._lock = threading.Lock()
+        self._queue_stats = {
+            "total_requests": 0,
+            "queued_requests": 0,  # Requests that had to wait
+            "total_queue_wait_ms": 0,
+        }
 
     def health_check(self) -> dict:
         """
@@ -124,6 +138,9 @@ class LLMClient:
         """
         Generate a response from the local model.
 
+        Uses a lock to queue requests - when Claude calls multiple tools in parallel,
+        they'll be processed one at a time to avoid GPU contention.
+
         Args:
             prompt: The prompt to send to the model
             system: Optional system prompt
@@ -136,60 +153,78 @@ class LLMClient:
         - error: str (if failed)
         - retries_used: int
         - time_taken_ms: int
+        - queue_wait_ms: int (how long this request waited in queue)
         """
-        start_time = time.time()
-        last_error = None
-        call_timeout = timeout if timeout is not None else self.timeout
+        queue_start = time.time()
 
-        for attempt in range(self.max_retries):
-            try:
-                payload = {
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "keep_alive": self.keep_alive,  # Configurable via MINI_CLAUDE_KEEP_ALIVE
-                    "options": {
-                        "temperature": temperature,
+        # Track if we had to wait (lock was held by another request)
+        was_queued = self._lock.locked()
+
+        # Acquire lock - this queues parallel requests
+        with self._lock:
+            queue_wait_ms = int((time.time() - queue_start) * 1000)
+
+            # Update queue stats
+            self._queue_stats["total_requests"] += 1
+            if was_queued:
+                self._queue_stats["queued_requests"] += 1
+                self._queue_stats["total_queue_wait_ms"] += queue_wait_ms
+
+            start_time = time.time()
+            last_error = None
+            call_timeout = timeout if timeout is not None else self.timeout
+
+            for attempt in range(self.max_retries):
+                try:
+                    payload = {
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "keep_alive": self.keep_alive,  # Configurable via MINI_CLAUDE_KEEP_ALIVE
+                        "options": {
+                            "temperature": temperature,
+                        }
                     }
-                }
 
-                if system:
-                    payload["system"] = system
+                    if system:
+                        payload["system"] = system
 
-                response = self._client.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload,
-                    timeout=call_timeout,
-                )
+                    response = self._client.post(
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=call_timeout,
+                    )
 
-                if response.status_code == 200:
-                    result = response.json()
-                    return {
-                        "success": True,
-                        "response": result.get("response", ""),
-                        "retries_used": attempt,
-                        "time_taken_ms": int((time.time() - start_time) * 1000),
-                    }
-                else:
-                    last_error = f"HTTP {response.status_code}: {response.text}"
+                    if response.status_code == 200:
+                        result = response.json()
+                        return {
+                            "success": True,
+                            "response": result.get("response", ""),
+                            "retries_used": attempt,
+                            "time_taken_ms": int((time.time() - start_time) * 1000),
+                            "queue_wait_ms": queue_wait_ms,
+                        }
+                    else:
+                        last_error = f"HTTP {response.status_code}: {response.text}"
 
-            except httpx.TimeoutException:
-                last_error = f"Timeout after {call_timeout}s"
-            except httpx.ConnectError:
-                last_error = "Connection refused - is Ollama running?"
-            except Exception as e:
-                last_error = str(e)
+                except httpx.TimeoutException:
+                    last_error = f"Timeout after {call_timeout}s"
+                except httpx.ConnectError:
+                    last_error = "Connection refused - is Ollama running?"
+                except Exception as e:
+                    last_error = str(e)
 
-            # Wait before retry (exponential backoff)
-            if attempt < self.max_retries - 1:
-                time.sleep(2 ** attempt)
+                # Wait before retry (exponential backoff)
+                if attempt < self.max_retries - 1:
+                    time.sleep(2 ** attempt)
 
-        return {
-            "success": False,
-            "error": last_error,
-            "retries_used": self.max_retries,
-            "time_taken_ms": int((time.time() - start_time) * 1000),
-        }
+            return {
+                "success": False,
+                "error": last_error,
+                "retries_used": self.max_retries,
+                "time_taken_ms": int((time.time() - start_time) * 1000),
+                "queue_wait_ms": queue_wait_ms,
+            }
 
     def analyze_code(self, code: str, question: str) -> dict:
         """Ask the model to analyze code and answer a question about it."""
@@ -225,6 +260,23 @@ Focus on the main purpose, not implementation details."""
 ## Summary (1-2 sentences):"""
 
         return self.generate(prompt, system=system_prompt, temperature=0.0)
+
+    def get_queue_stats(self) -> dict:
+        """
+        Get statistics about request queueing.
+
+        Returns:
+        - total_requests: Total number of LLM requests made
+        - queued_requests: Requests that had to wait (another was in progress)
+        - total_queue_wait_ms: Total time spent waiting in queue
+        - avg_queue_wait_ms: Average wait time for queued requests
+        """
+        stats = self._queue_stats.copy()
+        if stats["queued_requests"] > 0:
+            stats["avg_queue_wait_ms"] = stats["total_queue_wait_ms"] // stats["queued_requests"]
+        else:
+            stats["avg_queue_wait_ms"] = 0
+        return stats
 
     def close(self):
         """Close the HTTP client."""
