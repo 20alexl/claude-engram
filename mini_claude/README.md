@@ -13,9 +13,8 @@ Claude Code forgets everything between sessions and after context compaction. Mi
 - **Scope guards** - Declare allowed files, prevent over-refactoring
 - **Impact analysis** - See what depends on a file before changing it
 - **Convention storage** - Store project rules, check code against them
-- **Think tools** - Get second opinion from local 7B model
 
-Runs locally with Ollama. No cloud, no API costs.
+Runs locally with Ollama for semantic search and code analysis. No cloud, no API costs.
 
 ## Install
 
