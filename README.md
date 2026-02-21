@@ -2,10 +2,6 @@
 
 Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
 
-# Current Status
-
-Half working. must tell Claude to use thinking tools with direct questions instead of general questions. Claude follows the hook half the time. Need to tighten the leash more, but don't want to waste tokens. Does anyone have any ideas?
-
 ## What It Does
 
 Claude Code forgets everything between sessions and after context compaction. Mini Claude provides:
@@ -127,15 +123,6 @@ Parallel LLM requests are automatically queued to prevent GPU contention.
 | `code_quality_check` | Detect AI slop |
 | `audit_batch` | Audit multiple files |
 | `find_similar_issues` | Find bug patterns |
-
-### Think (Local LLM)
-
-| Tool | Purpose |
-|------|---------|
-| `think(research)` | Research with codebase context |
-| `think(compare)` | Evaluate options |
-| `think(challenge)` | Devil's advocate |
-| `think(audit)` | Find issues in file |
 
 ### Conventions
 
