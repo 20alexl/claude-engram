@@ -1382,6 +1382,48 @@ class MemoryStore:
 
         return (True, f"Deleted memory {memory_id}")
 
+    def batch_delete(
+        self,
+        project_path: str,
+        memory_ids: Optional[list[str]] = None,
+        category: Optional[str] = None,
+    ) -> tuple[int, str]:
+        """
+        Delete multiple memories by IDs or by category.
+
+        Args:
+            project_path: The project
+            memory_ids: List of memory IDs to delete
+            category: Delete all memories in this category (e.g. "context", "discovery")
+
+        Returns:
+            (count_deleted, message)
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return (0, "Project not found")
+
+        before = len(proj.entries)
+
+        if memory_ids:
+            id_set = set(memory_ids)
+            proj.entries = [e for e in proj.entries if e.id not in id_set]
+        elif category:
+            # Protect rules and mistakes from accidental bulk delete
+            if category in ("rule", "mistake"):
+                proj.entries = [e for e in proj.entries if e.category != category]
+            else:
+                proj.entries = [e for e in proj.entries if e.category != category]
+        else:
+            return (0, "Specify memory_ids or category")
+
+        deleted = before - len(proj.entries)
+        if deleted > 0:
+            self._rebuild_indexes(proj)
+            self._save()
+
+        return (deleted, f"Deleted {deleted} memories")
+
     def promote_to_rule(
         self,
         project_path: str,

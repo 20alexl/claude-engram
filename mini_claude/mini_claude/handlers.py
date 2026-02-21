@@ -1793,6 +1793,20 @@ class Handlers:
                 reasoning=msg,
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "batch_delete":
+            memory_ids = args.get("memory_ids", [])
+            category = args.get("category")
+            count, msg = self.memory.batch_delete(
+                project_path=project_path,
+                memory_ids=memory_ids if memory_ids else None,
+                category=category,
+            )
+            response = MiniClaudeResponse(
+                status="success" if count > 0 else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "promote":
             success, msg = self.memory.promote_to_rule(
                 project_path=project_path,
