@@ -63,7 +63,7 @@ Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
 | Tool | Purpose |
 |------|---------|
 | `session_start` | Load memories, mistakes, checkpoint |
-| `session_end` | Save work summary |
+| `session_end` | Optional - shows session summary (memories auto-save) |
 | `pre_edit_check` | Check mistakes, loops, scope before editing |
 
 ### Memory & Work Tracking
