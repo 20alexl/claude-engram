@@ -312,9 +312,11 @@ def detect_search_failure_in_output(command: str, output: str) -> bool:
     command_lower = command.lower()
     output_lower = output.lower()
 
-    # Check if this was a search-like command
+    # Check if this was a search-like command (must be the first word)
+    import re as _re
+    first_word = _re.split(r'\s+', command_lower.strip())[0] if command_lower.strip() else ""
     search_commands = ["ls", "dir", "find", "locate", "where", "which"]
-    is_search = any(cmd in command_lower for cmd in search_commands)
+    is_search = first_word in search_commands
 
     if not is_search:
         return False
@@ -649,9 +651,11 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     all_mistakes = get_past_mistakes(project_memory)
     file_name = Path(file_path).name
 
-    # Find mistakes related to this file
+    # Find mistakes related to this file (exact filename match, not substring)
+    import re as _re3
+    file_pattern = _re3.compile(r'(?:^|[\s/\\:])' + _re3.escape(file_name.lower()) + r'(?:[\s:,.]|$)')
     for mistake in all_mistakes:
-        if file_name.lower() in mistake["content"].lower():
+        if file_pattern.search(mistake["content"].lower()):
             results["past_mistakes"].append(mistake["content"])
 
     # Check loop detector
@@ -1206,29 +1210,31 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
     lines = []
     has_content = False
 
-    # Check if this was a test command - only remind on meaningful test runs
-    # Full suite patterns (no specific file/path after command)
+    # Check if this was a test command - only track meaningful test runs
+    # Must check the FIRST command in a chain, not substrings in commit messages/heredocs
+    command_lower = command.lower().strip() if command else ""
+
+    # Extract just the first command (before &&, ||, ;, or heredoc)
+    import re
+    first_cmd = re.split(r'&&|\|\||;|\$\(', command_lower)[0].strip()
+
+    # Full suite patterns - must be the start of the first command
     full_suite_patterns = ['npm test', 'yarn test', 'make test', 'cargo test', 'go test ./...']
-    # Commands that might be full suite OR targeted
-    test_commands = ['pytest', 'jest', 'mocha', 'unittest']
+    is_full_suite = any(first_cmd.startswith(p) or first_cmd == p for p in full_suite_patterns)
 
-    command_lower = command.lower() if command else ""
-    is_full_suite = any(p in command_lower for p in full_suite_patterns)
-
-    # For pytest/jest etc, check if it looks like a full suite (no specific file path)
+    # Commands that might be full suite OR targeted - check first command only
     if not is_full_suite:
+        test_commands = ['pytest', 'jest', 'mocha', 'python -m unittest', 'python -m pytest']
         for cmd in test_commands:
-            if cmd in command_lower:
+            if first_cmd.startswith(cmd):
                 # If command is just "pytest" or "pytest -v" etc (no path), it's full suite
                 # But "pytest tests/test_foo.py" is targeted
-                parts = command_lower.split()
-                cmd_idx = next((i for i, p in enumerate(parts) if cmd in p), -1)
-                if cmd_idx >= 0:
-                    # Check remaining args for file paths
-                    remaining = parts[cmd_idx + 1:]
-                    has_path = any('.py' in arg or '/' in arg or '\\' in arg or '::' in arg for arg in remaining if not arg.startswith('-'))
-                    if not has_path:
-                        is_full_suite = True
+                parts = first_cmd.split()
+                cmd_parts = cmd.split()
+                remaining = parts[len(cmd_parts):]
+                has_path = any('.py' in arg or '/' in arg or '\\' in arg or '::' in arg for arg in remaining if not arg.startswith('-'))
+                if not has_path:
+                    is_full_suite = True
                 break
 
     if is_full_suite:
@@ -1341,8 +1347,8 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
         mistake_type = f"Attribute error: {error_msg}"
         how_to_avoid = "Check object type and available attributes"
 
-    # Pattern 5: Test failures (require specific pytest/unittest patterns, not just "FAILED")
-    elif "AssertionError" in output or re.search(r"\d+ failed", output) or "FAILURES" in output:
+    # Pattern 5: Test failures (require pytest/unittest markers in output)
+    elif "AssertionError" in output or re.search(r"\d+ failed,?\s*\d+\s*(passed|error)", output) or "FAILURES\n" in output:
         match = re.search(r"(\d+) failed", output)
         count = match.group(1) if match else "some"
         mistake_type = f"Test failure: {count} tests failed"
@@ -1474,9 +1480,15 @@ def main():
                     # SEARCH SPIRAL DETECTION: Track failed search commands
                     if detect_search_failure_in_output(command, response):
                         record_search_failure(command[:50])
-                    elif any(cmd in command.lower() for cmd in ["ls", "dir", "find"]):
-                        # Search succeeded - reset counter
-                        record_search_success()
+                    elif detect_search_failure_in_output(command, ""):
+                        # Command was a search command but didn't fail - reset counter
+                        pass  # detect returns False when output is empty
+                    else:
+                        # Check if first word is a search command (success resets spiral)
+                        import re as _re2
+                        first_word = _re2.split(r'\s+', command.lower().strip())[0] if command else ""
+                        if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
+                            record_search_success()
 
                     # This handler only fires for successful commands (exit 0).
                     # Don't manufacture fake errors from output content.
