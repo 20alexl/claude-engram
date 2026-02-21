@@ -131,19 +131,37 @@ class MemoryStore:
                 data = json.loads(self.memory_file.read_text())
                 version = data.get("version", 1)
 
+                needs_save = False
                 for path, proj_data in data.get("projects", {}).items():
                     # Migrate entries if needed
                     if version == 1:
                         proj_data = self._migrate_project_v1_to_v2(proj_data)
-                    self._projects[path] = ProjectMemory(**proj_data)
+
+                    # Normalize path to prevent duplicates (d:/ vs D:/, \ vs /)
+                    norm_path = self._normalize_path(path)
+                    if norm_path != path:
+                        needs_save = True  # Path changed, need to re-save
+
+                    if norm_path in self._projects:
+                        # Merge entries from duplicate path into existing project
+                        existing = self._projects[norm_path]
+                        new_proj = ProjectMemory(**proj_data)
+                        existing_ids = {e.id for e in existing.entries}
+                        for entry in new_proj.entries:
+                            if entry.id not in existing_ids:
+                                existing.entries.append(entry)
+                        needs_save = True
+                    else:
+                        proj_data["project_path"] = norm_path
+                        self._projects[norm_path] = ProjectMemory(**proj_data)
 
                 for entry_data in data.get("global", []):
                     if version == 1:
                         entry_data = self._migrate_entry_v1_to_v2(entry_data)
                     self._global_entries.append(MemoryEntry(**entry_data))
 
-                # Save migrated data
-                if version == 1:
+                # Save migrated data (version upgrade or path normalization)
+                if version == 1 or needs_save:
                     self._save()
 
             except Exception as e:
@@ -315,8 +333,17 @@ class MemoryStore:
             self._save_error = f"Failed to save memory: {e}"
             return False
 
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        """Normalize project path for consistent dict keys (lowercase drive, forward slashes)."""
+        normalized = str(Path(path).resolve()).replace("\\", "/")
+        if len(normalized) >= 2 and normalized[1] == ":":
+            normalized = normalized[0].lower() + normalized[1:]
+        return normalized
+
     def get_project(self, project_path: str) -> Optional[ProjectMemory]:
         """Get memory for a project, if it exists."""
+        project_path = self._normalize_path(project_path)
         return self._projects.get(project_path)
 
     def remember_project(
@@ -327,6 +354,7 @@ class MemoryStore:
         framework: Optional[str] = None,
     ) -> ProjectMemory:
         """Create or update project memory."""
+        project_path = self._normalize_path(project_path)
         if project_path not in self._projects:
             project_name = Path(project_path).name
             self._projects[project_path] = ProjectMemory(
@@ -481,6 +509,8 @@ class MemoryStore:
         ]
 
         # Project-specific memories
+        if project_path:
+            project_path = self._normalize_path(project_path)
         if project_path and project_path in self._projects:
             proj = self._projects[project_path]
 

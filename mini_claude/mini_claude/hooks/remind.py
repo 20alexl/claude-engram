@@ -369,12 +369,22 @@ def get_underused_tools() -> list[str]:
 # Project Context Loading
 # ============================================================================
 
+def _normalize_path(path: str) -> str:
+    """Normalize a path for consistent storage (lowercase drive, forward slashes)."""
+    # Resolve to absolute, then use forward slashes for consistency
+    normalized = str(Path(path).resolve()).replace("\\", "/")
+    # Lowercase drive letter on Windows (D:/Code -> d:/Code)
+    if len(normalized) >= 2 and normalized[1] == ":":
+        normalized = normalized[0].lower() + normalized[1:]
+    return normalized
+
+
 def get_project_dir() -> str:
-    """Get the current project directory."""
+    """Get the current project directory (normalized for consistent lookups)."""
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
     if project_dir:
-        return project_dir
-    return os.getcwd()
+        return _normalize_path(project_dir)
+    return _normalize_path(os.getcwd())
 
 
 def get_memory_file() -> Path:
@@ -392,9 +402,17 @@ def load_project_memory(project_dir: str) -> dict:
         data = json.loads(memory_file.read_text())
         projects = data.get("projects", {})
 
-        if project_dir in projects:
-            return projects[project_dir]
+        # Normalize for consistent lookup (handles D:/ vs d:/, backslashes, etc.)
+        normalized = _normalize_path(project_dir)
+        if normalized in projects:
+            return projects[normalized]
 
+        # Try matching against normalized keys (for old entries with inconsistent paths)
+        for path, proj in projects.items():
+            if _normalize_path(path) == normalized:
+                return proj
+
+        # Fallback: match by project name only
         project_name = Path(project_dir).name
         for path, proj in projects.items():
             if Path(path).name == project_name:
