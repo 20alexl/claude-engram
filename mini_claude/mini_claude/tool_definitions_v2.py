@@ -80,7 +80,7 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "promote", "recent"],
+                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
@@ -97,6 +97,7 @@ TOOL_DEFINITIONS = [
                 "min_relevance": {"type": "integer", "description": "For cleanup: min to keep"},
                 "max_age_days": {"type": "integer", "description": "For cleanup: decay threshold"},
                 "memory_id": {"type": "string", "description": "For modify/delete/promote: memory ID"},
+                "memory_ids": {"type": "array", "items": {"type": "string"}, "description": "For batch_delete: list of memory IDs to delete"},
                 "reason": {"type": "string", "description": "For add_rule/promote: why this rule"},
             },
             "required": ["operation", "project_path"],
