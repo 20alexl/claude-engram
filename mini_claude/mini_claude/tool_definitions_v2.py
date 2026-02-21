@@ -21,7 +21,7 @@ TOOL_DEFINITIONS = [
 
     Tool(
         name="session_start",
-        description="START EVERY SESSION. Loads memories, past mistakes, checkpoints. Auto-cleans duplicates.",
+        description="Load full context: memories, checkpoints, decisions, memory health. Auto-cleans duplicates. Hook auto-starts basic session, but this gives deep context.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -33,7 +33,7 @@ TOOL_DEFINITIONS = [
 
     Tool(
         name="session_end",
-        description="END EVERY SESSION. Saves work summary, decisions, mistakes to memory.",
+        description="Optional. Shows session summary. All memories auto-save without this - just a nice recap.",
         inputSchema={
             "type": "object",
             "properties": {

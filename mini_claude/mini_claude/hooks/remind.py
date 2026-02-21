@@ -139,9 +139,10 @@ def mark_session_started(project_dir: str):
     _increment_tool_usage(state, "session_start")
     save_state(state)
 
-    # Also create the marker file
-    marker = Path("/tmp/mini_claude_session_active")
+    # Also create the marker file (in ~/.mini_claude/ for Windows compatibility)
+    marker = Path.home() / ".mini_claude" / "session_active"
     try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(project_dir)
     except Exception:
         pass
@@ -218,12 +219,14 @@ def mark_mistake_logged():
 
 
 def record_file_edit(file_path: str):
-    """Record that a file was edited."""
+    """Record that a file was edited. Also saves to last_session_files continuously."""
     state = load_state()
     files = state.get("files_edited_this_session", [])
     if file_path not in files:
         files.append(file_path)
     state["files_edited_this_session"] = files[-50:]  # Keep last 50
+    # Save continuously so session_end isn't required for curated context
+    state["last_session_files"] = files[-50:]
     save_state(state)
 
 
@@ -403,8 +406,9 @@ def load_project_memory(project_dir: str) -> dict:
         return {}
 
 
-def get_past_mistakes(project_memory: dict) -> list[str]:
-    """Extract past mistakes from project memory, newest first."""
+def get_past_mistakes(project_memory: dict) -> list[dict]:
+    """Extract past mistakes from project memory, newest first.
+    Returns list of dicts with 'id' and 'content' keys."""
     mistakes = []
     entries = project_memory.get("entries", [])
 
@@ -414,19 +418,21 @@ def get_past_mistakes(project_memory: dict) -> list[str]:
     for entry in sorted_entries:
         content = entry.get("content", "")
         category = entry.get("category", "")
+        entry_id = entry.get("id", "")
 
         # Check both MISTAKE: prefix and category="mistake"
         if content.upper().startswith("MISTAKE:"):
             mistake_text = content[9:] if content.startswith("MISTAKE: ") else content[8:]
-            mistakes.append(mistake_text)
+            mistakes.append({"id": entry_id, "content": mistake_text})
         elif category == "mistake":
-            mistakes.append(content)
+            mistakes.append({"id": entry_id, "content": content})
 
     return mistakes
 
 
-def get_project_rules(project_memory: dict) -> list[str]:
-    """Extract rules from project memory (always show these)."""
+def get_project_rules(project_memory: dict) -> list[dict]:
+    """Extract rules from project memory (always show these).
+    Returns list of dicts with 'id' and 'content' keys."""
     rules = []
     entries = project_memory.get("entries", [])
 
@@ -436,9 +442,43 @@ def get_project_rules(project_memory: dict) -> list[str]:
     for entry in sorted_entries:
         category = entry.get("category", "")
         if category == "rule":
-            rules.append(entry.get("content", ""))
+            rules.append({"id": entry.get("id", ""), "content": entry.get("content", "")})
 
     return rules
+
+
+def get_memory_counts(project_memory: dict) -> dict:
+    """Get memory counts by category for summary display."""
+    entries = project_memory.get("entries", [])
+    counts = {}
+    for entry in entries:
+        cat = entry.get("category", "unknown")
+        counts[cat] = counts.get(cat, 0) + 1
+    counts["total"] = len(entries)
+    return counts
+
+
+def _append_memory_summary(lines: list, project_memory: dict, project_dir: str):
+    """Append memory summary and management hints to hook output."""
+    counts = get_memory_counts(project_memory)
+    total = counts.get("total", 0)
+
+    if total == 0:
+        return
+
+    # Build compact summary line
+    parts = [f"{total} memories"]
+    for cat in ["rule", "mistake", "discovery", "decision", "context"]:
+        if counts.get(cat, 0) > 0:
+            parts.append(f"{counts[cat]} {cat}s")
+    lines.append(f"📊 Memory: {', '.join(parts)}")
+
+    # Management hints when memory count is high
+    if total > 20:
+        lines.append(f"  Tip: memory(recent) to review | memory(delete, memory_id='...') to clean up")
+    if total > 40:
+        lines.append(f"  Consider: memory(cleanup, dry_run=true) to find stale/duplicate memories")
+    lines.append("")
 
 
 def check_session_active(project_dir: str) -> bool:
@@ -452,8 +492,8 @@ def check_session_active(project_dir: str) -> bool:
         if active_project == project_dir or Path(active_project).name == Path(project_dir).name:
             return True
 
-    # Fallback to marker file
-    marker = Path("/tmp/mini_claude_session_active")
+    # Fallback to marker file (in ~/.mini_claude/ for Windows compatibility)
+    marker = Path.home() / ".mini_claude" / "session_active"
     if marker.exists():
         try:
             active_project = marker.read_text().strip()
@@ -594,8 +634,8 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
 
     # Find mistakes related to this file
     for mistake in all_mistakes:
-        if file_name.lower() in mistake.lower():
-            results["past_mistakes"].append(mistake)
+        if file_name.lower() in mistake["content"].lower():
+            results["past_mistakes"].append(mistake["content"])
 
     # Check loop detector
     loop_status = get_loop_status()
@@ -938,35 +978,39 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("🔄" * 20)
             lines.append("")
 
-        # Show RULES first (always follow these)
+        # Show RULES first (always follow these) - with IDs for management
         rules = get_project_rules(project_memory)
         if rules:
             lines.append(f"📜 RULES ({len(rules)}) - always follow:")
             for r in rules[:5]:  # Show top 5 rules
-                lines.append(f"  • {r[:120]}")  # Rules are important, show more
+                lines.append(f"  [{r['id']}] {r['content'][:120]}")
             lines.append("")
 
-        # Show past mistakes (newest first)
+        # Show past mistakes (newest first) - with IDs for management
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
             lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
             for m in mistakes[:5]:  # Already sorted newest first
-                lines.append(f"  - {m[:100]}")
+                lines.append(f"  [{m['id']}] {m['content'][:100]}")
             lines.append("")
+
+        # Show memory summary and management hints
+        _append_memory_summary(lines, project_memory, project_dir)
+
     else:
         # Session is active - just show rules and mistakes, nothing else
         rules = get_project_rules(project_memory)
         if rules:
             lines.append(f"📜 Rules ({len(rules)}):")
             for r in rules[:3]:
-                lines.append(f"  • {r[:100]}")
+                lines.append(f"  [{r['id']}] {r['content'][:100]}")
             lines.append("")
 
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
             lines.append(f"⚠️ Past mistakes ({len(mistakes)}):")
             for m in mistakes[:3]:
-                lines.append(f"  - {m[:100]}")
+                lines.append(f"  [{m['id']}] {m['content'][:100]}")
             lines.append("")
 
     lines.append("</mini-claude-reminder>")
@@ -1442,13 +1486,16 @@ def main():
                     # AUTO-RECORD the edit
                     _auto_record_edit(file_path, "auto-tracked")
 
-                    # Track in files_edited_this_session
+                    # Track in files_edited_this_session AND last_session_files
+                    # Saving last_session_files continuously means session_end is optional
                     state = load_state()
                     files_edited = state.get("files_edited_this_session", [])
                     if file_path not in files_edited:
                         files_edited.append(file_path)
                         # Keep last 50 files
                         state["files_edited_this_session"] = files_edited[-50:]
+                        # Also save as last_session_files so it persists without session_end
+                        state["last_session_files"] = files_edited[-50:]
                         save_state(state)
 
                     # Get edit count for this file

@@ -606,10 +606,11 @@ class Handlers:
             # Start habit tracking session
             start_habit_session()
             record_session_tool_use("session_start", f"project: {project_path}")
-            # Create session marker for hooks to detect
+            # Create session marker for hooks to detect (in ~/.mini_claude/ for Windows)
             try:
                 from pathlib import Path
-                marker = Path("/tmp/mini_claude_session_active")
+                marker = Path.home() / ".mini_claude" / "session_active"
+                marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(project_path)
             except Exception:
                 pass  # Non-critical
@@ -825,7 +826,8 @@ class Handlers:
 
         lines.append("")
         lines.append("=" * 50)
-        lines.append("Next session: Run session_start to restore context")
+        lines.append("All memories auto-saved. session_end is optional - just a nice summary.")
+        lines.append("Next session: Run session_start to restore context.")
         lines.append("=" * 50)
 
         response = MiniClaudeResponse(

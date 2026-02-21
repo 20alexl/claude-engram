@@ -84,7 +84,7 @@ Parallel LLM requests are automatically queued to prevent GPU contention.
 | Tool | Purpose |
 |------|---------|
 | `session_start` | Load memories, mistakes, checkpoint, last session context |
-| `session_end` | Save work summary (preserves files for next session) |
+| `session_end` | Optional - shows session summary (memories auto-save) |
 | `pre_edit_check` | Check mistakes, loops, scope before editing |
 
 ### Memory & Work Tracking
