@@ -1292,20 +1292,31 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
     Claude Code doesn't fire PostToolUse hooks, so this won't be called.
     See: https://github.com/anthropics/claude-code/issues/6371
     """
-    if not output:
+    if not output or len(output) > 5000:
+        # Skip empty output and large outputs (build logs, test suites)
+        # where error keywords appear in non-error contexts
         return ""
 
     mistake_type = None
     how_to_avoid = None
 
     # Pattern 1: Import/Module errors
+    import re
     if "ModuleNotFoundError" in output or "ImportError" in output:
-        # Extract module name
-        import re
+        # Try "No module named 'X'" first
         match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
-        module = match.group(1) if match else "unknown"
-        mistake_type = f"Import error: Module '{module}' not found"
-        how_to_avoid = f"Install missing module: pip install {module}"
+        if match:
+            module = match.group(1)
+            mistake_type = f"Import error: Module '{module}' not found"
+            how_to_avoid = f"Install missing module: pip install {module}"
+        else:
+            # Try "cannot import name 'X' from 'Y'"
+            match2 = re.search(r"cannot import name ['\"]([^'\"]+)['\"] from ['\"]([^'\"]+)['\"]", output)
+            if match2:
+                name, module = match2.group(1), match2.group(2)
+                mistake_type = f"Import error: cannot import '{name}' from '{module}'"
+                how_to_avoid = f"Check that '{name}' exists in {module}, or update the package"
+            # If neither regex matched, skip - don't log "unknown"
 
     # Pattern 2: Syntax errors
     elif "SyntaxError" in output:
@@ -1330,8 +1341,8 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
         mistake_type = f"Attribute error: {error_msg}"
         how_to_avoid = "Check object type and available attributes"
 
-    # Pattern 5: Test failures
-    elif any(p in output for p in ["FAILED", "AssertionError", "test failed"]):
+    # Pattern 5: Test failures (require specific pytest/unittest patterns, not just "FAILED")
+    elif "AssertionError" in output or re.search(r"\d+ failed", output) or "FAILURES" in output:
         match = re.search(r"(\d+) failed", output)
         count = match.group(1) if match else "some"
         mistake_type = f"Test failure: {count} tests failed"
@@ -1467,10 +1478,9 @@ def main():
                         # Search succeeded - reset counter
                         record_search_success()
 
-                    # Check for error patterns in output (for successful commands that show errors)
-                    exit_code = "1" if "error" in response.lower() or "Error" in response or "Traceback" in response or "FAILED" in response else "0"
-                    # Pass the actual output for auto-mistake detection
-                    result = reminder_for_bash(project_dir, command, exit_code, output=response)
+                    # This handler only fires for successful commands (exit 0).
+                    # Don't manufacture fake errors from output content.
+                    result = reminder_for_bash(project_dir, command, "0", output=response)
 
                     # Add search spiral suggestion if in spiral
                     spiral_suggestion = get_search_spiral_suggestion(project_dir)
