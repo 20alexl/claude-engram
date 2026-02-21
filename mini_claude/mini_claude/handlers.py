@@ -26,9 +26,6 @@ from .tools import (
     ImpactAnalyzer,
     SessionManager,
     WorkTracker,
-    TestRunner,
-    # GitHelper REMOVED - Claude excels at commit messages natively
-    MomentumTracker,
     Thinker,
 )
 from .tools.code_quality import CodeQualityChecker
@@ -70,9 +67,6 @@ class Handlers:
         self.scope_guard = ScopeGuard()
         self.context_guard = ContextGuard()
         self.output_validator = OutputValidator()
-        self.test_runner = TestRunner()
-        # git_helper REMOVED - Claude excels at commit messages natively
-        self.momentum_tracker = MomentumTracker()
         self.thinker = Thinker(self.memory, self.search_engine, self.llm)
         self.habit_tracker = get_habit_tracker()
 
@@ -1558,126 +1552,10 @@ class Handlers:
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    # -------------------------------------------------------------------------
-    # Test Runner - Auto test execution
-    # -------------------------------------------------------------------------
-
-    async def test_run(
-        self,
-        project_dir: str,
-        test_command: str | None,
-        timeout: int,
-    ) -> list[TextContent]:
-        """Run tests and return results."""
-        if not project_dir:
-            return self._needs_clarification(
-                "No project directory provided",
-                "Which project should I run tests in?"
-            )
-
-        # Run in thread pool to not block
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.test_runner.run_tests(project_dir, test_command, timeout)
-        )
-
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def test_can_claim_completion(self) -> list[TextContent]:
-        """Check if completion can be claimed based on test results."""
-        can_claim, reason = self.test_runner.can_claim_completion()
-
-        if can_claim:
-            response = MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning=reason,
-                work_log=WorkLog(what_worked=["Tests passing consistently"]),
-                suggestions=["Safe to claim completion"],
-            )
-        else:
-            response = MiniClaudeResponse(
-                status="failed",
-                confidence="high",
-                reasoning=reason,
-                work_log=WorkLog(what_failed=["Cannot claim completion yet"]),
-                warnings=["Fix issues before claiming done"],
-                suggestions=["Run tests again after fixes", "Check test output"],
-            )
-
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    # -------------------------------------------------------------------------
-    # NOTE: Git Helper REMOVED - Claude excels at commit messages natively
-    # Use memory(search) to get work context if needed for commits
-    # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Momentum Tracker - Prevent stopping mid-task
-    # -------------------------------------------------------------------------
-
-    async def momentum_start_task(
-        self,
-        task_description: str,
-        expected_steps: list[str],
-    ) -> list[TextContent]:
-        """Start tracking a multi-step task."""
-        self.momentum_tracker.start_task(task_description, expected_steps)
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=f"Started tracking task with {len(expected_steps)} steps",
-            work_log=WorkLog(what_worked=[f"Tracking: {task_description}"]),
-            data={
-                "task": task_description,
-                "steps": expected_steps,
-            },
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def momentum_complete_step(self, step: str) -> list[TextContent]:
-        """Mark a step as completed."""
-        self.momentum_tracker.complete_step(step)
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=f"Marked step complete: {step}",
-            work_log=WorkLog(what_worked=[step]),
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def momentum_check(self) -> list[TextContent]:
-        """Check if momentum is being maintained."""
-        response = self.momentum_tracker.check_momentum()
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def momentum_finish_task(self) -> list[TextContent]:
-        """Mark current task as finished."""
-        self.momentum_tracker.finish_task()
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="Task completed and removed from stack",
-            work_log=WorkLog(what_worked=["Task finished"]),
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def momentum_status(self) -> list[TextContent]:
-        """Get current momentum tracking status."""
-        status = self.momentum_tracker.get_status()
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="Current momentum status",
-            work_log=WorkLog(),
-            data=status,
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
+    # NOTE: TestRunner, GitHelper, MomentumTracker handlers REMOVED
+    # - Tests: Use Claude Code's native Bash tool
+    # - Git: Claude excels at commit messages natively
+    # - Momentum: Use Claude Code's native TodoWrite
 
     # -------------------------------------------------------------------------
     # NOTE: Think tools REMOVED - generic LLM responses weren't useful enough
