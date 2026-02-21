@@ -89,7 +89,7 @@ class SessionManager:
         # Get top 3 non-mistake discoveries by relevance for discoverability
         non_mistakes = [d for d in discoveries if not d.get("content", "").upper().startswith("MISTAKE:")]
         top_discoveries = sorted(non_mistakes, key=lambda d: d.get("relevance", 5), reverse=True)[:3]
-        hints = [d.get("content", "")[:60] for d in top_discoveries]
+        hints = [d.get("content", "")[:57] + "..." if len(d.get("content", "")) > 60 else d.get("content", "") for d in top_discoveries]
 
         # Get memory health summary
         memory_summary = self.memory.get_memory_summary(project_path)
@@ -252,21 +252,23 @@ class SessionManager:
                 # Clean up the display
                 if content.startswith("MISTAKE: "):
                     content = content[9:]
-                warnings.append(f"  - {content[:100]}")
+                warnings.append(f"  - {content[:97]}..." if len(content) > 100 else f"  - {content}")
 
         # Find "avoid" conventions - things NOT to do
         avoid_rules = [c for c in conventions if c.get("category") == "avoid"]
         if avoid_rules:
             warnings.append("Things to AVOID in this project:")
             for rule in avoid_rules[:3]:
-                warnings.append(f"  - {rule.get('rule', '')[:80]}")
+                text = rule.get('rule', '')
+                warnings.append(f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}")
 
         # Check for high-importance conventions
         critical_rules = [c for c in conventions if c.get("importance", 5) >= 9]
         if critical_rules and not avoid_rules:
             warnings.append("Critical conventions to follow:")
             for rule in critical_rules[:3]:
-                warnings.append(f"  - {rule.get('rule', '')[:80]}")
+                text = rule.get('rule', '')
+                warnings.append(f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}")
 
         # Find recent decisions - surface them so they're remembered
         decisions = self._extract_decisions(memories)
@@ -316,7 +318,7 @@ class SessionManager:
             if content.upper().startswith("DECISION:"):
                 content = content[9:].strip()
 
-            decisions.append(content[:100])
+            decisions.append(content[:97] + "..." if len(content) > 100 else content)
 
         return decisions
 
@@ -355,6 +357,6 @@ class SessionManager:
             # Show the most recent one
             latest = max(recent, key=lambda x: x.get("created_at", 0))
             content = latest.get("content", "")
-            return f"📋 Recent: {content}"
+            return f"Recent: {content}"
 
         return None

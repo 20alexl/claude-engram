@@ -103,7 +103,7 @@ class Handlers:
 
         if normalized not in self._active_sessions:
             return (
-                f"⚠️ REMINDER: You haven't called session_start for this project yet! "
+                f"REMINDER: You haven't called session_start for this project yet. "
                 f"Call session_start(project_path='{project_path}') first to load "
                 f"memories and conventions. You've made {self._tool_call_count} tool "
                 f"calls without starting a session."
@@ -629,10 +629,10 @@ class Handlers:
             checkpoint_result = self.context_guard.restore_checkpoint()
             if checkpoint_result.status == "success" and checkpoint_result.data:
                 checkpoint_info = "\n\n" + "=" * 50 + "\n"
-                checkpoint_info += "📋 RESTORED CHECKPOINT FROM PREVIOUS SESSION:\n"
+                checkpoint_info += "RESTORED CHECKPOINT FROM PREVIOUS SESSION:\n"
                 checkpoint_info += "=" * 50 + "\n"
                 checkpoint_info += checkpoint_result.data.get("summary", "")
-                checkpoint_info += "\n\n⚠️ CONTINUE FROM WHERE YOU LEFT OFF!"
+                checkpoint_info += "\n\nCONTINUE FROM WHERE YOU LEFT OFF"
 
             # Also check for handoff
             handoff_result = self.context_guard.get_handoff()
@@ -640,7 +640,7 @@ class Handlers:
                 handoff = handoff_result.data.get("handoff", {})
                 if handoff:
                     checkpoint_info += "\n\n" + "=" * 50 + "\n"
-                    checkpoint_info += "📝 HANDOFF FROM PREVIOUS SESSION:\n"
+                    checkpoint_info += "HANDOFF FROM PREVIOUS SESSION:\n"
                     checkpoint_info += "=" * 50 + "\n"
                     checkpoint_info += f"Summary: {handoff.get('summary', 'N/A')}\n"
                     if handoff.get('next_steps'):
@@ -648,11 +648,11 @@ class Handlers:
                         for step in handoff['next_steps']:
                             checkpoint_info += f"  • {step}\n"
                     if handoff.get('warnings'):
-                        checkpoint_info += "⚠️ Warnings:\n"
+                        checkpoint_info += "Warnings:\n"
                         for warn in handoff['warnings']:
                             checkpoint_info += f"  • {warn}\n"
         except Exception as e:
-            checkpoint_info = f"\n\n⚠️ Could not restore checkpoint: {e}"
+            checkpoint_info = f"\n\nCould not restore checkpoint: {e}"
 
         # Auto-cleanup memories (non-destructive: dedup + cluster only)
         cleanup_info = ""
@@ -669,7 +669,7 @@ class Handlers:
                 clusters = len(cleanup_result.get("clusters_created", []))
                 broken = len(cleanup_result.get("broken_found", []))
                 if dups > 0 or clusters > 0 or broken > 0:
-                    cleanup_info = "\n\n🧹 Auto-cleanup: "
+                    cleanup_info = "\n\nAuto-cleanup: "
                     parts = []
                     if broken > 0:
                         parts.append(f"removed {broken} broken")
@@ -679,14 +679,14 @@ class Handlers:
                         parts.append(f"created {clusters} clusters")
                     cleanup_info += ", ".join(parts)
         except Exception as e:
-            cleanup_info = f"\n\n⚠️ Auto-cleanup failed: {e}"
+            cleanup_info = f"\n\nAuto-cleanup failed: {e}"
 
         # Check memory health and report any errors
         memory_health_info = ""
         try:
             health = self.memory.get_health()
             if not health.get("healthy"):
-                memory_health_info = "\n\n⚠️ MEMORY SYSTEM WARNING:\n"
+                memory_health_info = "\n\nMEMORY SYSTEM WARNING:\n"
                 if health.get("load_error"):
                     memory_health_info += f"  Load error: {health['load_error']}\n"
                     if health.get("backup_created"):
@@ -743,7 +743,7 @@ class Handlers:
         files_edited = self.habit_tracker._session_files_edited
 
         lines.append("")
-        lines.append("📊 Session Stats:")
+        lines.append("Session Stats:")
         lines.append(f"  Duration: {habit_stats.get('session_duration_minutes', 0):.1f} minutes")
         lines.append(f"  Tools used: {habit_stats.get('total_tools_used', 0)}")
         lines.append(f"  Decisions: {self.habit_tracker._session_decisions_logged}")
@@ -751,14 +751,14 @@ class Handlers:
 
         if files_edited:
             lines.append("")
-            lines.append("📁 Files edited:")
+            lines.append("Files edited:")
             for f in files_edited[:10]:
                 lines.append(f"  - {Path(f).name}")
 
         # Show last 5 tool calls for context
         if tools_used:
             lines.append("")
-            lines.append("🔧 Recent actions:")
+            lines.append("Recent actions:")
             for t in tools_used[-5:]:
                 ctx = t.get('context', '')[:40]
                 lines.append(f"  - {t['tool']}" + (f": {ctx}" if ctx else ""))
@@ -799,7 +799,7 @@ class Handlers:
                     memories_saved += 1
 
             lines.append("")
-            lines.append(f"💾 Auto-saved {memories_saved} memories")
+            lines.append(f"Auto-saved {memories_saved} memories")
             work_log.what_worked.append(f"Auto-saved {memories_saved} memories")
         except Exception as e:
             work_log.what_failed.append(f"Save failed: {str(e)}")
@@ -808,7 +808,7 @@ class Handlers:
         try:
             if self.scope_guard._current_scope:
                 self.scope_guard.clear_scope()
-                lines.append("🎯 Cleared task scope")
+                lines.append("Cleared task scope")
         except Exception:
             pass
 
@@ -816,7 +816,7 @@ class Handlers:
         try:
             from .hooks.remind import mark_session_ended
             mark_session_ended()
-            lines.append("📁 Saved session files for next session context")
+            lines.append("Saved session files for next session context")
         except Exception:
             pass
 
@@ -1154,9 +1154,9 @@ class Handlers:
             issues.append("past mistakes found")
 
         if issues:
-            reasoning = f"⚠️ Issues found: {', '.join(issues)}"
+            reasoning = f"Issues found: {', '.join(issues)}"
         else:
-            reasoning = f"✅ Safe to edit {Path(file_path).name}"
+            reasoning = f"Safe to edit {Path(file_path).name}"
 
         response = MiniClaudeResponse(
             status=overall_status,
@@ -1758,7 +1758,7 @@ class Handlers:
             rules = self.memory.get_rules(project_path)
             if not rules:
                 return [TextContent(type="text", text="No rules defined for this project")]
-            lines = [f"📜 Rules for {project_path}:", ""]
+            lines = [f"Rules for {project_path}:", ""]
             for r in rules:
                 lines.append(f"  [{r.id}] {r.content}")
             response = MiniClaudeResponse(
@@ -1822,7 +1822,8 @@ class Handlers:
                     age_str = f"{age_mins // 60}h ago"
                 else:
                     age_str = f"{age_mins // 1440}d ago"
-                lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {e.content[:60]}...")
+                content_display = e.content[:57] + "..." if len(e.content) > 60 else e.content
+                lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {content_display}")
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",

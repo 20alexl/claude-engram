@@ -213,7 +213,7 @@ class ContextGuard:
 
         warnings = []
         if age_hours > 24:
-            warnings.append(f"⚠️ Checkpoint is {age_hours:.0f} hours old - verify it's still relevant")
+            warnings.append(f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant")
 
         # Build a summary for easy re-orientation
         summary_lines = [
@@ -346,7 +346,7 @@ class ContextGuard:
         # Sort by importance and build reinforcement message
         sorted_instructions = sorted(instructions, key=lambda x: x.get("importance", 5), reverse=True)
 
-        reinforcement_lines = ["## ⚠️ CRITICAL REMINDERS (Do not ignore!)"]
+        reinforcement_lines = ["## CRITICAL REMINDERS (Do not ignore!)"]
         for inst in sorted_instructions[:5]:  # Top 5 most important
             reinforcement_lines.append(f"- **{inst['instruction']}** (Why: {inst['reason']})")
 
@@ -390,7 +390,7 @@ class ContextGuard:
 
         warnings = []
         if not evidence:
-            warnings.append("⚠️ No evidence provided - this claim may be hard to verify")
+            warnings.append("No evidence provided - this claim may be hard to verify")
 
         return MiniClaudeResponse(
             status="success",
@@ -470,7 +470,7 @@ class ContextGuard:
                 "verification_steps": verification_steps,
                 "claim_evidence": claim.get("evidence", []) if claim else [],
             },
-            warnings=["⚠️ You MUST actually verify each step - don't just mark as done!"],
+            warnings=["You MUST actually verify each step - don't just mark as done!"],
         )
 
     def verify_completion(
@@ -512,12 +512,12 @@ class ContextGuard:
                 if "/" in ev or "\\" in ev or ev.endswith((".py", ".js", ".ts", ".md", ".json", ".yaml", ".yml")):
                     path = Path(ev)
                     if path.exists():
-                        evidence_results.append({"item": ev, "status": "✅ exists", "valid": True})
+                        evidence_results.append({"item": ev, "status": "FOUND", "valid": True})
                     else:
-                        evidence_results.append({"item": ev, "status": "❌ NOT FOUND", "valid": False})
+                        evidence_results.append({"item": ev, "status": "NOT FOUND", "valid": False})
                 else:
                     # Not a file path - just note it
-                    evidence_results.append({"item": ev, "status": "📝 noted", "valid": True})
+                    evidence_results.append({"item": ev, "status": "noted", "valid": True})
 
         # ACTUALLY VERIFY - check verification steps where possible
         step_results = []
@@ -559,32 +559,32 @@ class ContextGuard:
         lines.append("**Verification steps:**")
         for r in step_results:
             if r["status"] == "passed":
-                lines.append(f"  ✅ {r['step']}")
+                lines.append(f"  PASS: {r['step']}")
             elif r["status"] == "failed":
-                lines.append(f"  ❌ {r['step']} - {r.get('reason', 'failed')}")
+                lines.append(f"  FAIL: {r['step']} - {r.get('reason', 'failed')}")
             else:
-                lines.append(f"  ⏳ {r['step']} (needs manual check)")
+                lines.append(f"  TODO: {r['step']} (needs manual check)")
         lines.append("")
 
         # Summary
         if all_passed and steps_manual == 0:
-            lines.append("**Result: ✅ ALL CHECKS PASSED**")
+            lines.append("**Result: ALL CHECKS PASSED**")
             claim["verified"] = True
             status = "success"
         elif all_passed and steps_manual > 0:
-            lines.append(f"**Result: ⏳ {steps_manual} steps need manual verification**")
+            lines.append(f"**Result: {steps_manual} steps need manual verification**")
             status = "success"
         else:
-            lines.append(f"**Result: ❌ VERIFICATION FAILED** ({evidence_failed + steps_failed} checks failed)")
+            lines.append(f"**Result: VERIFICATION FAILED** ({evidence_failed + steps_failed} checks failed)")
             status = "failed"
 
         work_log.what_worked.append(f"verified {len(verification_steps)} steps: {steps_passed} passed, {steps_failed} failed, {steps_manual} manual")
 
         warnings = []
         if steps_manual > 0:
-            warnings.append(f"⚠️ {steps_manual} steps require manual verification")
+            warnings.append(f"{steps_manual} steps require manual verification")
         if evidence_failed > 0:
-            warnings.append(f"⚠️ {evidence_failed} evidence files not found!")
+            warnings.append(f"{evidence_failed} evidence files not found!")
 
         return MiniClaudeResponse(
             status=status,
@@ -692,7 +692,7 @@ class ContextGuard:
                 md_lines.append(f"- {ctx}")
 
         if warnings:
-            md_lines.extend(["", "## ⚠️ Warnings"])
+            md_lines.extend(["", "## Warnings"])
             for warn in warnings:
                 md_lines.append(f"- {warn}")
 
@@ -743,7 +743,7 @@ class ContextGuard:
 
         warnings = handoff.get("warnings", [])
         if age_hours > 48:
-            warnings.append(f"⚠️ Handoff is {age_hours:.0f} hours old - may be outdated")
+            warnings.append(f"Handoff is {age_hours:.0f} hours old - may be outdated")
 
         return MiniClaudeResponse(
             status="success",

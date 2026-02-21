@@ -138,7 +138,7 @@ class ScopeGuard:
                 confidence="low",
                 reasoning="No scope declared - consider declaring scope first",
                 work_log=work_log,
-                warnings=["⚠️ No scope declared. Use scope_declare to set boundaries."],
+                warnings=["No scope declared. Use scope_declare to set boundaries."],
                 suggestions=["Call scope_declare with the files you plan to edit"],
             )
 
@@ -172,7 +172,7 @@ class ScopeGuard:
                     "declared_scope": self._current_scope.in_scope_files,
                 },
                 warnings=[
-                    f"🔴 SCOPE VIOLATION: '{Path(file_path).name}' is not in scope!",
+                    f"SCOPE VIOLATION: '{Path(file_path).name}' is not in scope!",
                     f"   Task: {self._current_scope.task_description}",
                     f"   Allowed files: {', '.join(Path(f).name for f in self._current_scope.in_scope_files[:3])}...",
                     "   → Are you sure you need to edit this file?",
@@ -224,7 +224,7 @@ class ScopeGuard:
                 "reason": reason,
                 "total_in_scope": len(self._current_scope.in_scope_files),
             },
-            warnings=[f"⚠️ Scope expanded: {reason}"],
+            warnings=[f"Scope expanded: {reason}"],
         )
 
     def get_status(self) -> MiniClaudeResponse:
@@ -253,12 +253,12 @@ class ScopeGuard:
 
         warnings = []
         if out_scope_edits:
-            warnings.append(f"🔴 Edited {len(out_scope_edits)} out-of-scope files!")
+            warnings.append(f"Edited {len(out_scope_edits)} out-of-scope files!")
             for f in out_scope_edits[:3]:
                 warnings.append(f"   - {Path(f).name}")
 
         if violations > 0:
-            warnings.append(f"⚠️ {violations} out-of-scope edit attempts this session")
+            warnings.append(f"{violations} out-of-scope edit attempts this session")
 
         work_log.what_worked.append("status retrieved")
 

@@ -129,7 +129,7 @@ class LoopDetector:
 
             warning_messages = []
             for pattern in patterns:
-                prefix = "🔴" if pattern.severity == "critical" else "⚠️"
+                prefix = "CRITICAL:" if pattern.severity == "critical" else "WARNING:"
                 warning_messages.append(f"{prefix} {pattern.message}")
                 if pattern.suggestion:
                     warning_messages.append(f"   → {pattern.suggestion}")
@@ -207,12 +207,12 @@ class LoopDetector:
 
         if edit_count >= self.max_edits_per_file:
             risk_level = "high"
-            warnings.append(f"🔴 Already edited '{file_path}' {edit_count} times!")
+            warnings.append(f"Already edited '{file_path}' {edit_count} times!")
             warnings.append("   → Consider a different approach")
 
         elif edit_count >= self.max_edits_per_file - 1:
             risk_level = "medium"
-            warnings.append(f"⚠️ About to edit '{file_path}' for the {edit_count + 1}th time")
+            warnings.append(f"About to edit '{file_path}' for the {edit_count + 1}th time")
             warnings.append("   → Make sure this edit is different from previous attempts")
 
         # Check recent test failures after edits to this file
@@ -223,7 +223,7 @@ class LoopDetector:
 
         if len(file_edits_with_failures) >= 2:
             risk_level = "high"
-            warnings.append(f"🔴 Previous {len(file_edits_with_failures)} edits to this file failed tests")
+            warnings.append(f"Previous {len(file_edits_with_failures)} edits to this file failed tests")
             warnings.append("   → The issue might be elsewhere")
 
         work_log.what_worked.append(f"risk level: {risk_level}")
