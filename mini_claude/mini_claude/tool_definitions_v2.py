@@ -219,44 +219,10 @@ TOOL_DEFINITIONS = [
     # NOTE: momentum tool REMOVED - redundant with Claude Code's native TodoWrite
     # Use TodoWrite for task tracking instead
 
-    Tool(
-        name="think",
-        description="""Structured pause tools (local LLM). Value is the pause + structure, not intelligence.
-- research: Search codebase + summarize (question, project_path, depth)
-- compare: Structured tradeoffs (options, context, criteria)
-- challenge: Devil's advocate checklist (assumption, context)
-- explore: Brainstorm approaches (problem, constraints, project_path)
-- best_practice: Pattern checklist (topic, language_or_framework)
-- audit: Issue checklist (file_path, focus_areas, min_severity)""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["research", "compare", "challenge", "explore", "best_practice", "audit"],
-                    "description": "Operation"
-                },
-                "question": {"type": "string"},
-                "project_path": {"type": "string"},
-                "depth": {"type": "string", "enum": ["quick", "medium", "deep"]},
-                "options": {"type": "array", "items": {"type": "string"}},
-                "context": {"type": "string"},
-                "criteria": {"type": "array", "items": {"type": "string"}},
-                "assumption": {"type": "string"},
-                "problem": {"type": "string"},
-                "constraints": {"type": "array", "items": {"type": "string"}},
-                "topic": {"type": "string"},
-                "language_or_framework": {"type": "string"},
-                "file_path": {"type": "string"},
-                "focus_areas": {"type": "array", "items": {"type": "string"}},
-                "min_severity": {"type": "string", "enum": ["critical", "warning", "info"]},
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: think tool REMOVED - generic LLM responses weren't useful enough
+    # Scout tools (semantic search/analysis) are still available
 
     # NOTE: habit tool REMOVED - meta-tracking of tool usage adds noise without value
-    # Work tracking (decisions, mistakes) is still available via the `work` tool
 
     Tool(
         name="convention",

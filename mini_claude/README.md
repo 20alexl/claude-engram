@@ -103,15 +103,6 @@ Copy `CLAUDE.md` to your project root. This tells Claude how to use Mini Claude.
 | `audit_batch` | Audit multiple files |
 | `find_similar_issues` | Find bug patterns |
 
-### Think (Local LLM)
-
-| Tool | Purpose |
-|------|---------|
-| `think(research)` | Research with codebase context |
-| `think(compare)` | Evaluate options |
-| `think(challenge)` | Devil's advocate |
-| `think(audit)` | Find issues in file |
-
 ### Conventions
 
 | Tool | Purpose |

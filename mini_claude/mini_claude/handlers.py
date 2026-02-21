@@ -1680,91 +1680,13 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
-    # Thinker - Research and reasoning partner
-    # -------------------------------------------------------------------------
-
-    async def think_research(
-        self,
-        question: str,
-        context: str | None,
-        depth: str,
-        project_path: str | None,
-    ) -> list[TextContent]:
-        """Deep research on a question using web + codebase + reasoning."""
-        record_session_tool_use("think_research", question[:50])
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.research(question, context, depth, project_path)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def think_compare(
-        self,
-        options: list[str],
-        context: str,
-        criteria: list[str] | None,
-    ) -> list[TextContent]:
-        """Compare multiple approaches with pros/cons analysis."""
-        record_session_tool_use("think_compare", context[:50] if context else "")
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.compare(options, context, criteria)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def think_challenge(
-        self,
-        assumption: str,
-        context: str | None,
-    ) -> list[TextContent]:
-        """Challenge an assumption with devil's advocate reasoning."""
-        record_session_tool_use("think_challenge", assumption[:50])
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.challenge(assumption, context)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def think_explore(
-        self,
-        problem: str,
-        constraints: list[str] | None,
-        project_path: str | None,
-    ) -> list[TextContent]:
-        """Broad exploration of solution space for a problem."""
-        record_session_tool_use("think_explore", problem[:50])
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.explore(problem, constraints, project_path)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def think_best_practice(
-        self,
-        topic: str,
-        language_or_framework: str | None,
-        year: int,
-    ) -> list[TextContent]:
-        """Find current best practices for a topic."""
-        record_session_tool_use("think_best_practice", topic[:50])
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.best_practice(topic, language_or_framework, year)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    # -------------------------------------------------------------------------
-    # NOTE: Habit Tracker Tools REMOVED - meta-tracking of tool usage adds noise
-    # The habit_tracker is still used internally for session statistics
+    # NOTE: Think tools REMOVED - generic LLM responses weren't useful enough
+    # Scout tools (semantic search/analysis) still available
+    # Thinker instance kept for audit_batch which provides practical value
     # -------------------------------------------------------------------------
 
     # -------------------------------------------------------------------------
-    # Think Audit - Audit file for common issues
+    # Think Audit - Used internally by audit_batch
     # -------------------------------------------------------------------------
 
     async def think_audit(
@@ -2145,49 +2067,7 @@ class Handlers:
 
     # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead
 
-    async def handle_think(self, operation: str, args: dict) -> list[TextContent]:
-        """Route think operations to existing handlers."""
-        if operation == "research":
-            return await self.think_research(
-                question=args.get("question", ""),
-                context=args.get("context"),
-                depth=args.get("depth", "medium"),
-                project_path=args.get("project_path"),
-            )
-        elif operation == "compare":
-            return await self.think_compare(
-                options=args.get("options", []),
-                context=args.get("context", ""),
-                criteria=args.get("criteria"),
-            )
-        elif operation == "challenge":
-            return await self.think_challenge(
-                assumption=args.get("assumption", ""),
-                context=args.get("context"),
-            )
-        elif operation == "explore":
-            return await self.think_explore(
-                problem=args.get("problem", ""),
-                constraints=args.get("constraints"),
-                project_path=args.get("project_path"),
-            )
-        elif operation == "best_practice":
-            return await self.think_best_practice(
-                topic=args.get("topic", ""),
-                language_or_framework=args.get("language_or_framework"),
-                year=args.get("year", 2026),
-            )
-        elif operation == "audit":
-            return await self.think_audit(
-                file_path=args.get("file_path", ""),
-                focus_areas=args.get("focus_areas"),
-                min_severity=args.get("min_severity"),
-            )
-        else:
-            return self._needs_clarification(
-                f"Unknown think operation: {operation}",
-                "Use: research, compare, challenge, explore, best_practice, or audit"
-            )
+    # NOTE: handle_think REMOVED - think tools removed (generic LLM responses weren't useful)
 
     # NOTE: handle_habit REMOVED - meta-tracking of tool usage adds noise without value
     # The habit_tracker is still used internally for session statistics

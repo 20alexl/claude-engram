@@ -99,17 +99,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         # NOTE: "momentum" case REMOVED - use TodoWrite instead
 
-        case "think":
-            return await handlers.handle_think(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
-
-        case "habit":
-            return await handlers.handle_habit(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "think" case REMOVED - generic LLM responses weren't useful
+        # NOTE: "habit" case REMOVED - meta-tracking adds noise
 
         case "convention":
             return await handlers.handle_convention(
@@ -125,11 +116,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         # NOTE: "test" case REMOVED - use Bash instead
 
-        case "git":
-            return await handlers.handle_git(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "git" case REMOVED - Claude excels at commit messages natively
 
         # =====================================================================
         # STANDALONE TOOLS (unique functionality)
