@@ -162,13 +162,14 @@ TOOL_DEFINITIONS = [
 - record_edit: Log file edit (file_path, description)
 - record_test: Log test result (passed, error_message)
 - check: Check if safe to edit (file_path)
-- status: Get edit counts and warnings""",
+- status: Get edit counts and warnings
+- reset: Clear all loop tracking for a fresh start""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["record_edit", "record_test", "check", "status"],
+                    "enum": ["record_edit", "record_test", "check", "status", "reset"],
                     "description": "Operation"
                 },
                 "file_path": {"type": "string", "description": "File being edited"},
@@ -188,13 +189,15 @@ TOOL_DEFINITIONS = [
 - checkpoint_list: List saved checkpoints
 - verify_completion: Claim task done + verify (task, evidence, verification_steps)
 - instruction_add: Register critical instruction (instruction, reason, importance)
-- instruction_reinforce: Get instructions to remember""",
+- instruction_reinforce: Get instructions to remember
+- handoff_create: Create session handoff (handoff_summary, pending_steps, handoff_context_needed, handoff_warnings)
+- handoff_get: Retrieve latest handoff document""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["checkpoint_save", "checkpoint_restore", "checkpoint_list", "verify_completion", "instruction_add", "instruction_reinforce"],
+                    "enum": ["checkpoint_save", "checkpoint_restore", "checkpoint_list", "verify_completion", "instruction_add", "instruction_reinforce", "handoff_create", "handoff_get"],
                     "description": "Operation"
                 },
                 "task_description": {"type": "string"},
@@ -231,13 +234,14 @@ TOOL_DEFINITIONS = [
         description="""Project conventions. Operations:
 - add: Store rule (project_path, rule, category, reason, examples, importance)
 - get: Get rules (project_path, category)
-- check: Check code/filename (project_path, code_or_filename)""",
+- check: Check code/filename (project_path, code_or_filename)
+- remove: Remove convention by matching text (project_path, rule)""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["add", "get", "check"],
+                    "enum": ["add", "get", "check", "remove"],
                     "description": "Operation"
                 },
                 "project_path": {"type": "string"},

@@ -1914,10 +1914,18 @@ class Handlers:
             return await self.loop_check_before_edit(args.get("file_path", ""))
         elif operation == "status":
             return await self.loop_status()
+        elif operation == "reset":
+            self.loop_detector.reset()
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning="Loop tracking reset. All edit counts and test history cleared.",
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown loop operation: {operation}",
-                "Use: record_edit, record_test, check, or status"
+                "Use: record_edit, record_test, check, status, or reset"
             )
 
     async def handle_context(self, operation: str, args: dict) -> list[TextContent]:
@@ -1954,10 +1962,20 @@ class Handlers:
             )
         elif operation == "instruction_reinforce":
             return await self.context_instruction_reinforce()
+        elif operation == "handoff_create":
+            return await self.context_handoff_create(
+                summary=args.get("handoff_summary", ""),
+                next_steps=args.get("pending_steps", []),
+                context_needed=args.get("handoff_context_needed", []),
+                warnings=args.get("handoff_warnings"),
+                project_path=args.get("project_path"),
+            )
+        elif operation == "handoff_get":
+            return await self.context_handoff_get()
         else:
             return self._needs_clarification(
                 f"Unknown context operation: {operation}",
-                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, or instruction_reinforce"
+                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, or handoff_get"
             )
 
     # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead
@@ -1990,10 +2008,22 @@ class Handlers:
                 project_path=project_path,
                 code_or_filename=args.get("code_or_filename", ""),
             )
+        elif operation == "remove":
+            rule_text = args.get("rule", "")
+            if not rule_text:
+                return self._needs_clarification(
+                    "No rule text provided",
+                    "Provide the rule text (or substring) to match for removal"
+                )
+            response = self.conventions.remove_convention(
+                project_path=project_path,
+                rule_substring=rule_text,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown convention operation: {operation}",
-                "Use: add, get, or check"
+                "Use: add, get, check, or remove"
             )
 
     async def handle_output(self, operation: str, args: dict) -> list[TextContent]:
