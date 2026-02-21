@@ -285,20 +285,17 @@ def get_search_spiral_suggestion(project_dir: str) -> str:
     last_query = state.get("last_search_query", "what you're looking for")
 
     lines = [
-        "🔍" * 10,
-        "",
+        "---",
         f"SEARCH SPIRAL DETECTED - {count} failed search attempts",
         "",
         "You're struggling to find something. Try:",
-        "",
         f'  scout_search(query="{last_query}", directory="{project_dir}")',
         "",
         "scout_search uses semantic matching - describe WHAT you want,",
         "not the exact filename. It reads actual code and finds relevant files.",
         "",
-        "Or just ask the user: 'Where is the prod demo located?'",
-        "",
-        "🔍" * 10,
+        "Or just ask the user where it is.",
+        "---",
     ]
     return "\n".join(lines)
 
@@ -458,6 +455,25 @@ def get_memory_counts(project_memory: dict) -> dict:
     return counts
 
 
+def _truncate(text: str, max_len: int) -> str:
+    """Truncate text with ellipsis if too long."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 3] + "..."
+
+
+def _pluralize(count: int, singular: str) -> str:
+    """Pluralize a category name correctly."""
+    if count == 1:
+        return f"{count} {singular}"
+    # Handle irregular plurals
+    if singular == "discovery":
+        return f"{count} discoveries"
+    if singular == "memory":
+        return f"{count} memories"
+    return f"{count} {singular}s"
+
+
 def _append_memory_summary(lines: list, project_memory: dict, project_dir: str):
     """Append memory summary and management hints to hook output."""
     counts = get_memory_counts(project_memory)
@@ -466,12 +482,13 @@ def _append_memory_summary(lines: list, project_memory: dict, project_dir: str):
     if total == 0:
         return
 
-    # Build compact summary line
-    parts = [f"{total} memories"]
+    # Build compact summary line with correct plurals
+    parts = [_pluralize(total, "memory")]
     for cat in ["rule", "mistake", "discovery", "decision", "context"]:
-        if counts.get(cat, 0) > 0:
-            parts.append(f"{counts[cat]} {cat}s")
-    lines.append(f"📊 Memory: {', '.join(parts)}")
+        n = counts.get(cat, 0)
+        if n > 0:
+            parts.append(_pluralize(n, cat))
+    lines.append(f"Memory: {', '.join(parts)}")
 
     # Management hints when memory count is high
     if total > 20:
@@ -643,7 +660,7 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     edit_count = edits.get(file_path, 0) or edits.get(file_name, 0)
 
     if edit_count >= 3:
-        results["loop_warnings"].append(f"⚠️ Edited {edit_count} times - try different approach")
+        results["loop_warnings"].append(f"Edited {edit_count} times - try different approach")
     elif edit_count >= 2:
         results["loop_warnings"].append(f"Edited {edit_count} times - ensure this is different")
 
@@ -663,7 +680,7 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
             )
 
         if not is_in_scope:
-            results["scope_warnings"].append(f"⚠️ {file_name} NOT in scope for: {task[:50]}")
+            results["scope_warnings"].append(f"{file_name} NOT in scope for: {task[:50]}")
 
     # Add RICH context - actually useful information
     try:
@@ -678,7 +695,7 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
                     if 'TODO' in line or 'FIXME' in line or 'XXX' in line or 'HACK' in line:
                         todos.append(f"L{line_num}: {line.strip()[:60]}")
                 if todos:
-                    results["suggestions"].append(f"📝 {len(todos)} TODO/FIXME in file: {', '.join(todos[:2])}")
+                    results["suggestions"].append(f"{len(todos)} TODO/FIXME in file: {', '.join(todos[:2])}")
             except Exception:
                 pass
 
@@ -694,7 +711,7 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
             if git_result.returncode == 0 and git_result.stdout:
                 commits = git_result.stdout.strip().split('\n')[:2]
                 if commits:
-                    results["suggestions"].append(f"🔍 Recent commits: {'; '.join(c[:50] for c in commits)}")
+                    results["suggestions"].append(f"Recent commits: {'; '.join(c[:50] for c in commits)}")
         except Exception:
             pass
 
@@ -704,24 +721,24 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
                 content = file_obj.read_text()
                 # Check for error handling patterns
                 if 'except:' in content or 'except :' in content:
-                    results["suggestions"].append("⚠️ Bare except clauses found - consider specific exceptions")
+                    results["suggestions"].append("Bare except clauses found - consider specific exceptions")
                 # Check for print debugging
                 if content.count('print(') > 5:
-                    results["suggestions"].append("🐛 Multiple print() statements - consider using logging")
+                    results["suggestions"].append("Multiple print() statements - consider using logging")
                 # Check file size
                 lines = content.count('\n')
                 if lines > 500:
-                    results["suggestions"].append(f"📏 Large file ({lines} lines) - consider refactoring")
+                    results["suggestions"].append(f"Large file ({lines} lines) - consider refactoring")
             except Exception:
                 pass
 
         # 4. Context-aware suggestions
         if "test" in file_name.lower():
-            results["suggestions"].append("💡 Run tests after editing to verify changes")
+            results["suggestions"].append("Run tests after editing to verify changes")
         if "handler" in file_name.lower() or "server" in file_name.lower():
-            results["suggestions"].append("💡 Restart server to apply changes")
+            results["suggestions"].append("Restart server to apply changes")
         if edit_count >= 2:
-            results["suggestions"].append("💡 Consider reviewing logs/errors before editing again")
+            results["suggestions"].append("Consider reviewing logs/errors before editing again")
 
         # 5. NEW: Contextual memory injection
         contextual_memories = get_contextual_memories(project_dir, file_path)
@@ -731,9 +748,9 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     except Exception:
         # Fallback to basic suggestions if rich context fails
         if "test" in file_name.lower():
-            results["suggestions"].append("💡 Run tests after editing")
+            results["suggestions"].append("Run tests after editing")
         if edit_count >= 2:
-            results["suggestions"].append("💡 Edited multiple times - review approach")
+            results["suggestions"].append("Edited multiple times - review approach")
 
     # Mark that we ran the check
     state = load_state()
@@ -767,7 +784,7 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
 
         # Return formatted memory strings
         return [
-            f"💡 {m.content[:80]}..." if len(m.content) > 80 else f"💡 {m.content}"
+            f"{m.content[:80]}..." if len(m.content) > 80 else m.content
             for m in memories
         ]
     except Exception:
@@ -934,7 +951,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         mark_session_started(project_dir)
         session_active = True  # Update local var
 
-        lines.append("✅ Mini Claude session auto-started")
+        lines.append("Mini Claude session auto-started")
         lines.append("")
 
         # AUTO-LOAD CHECKPOINT/HANDOFF
@@ -942,56 +959,56 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         handoff = get_handoff_data()
 
         if checkpoint or handoff:
-            lines.append("🔄" * 20)
+            lines.append("---")
             lines.append("")
-            lines.append("📋 CONTEXT RESTORED FROM PREVIOUS SESSION")
+            lines.append("CONTEXT RESTORED FROM PREVIOUS SESSION")
             lines.append("")
 
             if checkpoint:
                 age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
                 lines.append(f"CHECKPOINT ({age_hours:.1f}h ago):")
-                lines.append(f"  Task: {checkpoint.get('task_description', 'Unknown')[:80]}")
-                lines.append(f"  Current step: {checkpoint.get('current_step', 'Unknown')[:60]}")
+                lines.append(f"  Task: {_truncate(checkpoint.get('task_description', 'Unknown'), 80)}")
+                lines.append(f"  Current step: {_truncate(checkpoint.get('current_step', 'Unknown'), 60)}")
                 if checkpoint.get("completed_steps"):
-                    lines.append(f"  ✓ Completed: {len(checkpoint['completed_steps'])} steps")
+                    lines.append(f"  Done: {len(checkpoint['completed_steps'])} steps")
                     for step in checkpoint["completed_steps"][-3:]:
-                        lines.append(f"    • {step[:60]}")
+                        lines.append(f"    - {_truncate(step, 60)}")
                 if checkpoint.get("pending_steps"):
-                    lines.append(f"  ⏳ Pending: {len(checkpoint['pending_steps'])} steps")
+                    lines.append(f"  Pending: {len(checkpoint['pending_steps'])} steps")
                     for step in checkpoint["pending_steps"][:3]:
-                        lines.append(f"    • {step[:60]}")
+                        lines.append(f"    - {_truncate(step, 60)}")
                 if checkpoint.get("files_involved"):
-                    lines.append(f"  📁 Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}")
+                    lines.append(f"  Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}")
                 lines.append("")
 
             if handoff:
                 lines.append("HANDOFF MESSAGE:")
-                lines.append(f"  {handoff.get('summary', 'No summary')[:100]}")
+                lines.append(f"  {_truncate(handoff.get('summary', 'No summary'), 100)}")
                 if handoff.get("next_steps"):
                     lines.append("  Next steps:")
                     for step in handoff["next_steps"][:3]:
-                        lines.append(f"    → {step[:60]}")
+                        lines.append(f"    - {_truncate(step, 60)}")
                 lines.append("")
 
-            lines.append("⚡ CONTINUE FROM WHERE YOU LEFT OFF!")
+            lines.append("CONTINUE FROM WHERE YOU LEFT OFF")
             lines.append("")
-            lines.append("🔄" * 20)
+            lines.append("---")
             lines.append("")
 
         # Show RULES first (always follow these) - with IDs for management
         rules = get_project_rules(project_memory)
         if rules:
-            lines.append(f"📜 RULES ({len(rules)}) - always follow:")
+            lines.append(f"RULES ({len(rules)}) - always follow:")
             for r in rules[:5]:  # Show top 5 rules
-                lines.append(f"  [{r['id']}] {r['content'][:120]}")
+                lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
             lines.append("")
 
         # Show past mistakes (newest first) - with IDs for management
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
-            lines.append(f"⚠️ Past mistakes to avoid ({len(mistakes)}):")
+            lines.append(f"PAST MISTAKES ({len(mistakes)}) - avoid repeating:")
             for m in mistakes[:5]:  # Already sorted newest first
-                lines.append(f"  [{m['id']}] {m['content'][:100]}")
+                lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
             lines.append("")
 
         # Show memory summary and management hints
@@ -1001,16 +1018,16 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         # Session is active - just show rules and mistakes, nothing else
         rules = get_project_rules(project_memory)
         if rules:
-            lines.append(f"📜 Rules ({len(rules)}):")
+            lines.append(f"Rules ({len(rules)}):")
             for r in rules[:3]:
-                lines.append(f"  [{r['id']}] {r['content'][:100]}")
+                lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
             lines.append("")
 
         mistakes = get_past_mistakes(project_memory)
         if mistakes:
-            lines.append(f"⚠️ Past mistakes ({len(mistakes)}):")
+            lines.append(f"Past mistakes ({len(mistakes)}):")
             for m in mistakes[:3]:
-                lines.append(f"  [{m['id']}] {m['content'][:100]}")
+                lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
             lines.append("")
 
     lines.append("</mini-claude-reminder>")
@@ -1050,28 +1067,28 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     # Show auto-check results FIRST (immediate value!)
     if auto_check_results:
         if auto_check_results["past_mistakes"]:
-            lines.append("🔴 AUTO-CHECK: Past mistakes with this file:")
+            lines.append("AUTO-CHECK: Past mistakes with this file:")
             for m in auto_check_results["past_mistakes"][:3]:
-                lines.append(f"  • {m[:80]}")
+                lines.append(f"  - {_truncate(m, 80)}")
             lines.append("")
             has_content = True
 
         if auto_check_results["loop_warnings"]:
-            lines.append("⚠️ AUTO-CHECK: Loop detection:")
+            lines.append("AUTO-CHECK: Loop detection:")
             for w in auto_check_results["loop_warnings"]:
                 lines.append(f"  • {w}")
             lines.append("")
             has_content = True
 
         if auto_check_results["scope_warnings"]:
-            lines.append("⚠️ AUTO-CHECK: Scope warning:")
+            lines.append("AUTO-CHECK: Scope warning:")
             for w in auto_check_results["scope_warnings"]:
                 lines.append(f"  • {w}")
             lines.append("")
             has_content = True
 
         if auto_check_results["suggestions"]:
-            lines.append("💡 AUTO-CHECK: Suggestions:")
+            lines.append("AUTO-CHECK: Suggestions:")
             for s in auto_check_results["suggestions"]:
                 lines.append(f"  • {s}")
             lines.append("")
@@ -1079,7 +1096,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
 
         # NEW: Show contextual memories
         if auto_check_results.get("contextual_memories"):
-            lines.append("🧠 CONTEXTUAL MEMORIES (relevant to this file):")
+            lines.append("Relevant memories for this file:")
             for m in auto_check_results["contextual_memories"]:
                 lines.append(f"  • {m}")
             lines.append("")
@@ -1088,7 +1105,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     # Loop detection - informational only, no blocking
     is_loop, loop_count = check_loop_detected(file_path)
     if is_loop:
-        lines.append(f"⚠️ LOOP WARNING: Same file edited {loop_count} times")
+        lines.append(f"LOOP WARNING: Same file edited {loop_count} times")
         lines.append("  Consider stepping back and trying a different approach.")
         lines.append("")
         has_content = True
@@ -1099,7 +1116,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
         edits = state["edits_without_session"]
         save_state(state)
 
-        lines.append(f"⚠️ No session active (edit #{edits}). Run:")
+        lines.append(f"No session active (edit #{edits}). Run:")
         lines.append(f'  session_start(project_path="{project_dir}")')
         has_content = True
     else:
@@ -1136,29 +1153,29 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
         # Check for long functions
         func_matches = re.findall(r'def\s+\w+\([^)]*\):[^\n]*\n((?:[ \t]+[^\n]*\n){50,})', content)
         if func_matches:
-            issues.append("⚠️ Function(s) >50 lines - break them down")
+            issues.append("Function(s) >50 lines - break them down")
 
         # Check for vague names
         vague_names = ['data', 'temp', 'tmp', 'foo', 'bar', 'stuff', 'thing', 'x', 'y', 'z']
         for name in vague_names:
             if re.search(rf'\b{name}\b\s*=', content):
-                issues.append(f"⚠️ Vague variable name: '{name}'")
+                issues.append(f"Vague variable name: '{name}'")
                 break
 
         # Check for placeholders
         placeholders = ['TODO', 'FIXME', 'HACK', 'XXX', 'PLACEHOLDER']
         for p in placeholders:
             if p in content:
-                issues.append(f"⚠️ Found placeholder: '{p}'")
+                issues.append(f"Found placeholder: '{p}'")
                 break
 
         # Check for silent failure (CRITICAL)
         if re.search(r'except\s*:\s*pass', content) or re.search(r'except\s+\w+:\s*pass', content):
-            issues.append("🔴 DANGER: Found 'except: pass' - silent failure pattern!")
+            issues.append("DANGER: Found 'except: pass' - silent failure pattern")
 
         # Check for hardcoded values
         if re.search(r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', content, re.I):
-            issues.append("🔴 DANGER: Possible hardcoded secret!")
+            issues.append("DANGER: Possible hardcoded secret")
 
         if issues:
             lines.append("<mini-claude-write-quality>")
@@ -1228,7 +1245,7 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
         result = _auto_record_test(passed, error_snippet)
 
         # Show confirmation (not reminder)
-        status_emoji = "✅" if passed else "❌"
+        status_emoji = "PASS" if passed else "FAIL"
         lines.append("<mini-claude-test-tracked>")
         if state_changed:
             if passed:
@@ -1254,9 +1271,9 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
 
         lines.append("<mini-claude-error-reminder>")
         if auto_logged:
-            lines.append(f"✅ Auto-logged: {auto_logged}")
+            lines.append(f"Auto-logged: {auto_logged}")
         else:
-            lines.append("💡 Log with work(log_mistake) to get warned next time")
+            lines.append("Log with work(log_mistake) to get warned next time")
         lines.append("</mini-claude-error-reminder>")
         has_content = True
 
@@ -1367,10 +1384,10 @@ def reminder_for_error(project_dir: str, error_message: str = "") -> str:
 
     lines = ["<mini-claude-error-reminder>"]
     if errors >= 3:
-        lines.append(f"⚠️ {errors} errors without logging. Consider:")
+        lines.append(f"{errors} errors without logging. Consider:")
         lines.append("  work(operation='log_mistake', description='...', how_to_avoid='...')")
     else:
-        lines.append("💡 Log recurring errors with work(log_mistake) to get warned next time")
+        lines.append("Log recurring errors with work(log_mistake) to get warned next time")
     lines.append("</mini-claude-error-reminder>")
     return "\n".join(lines)
 
@@ -1510,7 +1527,7 @@ def main():
 
                     # Show confirmation
                     file_name = Path(file_path).name
-                    result = f"<mini-claude-edit-tracked>✅ Edit tracked: {file_name} (edit #{edit_count})</mini-claude-edit-tracked>"
+                    result = f"<mini-claude-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</mini-claude-edit-tracked>"
 
                     # Output JSON format for PostToolUse
                     hook_output = {

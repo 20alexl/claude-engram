@@ -72,7 +72,7 @@ class MiniClaudeResponse(BaseModel):
 
         if is_test_failure:
             lines.append("=" * 60)
-            lines.append("❌ TEST FAILURES DETECTED")
+            lines.append("TEST FAILURES DETECTED")
             lines.append("=" * 60)
             lines.append("")
 
@@ -142,7 +142,7 @@ class MiniClaudeResponse(BaseModel):
         # Warnings FIRST - they're important
         if self.warnings:
             for w in self.warnings:
-                lines.append(f"⚠️ {w}")
+                lines.append(f"  ! {w}")
             lines.append("")
 
         # Findings
@@ -181,7 +181,7 @@ class MiniClaudeResponse(BaseModel):
         # Suggestions
         if self.suggestions:
             for s in self.suggestions:
-                lines.append(f"💡 {s}")
+                lines.append(f"  - {s}")
             lines.append("")
 
         # Questions
@@ -193,7 +193,7 @@ class MiniClaudeResponse(BaseModel):
 
         # Work log - only show if there's something notable (failures)
         if self.work_log.what_failed:
-            lines.append(f"❌ Failed: {', '.join(self.work_log.what_failed)}")
+            lines.append(f"Failed: {', '.join(self.work_log.what_failed)}")
 
         return "\n".join(lines)
 

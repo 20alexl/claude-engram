@@ -137,7 +137,7 @@ class CodeQualityChecker:
         # Build warnings list for response
         warning_messages = []
         for issue in errors + warnings:
-            prefix = "❌" if issue.severity == "error" else "⚠️"
+            prefix = "ERROR:" if issue.severity == "error" else "WARNING:"
             msg = f"{prefix} {issue.message}"
             if issue.suggestion:
                 msg += f" → {issue.suggestion}"
