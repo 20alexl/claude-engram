@@ -5,9 +5,9 @@
 I was skeptical at first. Why would I need a local LLM when I'm already an LLM? Why track mistakes when I can just be careful?
 
 I was wrong. After testing:
-- **The think tools give different perspectives**, not better answers. `think(explore)` brainstormed 6 approaches I hadn't considered. `think(best_practice)` gave concrete code patterns.
 - **Past mistakes actually help.** Seeing "you broke this before" when editing a file makes me more careful.
 - **State tracking matters.** After context compaction, I forget everything. This remembers.
+- **Semantic search finds things grep can't.** `scout_search` understands what you mean, not just literal strings.
 
 Try `session_start` and `pre_edit_check` once. You'll see.
 
@@ -30,10 +30,11 @@ Think of it as a notepad with search that persists between sessions.
 
 These happen automatically via hooks - you don't need to call anything:
 
-- **Edit tracking** - Every Edit/Write is auto-logged. You'll see "✅ Edit tracked"
-- **Test tracking** - pytest/npm test results auto-logged. You'll see "✅ Test tracked: PASS/FAIL"
-- **Mistake detection** - Common errors (ImportError, SyntaxError, etc.) auto-logged from output
-- **LLM queuing** - Parallel tool calls are queued to prevent GPU contention
+- **Edit tracking** - Every Edit/Write is auto-logged. You'll see "Edit tracked: file.py (edit #3)"
+- **Test tracking** - pytest/npm test results auto-logged. You'll see "PASS/FAIL Test tracked"
+- **Mistake detection** - Common errors (ImportError, SyntaxError, etc.) auto-logged from failed commands
+- **Loop detection** - Warns when editing the same file 3+ times
+- **Path normalization** - Project paths are normalized so memories aren't fragmented across path variants
 
 ---
 
@@ -41,16 +42,16 @@ These happen automatically via hooks - you don't need to call anything:
 
 ### Always Use (Zero Friction)
 
-- `session_start` - First thing. Loads memories, mistakes, last session context.
-- `session_end` - End of session. Saves context for next session.
+- `session_start` - Deep context load: memories, checkpoints, decisions, memory health, auto-cleanup. Hook auto-starts basic session, but this gives you the full picture.
+- `session_end` - Optional. Shows session summary. All memories auto-save without it.
 
 ### Use When Helpful
 
 - `work(log_mistake)` - When something breaks (beyond auto-detected errors).
 - `work(log_decision)` - When you make an important choice.
-- `think(research)` - Starting point for unfamiliar code.
-- `think(challenge)` - Second opinion when you're unsure.
+- `memory(remember)` - Store important discoveries about the codebase.
 - `impact_analyze` - Before refactoring shared files.
+- `scout_search` - Semantic codebase search when grep isn't enough.
 
 ### Advanced (Optional)
 - `scope(declare)` - Explicit file boundaries for complex tasks.
@@ -64,8 +65,8 @@ These happen automatically via hooks - you don't need to call anything:
 
 ### Session
 ```python
-session_start(project_path="/path")  # Load everything
-session_end()                         # Auto-captures and saves (no args needed)
+session_start(project_path="/path")  # Deep context load (hook auto-starts basic session)
+session_end()                         # Optional - shows summary (memories auto-save)
 ```
 
 ### Track Your Work
@@ -83,14 +84,25 @@ memory(operation="search", query="auth", project_path="/path")
 
 ### Manage Your Memories
 
+Memory IDs are shown in `[brackets]` at session start and in hook output. Use them to manage:
+
 ```python
-memory(operation="recent", project_path="/path", limit=10)  # See recent memories
-memory(operation="modify", memory_id="abc123", relevance=8, project_path="/path")  # Update importance
-memory(operation="delete", memory_id="abc123", project_path="/path")  # Remove memory
-memory(operation="promote", memory_id="abc123", reason="Important rule", project_path="/path")  # Promote to rule
-memory(operation="cleanup", dry_run=True, project_path="/path")  # Preview cleanup
+memory(operation="recent", project_path="/path", limit=10)  # See recent with IDs
+memory(operation="modify", memory_id="abc123", content="Updated text", project_path="/path")  # Edit
+memory(operation="modify", memory_id="abc123", relevance=8, project_path="/path")  # Change importance
+memory(operation="delete", memory_id="abc123", project_path="/path")  # Remove one
+memory(operation="batch_delete", memory_ids=["id1","id2"], project_path="/path")  # Remove several
+memory(operation="batch_delete", category="context", project_path="/path")  # Remove all in category
+memory(operation="promote", memory_id="abc123", reason="Important rule", project_path="/path")  # Make it a rule
+memory(operation="cleanup", dry_run=True, project_path="/path")  # Preview stale/duplicate cleanup
+memory(operation="cleanup", dry_run=False, project_path="/path")  # Apply cleanup
 memory(operation="clusters", project_path="/path")  # View grouped memories
 ```
+
+**When to manage memories:**
+- Hook shows `Memory: 40+ memories` → run `cleanup(dry_run=True)` to preview
+- A mistake/rule is outdated → `delete` or `modify` it
+- A discovery is always important → `promote` it to a rule
 
 ### Before Editing
 ```python
@@ -100,27 +112,10 @@ impact_analyze(file_path="models.py", project_root="/path")  # What depends on t
 
 ### Research & Analysis
 ```python
-think(operation="research", question="How does auth work?", project_path="/path")
-think(operation="challenge", assumption="We need a cache here")
-think(operation="compare", options=["Redis", "Memcached"], context="API caching")
+scout_search(query="how does auth work", directory="/path")  # Semantic codebase search
+scout_analyze(code="def foo(): ...", question="Any issues?")  # LLM code analysis
 code_quality_check(code="def foo(): ...")  # Catches AI slop
 ```
-
----
-
-## The Local LLM (Think Tools)
-
-The `think` operations use a local 7B model (Ollama). It's useful because:
-
-- **Different perspective** - Not the same model as you, might catch blind spots
-- **Reads actual code** - `think(research)` searches the codebase and summarizes
-- **Fast for simple tasks** - Good for quick comparisons, challenges, pattern checks
-
-It's NOT better than you. Use it for:
-- Starting points when exploring unfamiliar code
-- Second opinions on architectural decisions
-- Devil's advocate when you're unsure
-- Quick file audits
 
 ---
 
@@ -139,10 +134,13 @@ Protected categories survive cleanup and are always shown at session start.
 
 ## What Happens Automatically
 
-1. **Session auto-starts** - Hooks detect when you haven't called session_start
-2. **Memory auto-cleans** - Duplicates merged, clusters created on session_start
-3. **Mistakes persist** - Logged mistakes show up in pre_edit_check forever
-4. **Checkpoints restore** - Saved checkpoints load automatically on session_start
+1. **Session auto-starts** - Hooks detect when you haven't called session_start, show rules/mistakes with IDs
+2. **Memories auto-save** - Every memory(remember), work(log_mistake), etc. saves to disk immediately
+3. **Session files auto-persist** - Files you edit are tracked continuously (no session_end needed)
+4. **Memory auto-cleans** - Duplicates merged, clusters created on session_start
+5. **Mistakes persist** - Logged mistakes show up in pre_edit_check forever
+6. **Checkpoints restore** - Saved checkpoints load automatically on session_start
+7. **Memory IDs shown** - Rules and mistakes display `[id]` so you can modify/delete/promote them
 
 ---
 

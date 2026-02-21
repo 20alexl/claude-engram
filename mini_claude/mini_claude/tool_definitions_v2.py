@@ -72,7 +72,8 @@ TOOL_DEFINITIONS = [
 - add_rule: Add permanent rule (content, reason) - never decays
 - list_rules: Get all rules for project
 - modify: Edit memory (memory_id, content, relevance, category)
-- delete: Remove memory (memory_id)
+- delete: Remove single memory (memory_id)
+- batch_delete: Bulk delete by IDs (memory_ids) or by category. Rules/mistakes protected from category delete.
 - promote: Promote memory to rule (memory_id, reason)
 - recent: Get recent memories newest first (category, limit)""",
         inputSchema={
@@ -85,7 +86,7 @@ TOOL_DEFINITIONS = [
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
                 "content": {"type": "string", "description": "For remember/add_rule/modify: content"},
-                "category": {"type": "string", "enum": ["discovery", "priority", "note", "rule", "mistake", "context"], "description": "For remember/modify: type"},
+                "category": {"type": "string", "enum": ["discovery", "priority", "note", "rule", "mistake", "context"], "description": "For remember/modify/batch_delete/recent: memory category"},
                 "relevance": {"type": "integer", "description": "For remember/modify: importance 1-10"},
                 "file_path": {"type": "string", "description": "For search: filter by file"},
                 "tags": {"type": "array", "items": {"type": "string"}, "description": "For search: filter by tags"},

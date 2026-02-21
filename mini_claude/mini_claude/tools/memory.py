@@ -539,8 +539,9 @@ class MemoryStore:
 
     def forget_project(self, project_path: str):
         """Clear memory for a project."""
-        if project_path in self._projects:
-            del self._projects[project_path]
+        norm = self._normalize_path(project_path)
+        if norm in self._projects:
+            del self._projects[norm]
             self._save()
 
     def clear_all(self):
@@ -1409,11 +1410,9 @@ class MemoryStore:
             id_set = set(memory_ids)
             proj.entries = [e for e in proj.entries if e.id not in id_set]
         elif category:
-            # Protect rules and mistakes from accidental bulk delete
             if category in ("rule", "mistake"):
-                proj.entries = [e for e in proj.entries if e.category != category]
-            else:
-                proj.entries = [e for e in proj.entries if e.category != category]
+                return (0, f"Cannot bulk-delete '{category}' memories (protected). Use delete with specific memory_ids instead.")
+            proj.entries = [e for e in proj.entries if e.category != category]
         else:
             return (0, "Specify memory_ids or category")
 

@@ -1802,7 +1802,7 @@ class Handlers:
                 category=category,
             )
             response = MiniClaudeResponse(
-                status="success" if count > 0 else "needs_clarification",
+                status="success",
                 confidence="high",
                 reasoning=msg,
             )
@@ -1848,7 +1848,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
-                "Use: remember, recall, forget, search, clusters, cleanup, add_rule, list_rules, modify, delete, promote, recent"
+                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent"
             )
 
     async def handle_work(self, operation: str, args: dict) -> list[TextContent]:
