@@ -13,9 +13,8 @@ Claude Code forgets everything between sessions and after context compaction. Mi
 - **Scope guards** - Declare allowed files, prevent over-refactoring
 - **Impact analysis** - See what depends on a file before changing it
 - **Convention storage** - Store project rules, check code against them
-- **Think tools** - Get second opinion from local 7B model
 
-Runs locally with Ollama. No cloud, no API costs.
+Runs locally with Ollama for semantic search and code analysis. No cloud, no API costs.
 
 ## Install
 
@@ -71,9 +70,9 @@ Mini Claude automatically tracks without you needing to call tools:
 
 | What | How |
 |------|---------|
-| **Edits** | Auto-logged after each Edit/Write. Shows "✅ Edit tracked: file.py (#3)" |
-| **Tests** | Auto-logged after pytest/npm test. Shows "✅ Test tracked: PASSED" |
-| **Mistakes** | Auto-detected from common error patterns in output |
+| **Edits** | Auto-logged after each Edit/Write. Shows "Edit tracked: file.py (edit #3)" |
+| **Tests** | Auto-logged after pytest/npm test. Shows "PASS/FAIL Test tracked" |
+| **Mistakes** | Auto-detected from common error patterns in failed commands |
 
 Parallel LLM requests are automatically queued to prevent GPU contention.
 
