@@ -192,7 +192,7 @@ class WorkTracker:
                 "searches": len(searches),
                 "errors": len(errors),
                 "decisions": len(decisions),
-                "files_touched": list(set(e.file_path for e in self._events if e.file_path)),
+                "files_touched": list(set(e.file_path for e in self._events if e.file_path and e.event_type == "edit")),
                 "mistakes": self._mistakes,
             },
             suggestions=[

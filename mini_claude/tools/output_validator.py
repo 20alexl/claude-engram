@@ -31,8 +31,11 @@ class OutputValidator:
                 issues.append(f"Found placeholder: '{p}'")
 
         # Fake/stub patterns
-        if re.search(r'return\s+None\s*$', code, re.MULTILINE) and code.count('return None') > 2:
-            issues.append("Multiple 'return None' - possible stub implementation")
+        # Only flag if return None appears many times AND there's no other return value
+        none_returns = len(re.findall(r'return\s+None\s*$', code, re.MULTILINE))
+        other_returns = len(re.findall(r'return\s+(?!None\s*$)\S', code, re.MULTILINE))
+        if none_returns > 3 and other_returns == 0:
+            issues.append(f"Only 'return None' ({none_returns}x) with no other returns - possible stub implementation")
         if re.search(r'print\(["\'].*(?:test|debug|hello)', code, re.I):
             issues.append("Debug/test print statement found")
 

@@ -5,6 +5,7 @@ Every tool response follows this structure to ensure rich communication
 back to Claude Code. No silent failures, always context.
 """
 
+import json
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
@@ -196,7 +197,3 @@ class MiniClaudeResponse(BaseModel):
             lines.append(f"Failed: {', '.join(self.work_log.what_failed)}")
 
         return "\n".join(lines)
-
-
-# Need to import json for the data formatting
-import json

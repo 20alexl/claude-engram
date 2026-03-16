@@ -418,10 +418,10 @@ Be skeptical and direct. Challenge the assumption, don't validate it."""
                     directory=project_path,
                     max_results=5,
                 )
-                if search_result.data and search_result.data.get("findings"):
+                if search_result.findings:
                     existing_patterns = [
-                        f"{f.get('file', 'unknown')}: {f.get('summary', '')}"
-                        for f in search_result.data["findings"]
+                        f"{f.file}: {f.summary}"
+                        for f in search_result.findings
                     ]
                     work_log.what_worked.append(f"Found {len(existing_patterns)} existing patterns")
                     existing_patterns_text = "\n".join(f"- {p}" for p in existing_patterns)
@@ -610,7 +610,7 @@ Be specific and practical."""
 
             return {"results": results[:max_results], "error": None}
 
-        except self.httpx_client.__class__.__bases__[0].TimeoutException:
+        except httpx.TimeoutException:
             return {"results": [], "error": "Web search timed out"}
         except Exception as e:
             return {"results": [], "error": f"Web search failed: {e}"}

@@ -162,9 +162,10 @@ class DependencyMapper:
                 base_module = imp.split(".")[0]
                 if base_module in python_stdlib:
                     categorized["stdlib"].append(imp)
-                elif imp.startswith(".") or not "." in imp:
+                elif imp.startswith("."):
                     categorized["internal"].append(imp)
                 else:
+                    # Single-segment packages without dots are likely external (requests, flask, etc.)
                     categorized["external"].append(imp)
 
             elif extension in (".js", ".ts", ".jsx", ".tsx"):

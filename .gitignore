@@ -71,6 +71,9 @@ pip-delete-this-directory.txt
 *.tmp
 *.temp
 
+# Windows NUL device artifact
+NUL
+
 # User-specific configs (not part of core project)
 scripts/
 .mcp.json

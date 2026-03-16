@@ -324,7 +324,7 @@ List ONLY the file paths, one per line. No explanations."""
             line = line.strip().strip("-").strip("*").strip()
             if line and any(line.endswith(ext) for ext in CODE_EXTENSIONS):
                 for f in file_list:
-                    if f in line or line in f:
+                    if f == line or f.endswith("/" + line) or f in line:
                         suggested_files.append(f)
                         break
 

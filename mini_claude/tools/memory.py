@@ -178,9 +178,10 @@ class MemoryStore:
         """Migrate a v1 entry to v2 format."""
         content = entry_data.get("content", "")
 
-        # Add ID if missing
+        # Add ID if missing (include created_at to avoid collisions for same-content entries)
         if not entry_data.get("id"):
-            entry_data["id"] = hashlib.md5(content.encode()).hexdigest()[:12]
+            created = str(entry_data.get("created_at", ""))
+            entry_data["id"] = hashlib.md5(f"{content}{created}".encode()).hexdigest()[:12]
 
         # Add tags if missing
         if "tags" not in entry_data:
@@ -266,8 +267,21 @@ class MemoryStore:
         return list(files)
 
     def _generate_entry_id(self, content: str) -> str:
-        """Generate a unique ID for a memory entry."""
-        return hashlib.md5(f"{content}{time.time()}".encode()).hexdigest()[:12]
+        """Generate a unique ID for a memory entry based on content."""
+        # Use content-only hash for deterministic IDs; add counter suffix on collision
+        base_id = hashlib.md5(content.encode()).hexdigest()[:12]
+        # Check for collision across all projects
+        all_ids = set()
+        for proj in self._projects.values():
+            all_ids.update(e.id for e in proj.entries)
+        all_ids.update(e.id for e in self._global_entries)
+        if base_id not in all_ids:
+            return base_id
+        # Collision: append counter
+        counter = 1
+        while f"{base_id}_{counter}" in all_ids:
+            counter += 1
+        return f"{base_id}_{counter}"
 
     def _is_duplicate(self, content: str, entries: list[MemoryEntry], threshold: float = 0.85) -> Optional[MemoryEntry]:
         """
@@ -1017,12 +1031,12 @@ class MemoryStore:
                 # Has spaces near end but no ending punctuation - likely truncated
                 words = content.split()
                 if len(words) > 5:  # Only flag if substantial content
-                    # Check if last word looks incomplete
+                    # Check if last word looks incomplete (very short non-word)
                     last_word = words[-1] if words else ""
                     if last_word and not last_word[-1].isalnum():
-                        pass  # Has some punctuation
-                    elif len(last_word) < 3:
-                        return "Truncated (ends abruptly)"
+                        pass  # Has some punctuation, likely OK
+                    elif len(last_word) == 1 and last_word.isalpha():
+                        return "Truncated (ends with single letter)"
 
         # Contains placeholder text
         placeholder_patterns = [
@@ -1046,12 +1060,14 @@ class MemoryStore:
             entry = self._get_entry_by_id(proj, dup["entry_id"])
             original = self._get_entry_by_id(proj, dup["duplicate_of"])
             if entry and original:
-                # Merge metadata into original
+                # Merge metadata into original, keeping higher-quality content
                 original.tags = list(set(original.tags + entry.tags))
                 original.related_files = list(set(original.related_files + entry.related_files))
                 original.access_count += entry.access_count
                 if entry.relevance > original.relevance:
                     original.relevance = entry.relevance
+                    # Keep the higher-relevance entry's content (likely more refined)
+                    original.content = entry.content
                 ids_to_remove.add(entry.id)
                 report["duplicates_merged"].append(dup["entry_id"])
 

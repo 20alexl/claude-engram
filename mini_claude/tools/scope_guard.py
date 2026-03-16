@@ -343,8 +343,9 @@ class ScopeGuard:
         if p1.name == p2.name or p1.name == str(p2) or str(p1) == p2.name:
             return True
 
-        # Ends with match
-        if str(p1).endswith(str(p2)) or str(p2).endswith(str(p1)):
+        # Ends with match (require path separator boundary)
+        s1, s2 = str(p1).replace("\\", "/"), str(p2).replace("\\", "/")
+        if s1.endswith("/" + s2) or s2.endswith("/" + s1):
             return True
 
         return False
