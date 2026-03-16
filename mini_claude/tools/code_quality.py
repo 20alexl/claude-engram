@@ -326,9 +326,9 @@ class CodeQualityChecker:
                     suggestion="Use a descriptive name",
                 ))
 
-        # Check variable names in assignments
-        var_pattern = r'(\w+)\s*='
-        for match in re.finditer(var_pattern, code):
+        # Check variable names in assignments (only actual assignments, not kwargs)
+        var_pattern = r'^[ \t]*(\w+)\s*=[^=]'
+        for match in re.finditer(var_pattern, code, re.MULTILINE):
             name = match.group(1)
             name_lower = name.lower()
 

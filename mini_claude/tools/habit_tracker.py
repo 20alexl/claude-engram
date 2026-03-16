@@ -128,8 +128,11 @@ class HabitTracker:
 
     def _save_habits(self, data: Dict):
         """Save habit history."""
-        with open(self.habit_file, 'w') as f:
-            json.dump(data, f, indent=2)
+        try:
+            with open(self.habit_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass  # Non-critical, don't crash tool calls
 
     def record_thinker_use(self, tool: str, context: str):
         """Record that a Thinker tool was used."""

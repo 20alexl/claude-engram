@@ -385,8 +385,8 @@ class LoopDetector:
                 word for word in normalized.split()
                 if not word.isdigit()
             )
-            # Truncate for grouping
-            normalized = normalized[:100]
+            # Truncate for grouping (use 200 chars to avoid false grouping)
+            normalized = normalized[:200]
             groups[normalized] += 1
 
         return dict(groups)

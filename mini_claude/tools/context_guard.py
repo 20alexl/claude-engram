@@ -139,13 +139,16 @@ class ContextGuard:
             "handoff_warnings": checkpoint.handoff_warnings,
         }
 
-        with open(checkpoint_file, "w") as f:
-            json.dump(checkpoint_data, f, indent=2)
+        # Write atomically via temp-then-rename
+        temp_file = checkpoint_file.with_suffix(".json.tmp")
+        temp_file.write_text(json.dumps(checkpoint_data, indent=2))
+        temp_file.replace(checkpoint_file)
 
-        # Also save as "latest" for easy recovery
+        # Also save as "latest" for easy recovery (atomic)
         latest_file = self.storage_dir / "latest_checkpoint.json"
-        with open(latest_file, "w") as f:
-            json.dump(checkpoint_data, f, indent=2)
+        temp_latest = latest_file.with_suffix(".json.tmp")
+        temp_latest.write_text(json.dumps(checkpoint_data, indent=2))
+        temp_latest.replace(latest_file)
 
         work_log.what_worked.append(f"checkpoint saved: {task_id}")
 

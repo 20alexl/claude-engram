@@ -792,10 +792,8 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
     Returns list of memory content strings (max 3).
     """
     try:
-        # Import MemoryStore here to avoid circular imports
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from tools.memory import MemoryStore
+        # Import MemoryStore using absolute import (consistent with line 1387)
+        from mini_claude.tools.memory import MemoryStore
 
         memory = MemoryStore()
         memories = memory.get_contextual_memories(
@@ -1396,6 +1394,7 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 content=content,
                 source="auto-detected",
                 relevance=9,  # High relevance for mistakes
+                category="mistake",  # Use proper category so pre_edit_check can find them
             )
 
             # Reset error counter since we logged it

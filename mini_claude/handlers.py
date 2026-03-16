@@ -180,7 +180,7 @@ class Handlers:
         session_warning = self._check_session(directory)
 
         # Run search in thread pool to not block
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.search_engine.search(query, directory, max_results)
@@ -554,7 +554,7 @@ class Handlers:
             return self._needs_clarification("No file path provided", "Which file should I summarize?")
 
         # Run summarizer in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.summarizer.summarize(file_path, mode)
@@ -580,7 +580,7 @@ class Handlers:
             )
 
         # Run mapper in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.dependency_mapper.map_file(file_path, project_root, include_reverse)
@@ -871,7 +871,7 @@ class Handlers:
         session_warning = self._check_session(project_root)
 
         # Run analyzer in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.impact_analyzer.analyze(file_path, project_root, proposed_changes)
@@ -1583,7 +1583,7 @@ class Handlers:
             )
 
         record_session_tool_use("think_audit", file_path[:50])
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.thinker.audit(file_path, focus_areas, min_severity)
@@ -1607,7 +1607,7 @@ class Handlers:
             )
 
         record_session_tool_use("audit_batch", f"{len(file_paths)} files")
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.thinker.audit_batch(file_paths, min_severity)
@@ -1640,7 +1640,7 @@ class Handlers:
             )
 
         record_session_tool_use("find_similar_issues", issue_pattern[:30])
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.thinker.find_similar_issues(
@@ -1671,7 +1671,7 @@ class Handlers:
                 "What code should I check?"
             )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.conventions.check_code_with_llm(project_path, code, self.llm)
@@ -1965,7 +1965,7 @@ class Handlers:
         elif operation == "handoff_create":
             return await self.context_handoff_create(
                 summary=args.get("handoff_summary", ""),
-                next_steps=args.get("pending_steps", []),
+                next_steps=args.get("next_steps") or args.get("pending_steps", []),
                 context_needed=args.get("handoff_context_needed", []),
                 warnings=args.get("handoff_warnings"),
                 project_path=args.get("project_path"),

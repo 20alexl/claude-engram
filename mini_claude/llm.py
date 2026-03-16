@@ -157,16 +157,13 @@ class LLMClient:
         """
         queue_start = time.time()
 
-        # Track if we had to wait (lock was held by another request)
-        was_queued = self._lock.locked()
-
         # Acquire lock - this queues parallel requests
         with self._lock:
             queue_wait_ms = int((time.time() - queue_start) * 1000)
 
-            # Update queue stats
+            # Update queue stats (infer queued from actual wait time, not non-atomic check)
             self._queue_stats["total_requests"] += 1
-            if was_queued:
+            if queue_wait_ms > 5:  # >5ms wait means we were actually queued
                 self._queue_stats["queued_requests"] += 1
                 self._queue_stats["total_queue_wait_ms"] += queue_wait_ms
 
