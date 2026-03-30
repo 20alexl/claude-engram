@@ -64,6 +64,10 @@ python install.py --setup /path/to/your/project
 - Copy `.mcp.json` to your project root (required - tells VSCode where the MCP server is)
 - Copy [`CLAUDE.md`](CLAUDE.md) to your project root (tells Claude how to use Mini Claude)
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/20alexl-mini-claude).
+
 ## Auto-Tracking
 
 Mini Claude automatically tracks without you needing to call tools:
