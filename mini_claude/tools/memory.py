@@ -1,5 +1,5 @@
 """
-Memory - Persistent Knowledge Store for Mini Claude
+Memory - Persistent Knowledge Store for Claude Engram
 
 Allows mini_claude to remember:
 - Project understanding (structure, patterns, key files)
@@ -101,7 +101,7 @@ class ProjectMemory(BaseModel):
 
 class MemoryStore:
     """
-    Mini Claude's memory system.
+    Claude Engram's memory system.
 
     Persists knowledge across sessions so I don't have to rediscover
     the same things repeatedly.

@@ -1,5 +1,5 @@
 """
-File Summarizer - Quick understanding of files for Mini Claude
+File Summarizer - Quick understanding of files for Claude Engram
 
 Provides:
 1. Quick one-line summaries

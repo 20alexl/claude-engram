@@ -40,8 +40,8 @@ No cloud services, no databases, no background daemons (except the optional ~90M
 ## What This Library Is NOT
 
 - This is not an AI agent framework. It doesn't make decisions for Claude — it provides context so Claude makes better decisions.
-- This is not a replacement for CLAUDE.md. Static rules belong in CLAUDE.md. Mini Claude tracks dynamic state that changes across sessions.
-- If you need full-text search across thousands of documents, use a real search engine. Mini Claude's `scout_search` is for quick semantic queries against a codebase, not enterprise search.
+- This is not a replacement for CLAUDE.md. Static rules belong in CLAUDE.md. Claude Engram tracks dynamic state that changes across sessions.
+- If you need full-text search across thousands of documents, use a real search engine. Claude Engram's `scout_search` is for quick semantic queries against a codebase, not enterprise search.
 - If you need real-time collaboration memory shared across team members, this isn't it. Memory is per-machine, stored locally.
 
 ---

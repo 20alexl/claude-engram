@@ -11,8 +11,8 @@
 ollama pull gemma3:12b
 
 # 2. Clone and install
-git clone https://github.com/20alexl/mini_claude.git
-cd mini_claude
+git clone https://github.com/20alexl/claude-engram.git
+cd claude-engram
 python -m venv venv
 
 # Linux/Mac
@@ -38,12 +38,12 @@ python install.py
 
 ## First Use
 
-After running `install.py`, open any project in Claude Code. Mini Claude starts working immediately — no commands needed.
+After running `install.py`, open any project in Claude Code. Claude Engram starts working immediately — no commands needed.
 
 You'll see hook output like:
 
 ```
-Mini Claude session started (startup)
+Claude Engram session started (startup)
 Rules (2):
   [a1b2c3] Always use strict TypeScript
   [d4e5f6] Never commit .env files

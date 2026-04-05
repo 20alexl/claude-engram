@@ -1,4 +1,4 @@
-"""Mini Claude Tools - Individual capabilities that mini_claude provides."""
+"""Claude Engram Tools - Individual capabilities that mini_claude provides."""
 
 from .scout import SearchEngine
 from .memory import MemoryStore

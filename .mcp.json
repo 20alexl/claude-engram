@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "mini-claude": {
+    "claude-engram": {
       "command": "python",
       "args": ["-m", "mini_claude.server"]
     }

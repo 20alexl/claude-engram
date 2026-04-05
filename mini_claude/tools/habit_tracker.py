@@ -350,7 +350,7 @@ class HabitTracker:
             # Session just started, no activity yet
             lines.append("🌱 Session just started!")
             lines.append("")
-            lines.append("Mini Claude will track your habits as you work:")
+            lines.append("Claude Engram will track your habits as you work:")
             lines.append("  • Using Thinker tools before risky work")
             lines.append("  • Logging decisions and mistakes")
             lines.append("  • Building good coding practices")

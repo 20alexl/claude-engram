@@ -1,5 +1,5 @@
 """
-Scout - Search Tool for Mini Claude
+Scout - Search Tool for Claude Engram
 
 The core search functionality. Combines:
 1. Fast file/text search (grep-like)
@@ -38,7 +38,7 @@ SKIP_DIRS = {
 
 class SearchEngine:
     """
-    Scout - Mini Claude's search capability.
+    Scout - Claude Engram's search capability.
 
     Finds code and understands it using the local LLM.
     """

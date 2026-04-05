@@ -1,8 +1,8 @@
-# Mini Claude - Persistent Memory for Claude Code
+# Claude Engram - Persistent Memory for Claude Code
 
 ## How It Works
 
-Mini Claude intercepts your tool calls via Claude Code hooks and automatically tracks what you do. Most features require zero invocations - they fire through hooks on every edit, bash command, error, and session event.
+Claude Engram intercepts your tool calls via Claude Code hooks and automatically tracks what you do. Most features require zero invocations - they fire through hooks on every edit, bash command, error, and session event.
 
 You also have MCP tools for things that need semantic judgment (saving discoveries, declaring rules, managing archives).
 

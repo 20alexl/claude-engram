@@ -1,1 +1,1 @@
-"""Mini Claude Hooks - Scripts for Claude Code hook integration."""
+"""Claude Engram Hooks - Scripts for Claude Code hook integration."""

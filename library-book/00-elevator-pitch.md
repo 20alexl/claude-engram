@@ -4,17 +4,17 @@
 
 ---
 
-## What is Mini Claude?
+## What is Claude Engram?
 
-Mini Claude gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also provides a local LLM (via Ollama) for semantic code search and analysis.
+Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also provides a local LLM (via Ollama) for semantic code search and analysis.
 
 ## Who is it for?
 
-Anyone using Claude Code for serious work across multiple sessions. If you've ever had Claude break the same thing twice because it forgot the first time, or lost all context after a compaction, Mini Claude is for you.
+Anyone using Claude Code for serious work across multiple sessions. If you've ever had Claude break the same thing twice because it forgot the first time, or lost all context after a compaction, Claude Engram is for you.
 
 ## What does it replace?
 
-Before Mini Claude, you either:
+Before Claude Engram, you either:
 - Started every session from scratch, re-explaining project rules and past mistakes
 - Manually maintained a CLAUDE.md with rules and hoped Claude read it
 - Lost all working context when the conversation compacted
@@ -26,7 +26,7 @@ Before Mini Claude, you either:
 # Everything below happens automatically via hooks. Zero invocations needed.
 
 # When you start a session:
-#   → Mini Claude loads rules, past mistakes, checkpoints, and handoffs
+#   → Claude Engram loads rules, past mistakes, checkpoints, and handoffs
 
 # When the user says "let's switch to PostgreSQL instead of SQLite":
 #   → Auto-captured as a decision memory

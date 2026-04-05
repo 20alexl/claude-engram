@@ -1,5 +1,5 @@
 """
-Work Tracker - Automatic session journaling for Mini Claude
+Work Tracker - Automatic session journaling for Claude Engram
 
 The problem: I (Claude) do work and immediately forget what I did.
 Next session, I start from scratch with no context.

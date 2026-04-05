@@ -1,7 +1,7 @@
 [project]
-name = "mini-claude"
+name = "claude-engram"
 version = "0.2.0"
-description = "Mini Claude - A junior agent for Claude Code with memory, search, and analysis capabilities"
+description = "Persistent memory for Claude Code. Auto-tracks mistakes, decisions, and context via hooks."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,7 +17,7 @@ semantic = [
 ]
 
 [project.scripts]
-mini-claude = "mini_claude.server:main"
+claude-engram = "mini_claude.server:main"
 
 [build-system]
 requires = ["hatchling"]

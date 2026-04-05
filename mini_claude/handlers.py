@@ -1,5 +1,5 @@
 """
-Mini Claude Handlers - Request processing logic
+Claude Engram Handlers - Request processing logic
 
 This module contains all the handler functions that process tool calls.
 Each handler:
@@ -45,7 +45,7 @@ from .tools.habit_tracker import (
 
 class Handlers:
     """
-    Central handler class for all Mini Claude tool calls.
+    Central handler class for all Claude Engram tool calls.
 
     Initialized once with all tool instances, then handles
     requests by delegating to the appropriate tool.
@@ -114,7 +114,7 @@ class Handlers:
     # -------------------------------------------------------------------------
 
     async def status(self) -> list[TextContent]:
-        """Check Mini Claude's health status."""
+        """Check Claude Engram's health status."""
         health = self.llm.health_check()
         stats = self.memory.get_stats()
         queue_stats = self.llm.get_queue_stats()
@@ -137,7 +137,7 @@ class Handlers:
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
-                reasoning="Mini Claude is ready. Did you call session_start yet?",
+                reasoning="Claude Engram is ready. Did you call session_start yet?",
                 work_log=WorkLog(what_worked=[
                     "LLM connection verified",
                     f"Model '{self.llm.model}' is available",
@@ -158,7 +158,7 @@ class Handlers:
                 reasoning=health.get("error", "Unknown error"),
                 work_log=WorkLog(what_failed=[health.get("error", "Health check failed")]),
                 suggestions=[health.get("suggestion", "Check Ollama installation")],
-                warnings=["Mini Claude cannot function without a working Ollama connection"],
+                warnings=["Claude Engram cannot function without a working Ollama connection"],
             )
 
         return [TextContent(type="text", text=response.to_formatted_string())]

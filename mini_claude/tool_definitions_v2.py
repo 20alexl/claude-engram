@@ -1,5 +1,5 @@
 """
-Mini Claude Tool Definitions v2 - Optimized for token efficiency
+Claude Engram Tool Definitions v2 - Optimized for token efficiency
 
 Combines 66 tools into ~20 tools using operation parameters.
 Reduces token overhead from ~20K to ~5K per message.
@@ -15,7 +15,7 @@ TOOL_DEFINITIONS = [
 
     Tool(
         name="mini_claude_status",
-        description="Check Mini Claude health. Returns: status, model, memory stats.",
+        description="Check Claude Engram health. Returns: status, model, memory stats.",
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
 

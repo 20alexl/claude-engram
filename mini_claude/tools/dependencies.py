@@ -1,5 +1,5 @@
 """
-Dependency Mapper - Understand code relationships for Mini Claude
+Dependency Mapper - Understand code relationships for Claude Engram
 
 Maps out:
 1. What a file imports

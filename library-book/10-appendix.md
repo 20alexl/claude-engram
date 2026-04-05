@@ -10,7 +10,7 @@
 
 #### `mini_claude_status()`
 
-Check Mini Claude health (Ollama connection, model availability, memory stats, queue stats).
+Check Claude Engram health (Ollama connection, model availability, memory stats, queue stats).
 
 #### `session_start(project_path)`
 
@@ -253,8 +253,8 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Links
 
-- [Repository](https://github.com/20alexl/mini_claude)
-- [Issue Tracker](https://github.com/20alexl/mini_claude/issues)
+- [Repository](https://github.com/20alexl/claude-engram)
+- [Issue Tracker](https://github.com/20alexl/claude-engram/issues)
 - [Project Book Template](https://github.com/20alexl/project-book-template)
 
 ---

@@ -110,7 +110,7 @@ When Claude runs from a workspace root with multiple projects:
   shared-lib/            ← CLAUDE.md → project "shared-lib"
 ```
 
-Mini Claude walks up from the edited file looking for project markers:
+Claude Engram walks up from the edited file looking for project markers:
 `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `.git`, `CLAUDE.md`, `setup.py`, `Makefile`, etc.
 
 ### Memory Inheritance
