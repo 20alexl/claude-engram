@@ -8,8 +8,8 @@
 
 ```bash
 # Clone
-git clone https://github.com/20alexl/mini_claude.git
-cd mini_claude
+git clone https://github.com/20alexl/claude-engram.git
+cd claude-engram
 
 # Create virtual environment
 python -m venv venv
@@ -89,7 +89,7 @@ No formal linter configured yet. Follow existing patterns:
 
 ## How Decisions Are Made
 
-Feature requests and bug reports go to the [GitHub issues page](https://github.com/20alexl/mini_claude/issues). PRs are welcome for bug fixes and improvements that align with the design principles in [Chapter 2](./02-the-design.md).
+Feature requests and bug reports go to the [GitHub issues page](https://github.com/20alexl/claude-engram/issues). PRs are welcome for bug fixes and improvements that align with the design principles in [Chapter 2](./02-the-design.md).
 
 ---
 

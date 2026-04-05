@@ -1,5 +1,5 @@
 """
-Convention Tracker - Remember and Enforce Project Rules for Mini Claude
+Convention Tracker - Remember and Enforce Project Rules for Claude Engram
 
 This tool addresses a key AI coding failure: ignoring project conventions.
 

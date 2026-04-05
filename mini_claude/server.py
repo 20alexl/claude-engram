@@ -1,5 +1,5 @@
 """
-Mini Claude MCP Server
+Claude Engram MCP Server
 
 The main entry point that exposes mini_claude's capabilities to Claude Code
 via the Model Context Protocol.
@@ -23,12 +23,12 @@ from .tool_definitions_v2 import TOOL_DEFINITIONS
 handlers = Handlers()
 
 # Create MCP server
-server = Server("mini-claude")
+server = Server("claude-engram")
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    """List available Mini Claude tools."""
+    """List available Claude Engram tools."""
     return TOOL_DEFINITIONS
 
 

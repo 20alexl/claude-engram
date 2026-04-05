@@ -43,7 +43,7 @@
 
 | Feature | Why Not |
 |---------|---------|
-| Cloud storage | Mini Claude is privacy-first. All data stays local in `~/.mini_claude/`. |
+| Cloud storage | Claude Engram is privacy-first. All data stays local in `~/.mini_claude/`. |
 | Database backend (SQLite, Redis) | Adds dependencies. JSON files work for the scale we target (<1000 memories per project). |
 | GUI / web dashboard | Out of scope. This is a library, not an app. |
 | Python 3.9 support | 3.10+ for `match/case`, `X | Y` type unions, and cleaner code. |
@@ -52,7 +52,7 @@
 
 ## Versioning and Stability
 
-Mini Claude follows semantic versioning:
+Claude Engram follows semantic versioning:
 - **Patch** (0.2.x): Bug fixes, hook improvements, scoring tuning
 - **Minor** (0.x.0): New features, new hook events, memory system changes
 - **Major** (x.0.0): Breaking changes to memory format or MCP tool signatures

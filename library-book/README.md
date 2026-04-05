@@ -1,8 +1,8 @@
 # Library Book
 
-> **Mini Claude** — Persistent memory and self-awareness for Claude Code
+> **Claude Engram** — Persistent memory and self-awareness for Claude Code
 
-This is the Library Book — a layered guide to understanding, using, and contributing to Mini Claude. Start from the beginning for full context, or jump to what you need.
+This is the Library Book — a layered guide to understanding, using, and contributing to Claude Engram. Start from the beginning for full context, or jump to what you need.
 
 | Status | Value |
 |--------|-------|
@@ -16,7 +16,7 @@ This is the Library Book — a layered guide to understanding, using, and contri
 ## Table of Contents
 
 ### [Chapter 0 — The Elevator Pitch](./00-elevator-pitch.md)
-What is Mini Claude? Who is it for? Start here.
+What is Claude Engram? Who is it for? Start here.
 
 ### [Chapter 1 — The Why](./01-the-why.md)
 The problem this library solves and what came before it.
@@ -28,7 +28,7 @@ Philosophy, principles, and deliberate tradeoffs.
 Install, configure, and run your first session in 5 minutes.
 
 ### [Chapter 4 — The Internals](./04-the-internals.md)
-How Mini Claude works under the hood.
+How Claude Engram works under the hood.
 
 ### [Chapter 5 — Usage Guide](./05-usage-guide.md)
 Common patterns, recipes, and how to use the main features.
@@ -52,7 +52,7 @@ Full tool reference, configuration, environment variables, glossary.
 
 ## How to Use This Book
 
-**Evaluating Mini Claude?** Read Chapters 0-2. That tells you what it does, why, and how it thinks.
+**Evaluating Claude Engram?** Read Chapters 0-2. That tells you what it does, why, and how it thinks.
 
 **Just want to use it?** Chapter 3 gets you running, Chapter 5 covers the main features.
 

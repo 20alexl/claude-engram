@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Mini Claude Installer
+Claude Engram Installer
 
-Sets up Mini Claude for use with Claude Code:
+Sets up Claude Engram for use with Claude Code:
 1. Creates virtual environment (if needed)
 2. Installs the mini_claude package
 3. Shows how to enable in your projects
 
 Usage:
-  cd mini_claude_repo
+  cd claude-engram
   python -m venv venv
   source venv/bin/activate  # or venv\\Scripts\\activate on Windows
   pip install -e mini_claude/
@@ -100,7 +100,7 @@ def install_package():
 
 
 def create_memory_dir():
-    """Create the Mini Claude memory directory."""
+    """Create the Claude Engram memory directory."""
     memory_dir = Path.home() / ".mini_claude"
     memory_dir.mkdir(parents=True, exist_ok=True)
     return str(memory_dir)
@@ -403,7 +403,7 @@ def get_mcp_config():
     if launcher.exists():
         return {
             "mcpServers": {
-                "mini-claude": {
+                "claude-engram": {
                     "command": str(launcher),
                     "args": []
                 }
@@ -423,7 +423,7 @@ def get_mcp_config():
 
     return {
         "mcpServers": {
-            "mini-claude": {
+            "claude-engram": {
                 "command": python_path,
                 "args": ["-m", "mini_claude.server"]
             }
@@ -464,13 +464,13 @@ def copy_claude_md(target_dir: Path):
 
 
 def setup_project(target_dir: str):
-    """Set up Mini Claude for a specific project."""
+    """Set up Claude Engram for a specific project."""
     target = Path(target_dir).resolve()
 
     if not target.exists():
         return False, f"Directory does not exist: {target}"
 
-    print(f"\nSetting up Mini Claude for: {target}")
+    print(f"\nSetting up Claude Engram for: {target}")
 
     # Create .mcp.json
     success, result = create_project_mcp_config(target)
@@ -492,9 +492,9 @@ def setup_project(target_dir: str):
 
 def main():
     print("=" * 60)
-    print("Mini Claude Installer")
+    print("Claude Engram Installer")
     print("=" * 60)
-    print("\nMini Claude gives Claude Code persistent memory and")
+    print("\nClaude Engram gives Claude Code persistent memory and")
     print("self-awareness tools to help avoid repeating mistakes.")
 
     total_steps = 7
@@ -618,7 +618,7 @@ def main():
     print("-" * 60)
     print("\n1. Open your project in VSCode")
     print("2. Start Claude Code")
-    print("3. Approve the mini-claude MCP server when prompted")
+    print("3. Approve the claude-engram MCP server when prompted")
     print("4. Claude should use: session_start(project_path=\"/your/project\")")
 
     print("\n" + "-" * 60)
@@ -663,7 +663,7 @@ def main_with_args():
             print("\nSetup complete!")
             print("1. Open the project in VSCode")
             print("2. Start Claude Code")
-            print("3. Approve the mini-claude MCP server when prompted")
+            print("3. Approve the claude-engram MCP server when prompted")
             return 0
         else:
             return 1

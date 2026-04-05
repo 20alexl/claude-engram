@@ -1,5 +1,5 @@
 """
-Session Manager - Context loading and session lifecycle for Mini Claude
+Session Manager - Context loading and session lifecycle for Claude Engram
 
 The problem: I forget to check what I know at the start of sessions.
 The solution: One tool that loads everything I need to remember.
@@ -17,7 +17,7 @@ from .conventions import ConventionTracker
 
 class SessionManager:
     """
-    Manages session lifecycle for Mini Claude.
+    Manages session lifecycle for Claude Engram.
 
     Primary use: Call session_start at the beginning of work on a project
     to load all relevant context in one call.

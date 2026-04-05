@@ -1,4 +1,4 @@
-# Mini Claude
+# Claude Engram
 
 Persistent memory and self-awareness for Claude Code. Tracks mistakes, decisions, and context across sessions automatically via hooks. Includes loop detection, scope guards, tiered memory with archiving, semantic intent scoring, and a local LLM for code analysis.
 
@@ -22,8 +22,8 @@ Most of this works automatically via Claude Code hooks. No tool invocations need
 ollama pull gemma3:12b
 
 # 2. Clone and install
-git clone https://github.com/20alexl/mini_claude.git
-cd mini_claude
+git clone https://github.com/20alexl/claude-engram.git
+cd claude-engram
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 
@@ -44,10 +44,10 @@ Or copy `.mcp.json` and `CLAUDE.md` to your project root manually.
 
 ## Quick Usage
 
-After install, Mini Claude works automatically. You'll see hook output like:
+After install, Claude Engram works automatically. You'll see hook output like:
 
 ```
-Mini Claude session started (startup)
+Claude Engram session started (startup)
 Rules (2):
   [a1b2c3] Always use strict TypeScript
 Past mistakes (1):

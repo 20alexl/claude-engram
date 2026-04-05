@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Mini Claude Enforcement Hook - AUTOMATIC TOOL INJECTION
+Claude Engram Enforcement Hook - AUTOMATIC TOOL INJECTION
 
 NEW APPROACH (Round 3):
 Instead of REMINDING Claude to use tools, we AUTOMATICALLY use them.
@@ -458,7 +458,7 @@ def get_project_dir(file_path: str = "") -> str:
 
 
 def get_memory_file() -> Path:
-    """Get the Mini Claude memory file path."""
+    """Get the Claude Engram memory file path."""
     return Path.home() / ".mini_claude" / "memory.json"
 
 
@@ -625,7 +625,7 @@ def _append_memory_summary(lines: list, project_memory: dict, project_dir: str):
 
 
 def check_session_active(project_dir: str) -> bool:
-    """Check if a Mini Claude session is active."""
+    """Check if a Claude Engram session is active."""
     state = load_state()
 
     # Check if session was started recently (within 4 hours)
@@ -750,7 +750,7 @@ def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
 
 
 # ============================================================================
-# AUTO-INJECTION - Automatically call Mini Claude tools
+# AUTO-INJECTION - Automatically call Claude Engram tools
 # ============================================================================
 
 def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
@@ -999,7 +999,7 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
 
 
 # ============================================================================
-# ENFORCEMENT - Make Mini Claude usage mandatory
+# ENFORCEMENT - Make Claude Engram usage mandatory
 # ============================================================================
 
 def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool, str]:
@@ -1075,7 +1075,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         mark_session_started(project_dir)
         session_active = True  # Update local var
 
-        lines.append("Mini Claude session auto-started")
+        lines.append("Claude Engram session auto-started")
         lines.append("")
 
         # AUTO-LOAD CHECKPOINT/HANDOFF
@@ -2168,7 +2168,7 @@ def main():
                 pass  # sentence-transformers not installed — regex fallback will be used
 
             lines = []
-            lines.append(f"Mini Claude session started ({source})")
+            lines.append(f"Claude Engram session started ({source})")
 
             # Load and show key context
             project_memory = load_project_memory(project_dir)
@@ -2295,7 +2295,7 @@ def main():
             mark_session_ended()
 
             # Build summary
-            lines = [f"Mini Claude session ended ({reason})."]
+            lines = [f"Claude Engram session ended ({reason})."]
             if files_edited:
                 lines.append(f"Files edited: {len(files_edited)}")
                 for f in files_edited[:5]:
@@ -2352,7 +2352,7 @@ def main():
         error_msg = sys.argv[2] if len(sys.argv) > 2 else ""
         print(reminder_for_error(project_dir, error_msg))
 
-    # Legacy tool callback hooks - called by handlers when Mini Claude tools are used
+    # Legacy tool callback hooks - called by handlers when Claude Engram tools are used
     elif hook_type == "session_started":
         mark_session_started(project_dir)
 

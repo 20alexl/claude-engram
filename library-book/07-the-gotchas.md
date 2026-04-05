@@ -35,7 +35,7 @@ python -m mini_claude.hooks.scorer_server  # Should say "Scorer server listening
 
 ### Gotcha: Hook timeout silently swallows output
 
-**Symptom:** Hooks produce no output, no error. Mini Claude seems dead.
+**Symptom:** Hooks produce no output, no error. Claude Engram seems dead.
 
 **Cause:** Claude Code gives hooks 1-2 seconds. If `memory.json` is very large, or the scorer server is slow, the hook times out and Claude Code discards the output silently.
 
@@ -63,13 +63,13 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 ### Gotcha: Ollama not required for most features
 
-**Symptom:** Ollama isn't running but Mini Claude seems to work fine.
+**Symptom:** Ollama isn't running but Claude Engram seems to work fine.
 
 **Cause:** Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, LLM-based convention checking, and memory consolidation. All hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving) work without Ollama.
 
 **Fix:** Nothing to fix. Just know that `mini_claude_status` will report "failed" if Ollama is down, but that only affects the LLM-powered tools.
 
-**Lesson:** Mini Claude has two layers: the hook system (no external deps) and the LLM tools (requires Ollama). They're independent.
+**Lesson:** Claude Engram has two layers: the hook system (no external deps) and the LLM tools (requires Ollama). They're independent.
 
 ---
 
@@ -81,7 +81,7 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 **Fix:** Recreate the venv and reinstall:
 ```bash
-cd mini_claude
+cd claude-engram
 python -m venv venv
 source venv/bin/activate
 pip install -e .

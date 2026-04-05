@@ -27,7 +27,7 @@ Claude Code is stateless. Every session starts blank. After context compaction, 
 
 ## The Gap
 
-Nobody is intercepting Claude's tool calls to automatically build a structured memory of mistakes, decisions, and context — then injecting the right memories at the right moment (before an edit, after an error, on compaction). That's what Mini Claude does.
+Nobody is intercepting Claude's tool calls to automatically build a structured memory of mistakes, decisions, and context — then injecting the right memories at the right moment (before an edit, after an error, on compaction). That's what Claude Engram does.
 
 ---
 

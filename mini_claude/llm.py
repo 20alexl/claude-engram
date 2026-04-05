@@ -1,11 +1,11 @@
 """
-LLM Client for Mini Claude
+LLM Client for Claude Engram
 
 Handles communication with the local Ollama instance.
 Includes retry logic, health checking, and request queueing.
 
 The queue is important because:
-- Claude may call multiple Mini Claude tools in parallel
+- Claude may call multiple Claude Engram tools in parallel
 - Ollama can't efficiently handle parallel requests (they compete for GPU)
 - Queueing serializes requests for better throughput
 
@@ -225,7 +225,7 @@ class LLMClient:
 
     def analyze_code(self, code: str, question: str) -> dict:
         """Ask the model to analyze code and answer a question about it."""
-        system_prompt = """You are Mini Claude, a code analysis assistant.
+        system_prompt = """You are Claude Engram, a code analysis assistant.
 Analyze the provided code and answer questions about it.
 Be concise but thorough. Focus on what's actually in the code.
 If you're uncertain, say so. Don't make things up."""
@@ -245,7 +245,7 @@ Provide a clear, factual analysis:"""
 
     def summarize_file(self, content: str, filepath: str) -> dict:
         """Get a brief summary of what a file does."""
-        system_prompt = """You are Mini Claude, a code analysis assistant.
+        system_prompt = """You are Claude Engram, a code analysis assistant.
 Summarize what this file does in 1-2 sentences.
 Focus on the main purpose, not implementation details."""
 

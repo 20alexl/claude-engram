@@ -6,7 +6,7 @@
 
 ## Overview
 
-Most of Mini Claude works automatically via hooks. This chapter covers the MCP tools you invoke manually — organized by what you're trying to do.
+Most of Claude Engram works automatically via hooks. This chapter covers the MCP tools you invoke manually — organized by what you're trying to do.
 
 ---
 

@@ -1,5 +1,5 @@
 """
-Mini Claude Response Schema
+Claude Engram Response Schema
 
 Every tool response follows this structure to ensure rich communication
 back to Claude Code. No silent failures, always context.
