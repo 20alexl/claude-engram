@@ -221,14 +221,14 @@ def start_server_background():
     import platform
     try:
         kwargs = {
+            "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
         }
         if platform.system() == "Windows":
-            # DETACHED_PROCESS avoids console window flash
+            # CREATE_NO_WINDOW prevents any console window from appearing
             CREATE_NO_WINDOW = 0x08000000
-            DETACHED_PROCESS = 0x00000008
-            kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NO_WINDOW
+            kwargs["creationflags"] = CREATE_NO_WINDOW
         else:
             kwargs["start_new_session"] = True
 
