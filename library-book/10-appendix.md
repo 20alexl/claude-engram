@@ -131,12 +131,12 @@ All operations require `operation` and `project_path`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `MINI_CLAUDE_MODEL` | `str` | `gemma3:12b` | Ollama model name |
-| `MINI_CLAUDE_OLLAMA_URL` | `str` | `http://localhost:11434` | Ollama API URL |
-| `MINI_CLAUDE_TIMEOUT` | `float` | `300` | LLM call timeout (seconds) |
-| `MINI_CLAUDE_KEEP_ALIVE` | `str/int` | `0` | Ollama model keep-alive (`0`, `5m`, `-1`) |
-| `MINI_CLAUDE_ARCHIVE_DAYS` | `int` | `14` | Days until inactive memories archive |
-| `MINI_CLAUDE_SCORER_TIMEOUT` | `int` | `1800` | Scorer server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_MODEL` | `str` | `gemma3:12b` | Ollama model name |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `str` | `http://localhost:11434` | Ollama API URL |
+| `CLAUDE_ENGRAM_TIMEOUT` | `float` | `300` | LLM call timeout (seconds) |
+| `CLAUDE_ENGRAM_KEEP_ALIVE` | `str/int` | `0` | Ollama model keep-alive (`0`, `5m`, `-1`) |
+| `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `int` | `14` | Days until inactive memories archive |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `int` | `1800` | Scorer server idle timeout (seconds) |
 
 ## Memory Categories
 

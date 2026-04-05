@@ -86,7 +86,7 @@ ollama pull gemma3:12b
 
 # Or use a tiny model to save resources
 ollama pull gemma3:4b
-export MINI_CLAUDE_MODEL="gemma3:4b"
+export CLAUDE_ENGRAM_MODEL="gemma3:4b"
 
 # GPU/CPU split (Ollama handles this automatically when VRAM is limited)
 # Force partial offload: N layers on GPU, rest on CPU
@@ -96,11 +96,11 @@ OLLAMA_NUM_GPU=20 ollama serve
 ## Configuration
 
 ```bash
-export MINI_CLAUDE_MODEL="gemma3:4b"             # Any Ollama model (default: gemma3:12b)
-export MINI_CLAUDE_OLLAMA_URL="http://host:11434" # Remote Ollama
-export MINI_CLAUDE_KEEP_ALIVE="5m"               # Keep model loaded
-export MINI_CLAUDE_ARCHIVE_DAYS=30               # Archive threshold (default: 14)
-export MINI_CLAUDE_SCORER_TIMEOUT=3600           # Scorer idle timeout (default: 1800)
+export CLAUDE_ENGRAM_MODEL="gemma3:4b"             # Any Ollama model (default: gemma3:12b)
+export CLAUDE_ENGRAM_OLLAMA_URL="http://host:11434" # Remote Ollama
+export CLAUDE_ENGRAM_KEEP_ALIVE="5m"               # Keep model loaded
+export CLAUDE_ENGRAM_ARCHIVE_DAYS=30               # Archive threshold (default: 14)
+export CLAUDE_ENGRAM_SCORER_TIMEOUT=3600           # Scorer idle timeout (default: 1800)
 ```
 
 ## Troubleshooting

@@ -142,7 +142,7 @@ class MemoryStore:
         # v3: Archive tier (lazy-loaded, never on hot path)
         self._archive_projects: dict[str, ProjectMemory] = {}
         self._archive_loaded: bool = False
-        self.archive_after_days: int = int(os.environ.get("MINI_CLAUDE_ARCHIVE_DAYS", "14"))
+        self.archive_after_days: int = int(os.environ.get("CLAUDE_ENGRAM_ARCHIVE_DAYS", "14"))
 
         # Load existing memory
         self._load()

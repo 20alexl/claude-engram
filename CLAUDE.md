@@ -115,7 +115,7 @@ context(operation="verify_completion", task="...", verification_steps=["..."])
 
 - **Hot tier** (`memory.json`) - Rules, mistakes, recent memories. Loaded by hooks on every tool call.
 - **Cold tier** (`archive.json`) - Old inactive memories. Searchable, restorable, never loaded on hot path.
-- Memories auto-archive after 14 days without access (configurable: `MINI_CLAUDE_ARCHIVE_DAYS`).
+- Memories auto-archive after 14 days without access (configurable: `CLAUDE_ENGRAM_ARCHIVE_DAYS`).
 - Rules and mistakes never archive. High-relevance (7+) memories stay hot longer.
 - `cleanup` archives before deleting. Nothing is lost without review.
 
@@ -153,10 +153,10 @@ Handled automatically:
 
 ## Technical Notes
 
-- Local LLM: Ollama with `gemma3:12b` (configurable via `MINI_CLAUDE_MODEL`)
+- Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`)
 - Storage: `~/.claude_engram/` (memory.json, archive.json, checkpoints/, embeddings/)
 - Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
-- Keep-alive: Set `MINI_CLAUDE_KEEP_ALIVE=5m` to keep Ollama model loaded
+- Keep-alive: Set `CLAUDE_ENGRAM_KEEP_ALIVE=5m` to keep Ollama model loaded
 - Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
 - All file writes use atomic temp-then-replace pattern.
 - Hook installation merges into existing `~/.claude/settings.json` without destroying other hooks.

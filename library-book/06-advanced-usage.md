@@ -148,20 +148,20 @@ memory(operation="add_rule", content="...", project_path="/home/user/projects")
 |-----------|---------------|
 | Many memories (50+) | Run `memory(cleanup)` to dedupe + archive old entries |
 | Slow pre-edit hooks | Check `memory(archive_status)` — hot tier should be <50 entries |
-| Scorer server using too much RAM | Set `MINI_CLAUDE_SCORER_TIMEOUT=300` (5 min idle timeout) |
-| Ollama too slow | Use a smaller model: `export MINI_CLAUDE_MODEL="gemma3:4b"` |
+| Scorer server using too much RAM | Set `CLAUDE_ENGRAM_SCORER_TIMEOUT=300` (5 min idle timeout) |
+| Ollama too slow | Use a smaller model: `export CLAUDE_ENGRAM_MODEL="gemma3:4b"` |
 | Hook timeouts | Keep `memory.json` small. Archive aggressively. |
 
 ## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MINI_CLAUDE_MODEL` | `gemma3:12b` | Ollama model for search/analysis |
-| `MINI_CLAUDE_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint |
-| `MINI_CLAUDE_TIMEOUT` | `300` | LLM call timeout (seconds) |
-| `MINI_CLAUDE_KEEP_ALIVE` | `0` | How long Ollama keeps model loaded (`0`, `5m`, `-1`) |
-| `MINI_CLAUDE_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
-| `MINI_CLAUDE_SCORER_TIMEOUT` | `1800` | Scorer server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model for search/analysis |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint |
+| `CLAUDE_ENGRAM_TIMEOUT` | `300` | LLM call timeout (seconds) |
+| `CLAUDE_ENGRAM_KEEP_ALIVE` | `0` | How long Ollama keeps model loaded (`0`, `5m`, `-1`) |
+| `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer server idle timeout (seconds) |
 
 ---
 
