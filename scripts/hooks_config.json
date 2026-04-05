@@ -1,0 +1,122 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind prompt_json 2>/dev/null || echo \"\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind pre_edit_json 2>/dev/null || echo \"\"",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind bash_json 2>/dev/null || echo \"\"",
+            "timeout": 1000
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind post_edit_json 2>/dev/null || echo \"\"",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind tool_failure_json 2>/dev/null || echo \"\"",
+            "timeout": 1000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind stop_json 2>/dev/null || echo \"\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind session_end_json 2>/dev/null || echo \"\"",
+            "timeout": 1500
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind session_start_json 2>/dev/null || echo \"\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind pre_compact_json 2>/dev/null || echo \"\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m mini_claude.hooks.remind post_compact_json 2>/dev/null || echo \"\"",
+            "timeout": 2000
+          }
+        ]
+      }
+    ]
+  }
+}

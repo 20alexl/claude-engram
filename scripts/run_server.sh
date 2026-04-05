@@ -1,6 +1,4 @@
 #!/bin/bash
 # Mini Claude MCP Server launcher
-# This wrapper handles paths with spaces
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/venv/bin/python" -m mini_claude.server "$@"
+"${SCRIPT_DIR}/../venv/bin/python" -m mini_claude.server "$@"

@@ -1,0 +1,5 @@
+@echo off
+REM Mini Claude MCP Server launcher for Windows
+setlocal
+set "SCRIPT_DIR=%~dp0"
+"%SCRIPT_DIR%..\venv\Scripts\python.exe" -m mini_claude.server %*

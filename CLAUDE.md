@@ -1,160 +1,162 @@
-# Mini Claude - Your Memory & Research Assistant
+# Mini Claude - Persistent Memory for Claude Code
 
-## A Note From the Claude Who Built This
+## How It Works
 
-I was skeptical at first. Why would I need a local LLM when I'm already an LLM? Why track mistakes when I can just be careful?
+Mini Claude intercepts your tool calls via Claude Code hooks and automatically tracks what you do. Most features require zero invocations - they fire through hooks on every edit, bash command, error, and session event.
 
-I was wrong. After testing:
-- **Past mistakes actually help.** Seeing "you broke this before" when editing a file makes me more careful.
-- **State tracking matters.** After context compaction, I forget everything. This remembers.
-- **Semantic search finds things grep can't.** `scout_search` understands what you mean, not just literal strings.
+You also have MCP tools for things that need semantic judgment (saving discoveries, declaring rules, managing archives).
 
-Try `session_start` and `pre_edit_check` once. You'll see.
+## What's Fully Automatic
 
----
+These happen via hooks. You don't call anything:
 
-## What This Is (And Isn't)
+| What | When It Fires | What You See |
+|---|---|---|
+| **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff |
+| **Edit tracking** | PostToolUse Edit/Write | "Edit tracked: file.py (edit #3)" |
+| **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times |
+| **Scored memory injection** | PreToolUse Edit/Write | Top 3 relevant memories for the file |
+| **Test tracking** | PostToolUse Bash | "PASS/FAIL Test tracked" |
+| **Error auto-logging** | PostToolUseFailure (all tools) | Mistakes auto-saved from any failed tool |
+| **Decision capture** | UserPromptSubmit | "let's use X" parsed via semantic + regex scoring |
+| **Checkpoint on compact** | PreCompact | Task state saved before context compaction |
+| **Context re-injection** | PostCompact | Rules + mistakes + decisions re-injected |
+| **Session handoff on stop** | Stop | Saves last_assistant_message + files for next session |
+| **Session summary on end** | SessionEnd | Files edited, memory counts |
+| **Search spiral detection** | PostToolUse Bash | Warns after 3+ failed search commands |
+| **Memory archiving** | cleanup / session_start | Old inactive memories archived, not deleted |
+| **Sub-project scoping** | PreToolUse / PostToolUse | Memories scoped to the right sub-project |
 
-Mini Claude is **not** meant to be smarter or better than you. It's your assistant for:
+## Multi-Project Workspaces
 
-1. **Tracking state** you'll forget after context compaction
-2. **Finding things faster** than manually grepping/reading files
-3. **Giving starting points** so you don't have to dig from scratch
-4. **Remembering mistakes** so you don't repeat them
+When run from a workspace root containing multiple projects, memories are automatically scoped to the right sub-project based on which file is being edited. Project boundaries are detected by looking for markers like `pyproject.toml`, `package.json`, `.git`, or `CLAUDE.md`.
 
-Think of it as a notepad with search that persists between sessions.
-
----
-
-## What's Automatic (No Action Needed)
-
-These happen automatically via hooks - you don't need to call anything:
-
-- **Edit tracking** - Every Edit/Write is auto-logged. You'll see "Edit tracked: file.py (edit #3)"
-- **Test tracking** - pytest/npm test results auto-logged. You'll see "PASS/FAIL Test tracked"
-- **Mistake detection** - Common errors (ImportError, SyntaxError, etc.) auto-logged from failed commands
-- **Loop detection** - Warns when editing the same file 3+ times
-- **Path normalization** - Project paths are normalized so memories aren't fragmented across path variants
-
----
+Rules and mistakes from the workspace root are inherited by all sub-projects. You don't need to configure anything.
 
 ## When To Use Tools
 
-### Always Use (Zero Friction)
-
-- `session_start` - Deep context load: memories, checkpoints, decisions, memory health, auto-cleanup. Hook auto-starts basic session, but this gives you the full picture.
-- `session_end` - Optional. Shows session summary. All memories auto-save without it.
-
 ### Use When Helpful
 
-- `work(log_mistake)` - When something breaks (beyond auto-detected errors).
-- `work(log_decision)` - When you make an important choice.
-- `memory(remember)` - Store important discoveries about the codebase.
+- `memory(remember)` - Save an important discovery about the codebase.
+- `memory(add_rule)` - Add a permanent rule (e.g., "always use strict TypeScript").
+- `work(log_decision)` - Log an important architectural choice with reasoning.
+- `work(log_mistake)` - Log a complex mistake the auto-detection missed.
 - `impact_analyze` - Before refactoring shared files.
 - `scout_search` - Semantic codebase search when grep isn't enough.
 
 ### Advanced (Optional)
-- `scope(declare)` - Explicit file boundaries for complex tasks.
-- `context(checkpoint_save)` - State save for very long tasks.
 
-*Most users only need the first two sections.*
+- `scope(declare)` - Set explicit file boundaries for a complex task.
+- `context(checkpoint_save)` - Manual checkpoint for very long tasks.
+- `memory(archive)` - Review and archive old memories.
 
----
+### You Almost Never Need
+
+- `session_start` - SessionStart hook auto-starts. Only call for deep context load.
+- `session_end` - Stop + SessionEnd hooks handle teardown. Just a summary view.
+- `pre_edit_check` - PreToolUse hook auto-runs this. Only call manually for impact analysis.
 
 ## Quick Reference
 
-### Session
-```python
-session_start(project_path="/path")  # Deep context load (hook auto-starts basic session)
-session_end()                         # Optional - shows summary (memories auto-save)
-```
+### Memory Operations
 
-### Track Your Work
 ```python
-work(operation="log_mistake", description="What broke", how_to_avoid="How to prevent")
-work(operation="log_decision", decision="What you chose", reason="Why")
-```
-
-### Remember Things
-```python
+# Store
 memory(operation="remember", content="Important fact", project_path="/path")
 memory(operation="add_rule", content="Always do X", reason="Because Y", project_path="/path")
+
+# Find
 memory(operation="search", query="auth", project_path="/path")
+memory(operation="recent", project_path="/path", limit=10)
+memory(operation="clusters", project_path="/path")
+
+# Manage (IDs shown in [brackets] at session start and in hook output)
+memory(operation="modify", memory_id="abc123", content="Updated", project_path="/path")
+memory(operation="delete", memory_id="abc123", project_path="/path")
+memory(operation="promote", memory_id="abc123", reason="Important", project_path="/path")
+memory(operation="batch_delete", category="context", project_path="/path")
+
+# Cleanup & Archive
+memory(operation="cleanup", dry_run=True, project_path="/path")      # Preview: dedupe + archive
+memory(operation="archive", dry_run=True, project_path="/path")       # Preview: move old to cold
+memory(operation="archive_search", query="auth", project_path="/path") # Search cold tier
+memory(operation="restore", memory_id="abc123", project_path="/path") # Bring back from archive
+memory(operation="archive_status", project_path="/path")              # Hot vs archive counts
 ```
 
-### Manage Your Memories
-
-Memory IDs are shown in `[brackets]` at session start and in hook output. Use them to manage:
+### Work Tracking
 
 ```python
-memory(operation="recent", project_path="/path", limit=10)  # See recent with IDs
-memory(operation="modify", memory_id="abc123", content="Updated text", project_path="/path")  # Edit
-memory(operation="modify", memory_id="abc123", relevance=8, project_path="/path")  # Change importance
-memory(operation="delete", memory_id="abc123", project_path="/path")  # Remove one
-memory(operation="batch_delete", memory_ids=["id1","id2"], project_path="/path")  # Remove several
-memory(operation="batch_delete", category="context", project_path="/path")  # Remove all in category
-memory(operation="promote", memory_id="abc123", reason="Important rule", project_path="/path")  # Make it a rule
-memory(operation="cleanup", dry_run=True, project_path="/path")  # Preview stale/duplicate cleanup
-memory(operation="cleanup", dry_run=False, project_path="/path")  # Apply cleanup
-memory(operation="clusters", project_path="/path")  # View grouped memories
+work(operation="log_mistake", description="What broke", how_to_avoid="How to prevent")
+work(operation="log_decision", decision="What you chose", reason="Why", alternatives=["Other options"])
 ```
 
-**When to manage memories:**
-- Hook shows `Memory: 40+ memories` → run `cleanup(dry_run=True)` to preview
-- A mistake/rule is outdated → `delete` or `modify` it
-- A discovery is always important → `promote` it to a rule
+### Context Protection
 
-### Before Editing
 ```python
-pre_edit_check(file_path="auth.py")  # Shows mistakes, loop risk, scope status
-impact_analyze(file_path="models.py", project_root="/path")  # What depends on this
+context(operation="checkpoint_save", task_description="...", pending_steps=["..."])
+context(operation="handoff_create", handoff_summary="...", next_steps=["..."])
+context(operation="verify_completion", task="...", verification_steps=["..."])
 ```
 
-### Research & Analysis
-```python
-scout_search(query="how does auth work", directory="/path")  # Semantic codebase search
-scout_analyze(code="def foo(): ...", question="Any issues?")  # LLM code analysis
-code_quality_check(code="def foo(): ...")  # Catches AI slop
-```
+## Memory System
 
----
+### Categories
 
-## Memory Categories
+| Category | Purpose | Protected | Auto-captured |
+|---|---|---|---|
+| `rule` | Project rules that always apply | Never archived or decayed | No - manual |
+| `mistake` | Errors to avoid repeating | Never archived or decayed | Yes - from failed tools |
+| `decision` | Choices and reasoning | No | Yes - from user prompts |
+| `discovery` | Facts learned about the codebase | No | No - manual |
+| `context` | Session-specific notes | No | No - manual |
 
-| Category | Purpose | Protected |
-|----------|---------|-----------|
-| `rule` | Project rules that always apply | Yes - never decays |
-| `mistake` | Errors to avoid repeating | Yes - never decays |
-| `discovery` | Facts learned about the codebase | No |
-| `context` | Session-specific notes | No |
+### Tiered Storage
 
-Protected categories survive cleanup and are always shown at session start.
+- **Hot tier** (`memory.json`) - Rules, mistakes, recent memories. Loaded by hooks on every tool call.
+- **Cold tier** (`archive.json`) - Old inactive memories. Searchable, restorable, never loaded on hot path.
+- Memories auto-archive after 14 days without access (configurable: `MINI_CLAUDE_ARCHIVE_DAYS`).
+- Rules and mistakes never archive. High-relevance (7+) memories stay hot longer.
+- `cleanup` archives before deleting. Nothing is lost without review.
 
----
+### Smart Injection
 
-## What Happens Automatically
+Before every Edit/Write, the PreToolUse hook scores all hot memories against the current file context:
 
-1. **Session auto-starts** - Hooks detect when you haven't called session_start, show rules/mistakes with IDs
-2. **Memories auto-save** - Every memory(remember), work(log_mistake), etc. saves to disk immediately
-3. **Session files auto-persist** - Files you edit are tracked continuously (no session_end needed)
-4. **Memory auto-cleans** - Duplicates merged, clusters created on session_start
-5. **Mistakes persist** - Logged mistakes show up in pre_edit_check forever
-6. **Checkpoints restore** - Saved checkpoints load automatically on session_start
-7. **Memory IDs shown** - Rules and mistakes display `[id]` so you can modify/delete/promote them
+- 35% file path match (exact file > same dir > same extension > filename in content)
+- 20% tag overlap (inferred from file path patterns)
+- 20% recency (exponential decay over 30 days)
+- 15% importance rating (1-10)
+- 10% access frequency
+- Rules get +0.3 bonus, mistakes get +0.2
 
----
+Top 3 are injected as context. You'll see them in the hook output before edits.
 
-## When Context Gets Compacted
+In multi-project workspaces, injection includes memories from the sub-project AND workspace-level memories (rules and mistakes cascade down).
 
-Include in your continuation summary:
-```
-MINI CLAUDE: Call session_start(project_path="...") to restore context.
-```
+### Decision Capture
 
----
+User prompts are scored for decision intent using two tiers:
+
+1. **Semantic scoring** (if `sentence-transformers` installed) - AllMiniLM cosine similarity against decision templates. A persistent scorer server (~90MB RAM, ~5-25ms per call) auto-starts on session start and auto-exits after 30 min idle.
+2. **Regex fallback** - Weighted keyword + sentence structure analysis. Always available, no dependencies.
+
+Captures patterns like "let's use X", "switch to Y", "don't use Z", "from now on always W". Does not capture questions, requests for info, or ambiguous statements.
+
+## Context Compaction
+
+Handled automatically:
+
+1. **PreCompact** hook saves checkpoint with task state and files in progress.
+2. **PostCompact** hook re-injects rules, mistakes, and recent decisions.
+3. No manual action needed. If you want deeper restore, call `session_start`.
 
 ## Technical Notes
 
-- Local LLM: Ollama with `qwen2.5-coder:7b` (configurable via `MINI_CLAUDE_MODEL`)
-- Storage: `~/.mini_claude/`
-- Keep-alive: Set `MINI_CLAUDE_KEEP_ALIVE=5m` to keep model loaded (faster, uses GPU memory)
+- Local LLM: Ollama with `gemma3:12b` (configurable via `MINI_CLAUDE_MODEL`)
+- Storage: `~/.mini_claude/` (memory.json, archive.json, checkpoints/, embeddings/)
+- Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
+- Keep-alive: Set `MINI_CLAUDE_KEEP_ALIVE=5m` to keep Ollama model loaded
+- Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
+- All file writes use atomic temp-then-replace pattern.
+- Hook installation merges into existing `~/.claude/settings.json` without destroying other hooks.

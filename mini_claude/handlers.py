@@ -1845,10 +1845,64 @@ class Handlers:
                 data={"memories": [e.model_dump() for e in entries]},
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "archive":
+            result = self.memory.archive_old_memories(
+                project_path=project_path,
+                dry_run=args.get("dry_run", True),
+            )
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"{'Would archive' if result.get('dry_run') else 'Archived'} {result['archived_count']} memories",
+                data=result,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "restore":
+            success, msg = self.memory.restore_from_archive(
+                project_path=project_path,
+                memory_id=args.get("memory_id", ""),
+            )
+            response = MiniClaudeResponse(
+                status="success" if success else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "archive_search":
+            entries = self.memory.search_archive(
+                project_path=project_path,
+                query=args.get("query"),
+                tags=args.get("tags"),
+                limit=args.get("limit", 5),
+            )
+            if not entries:
+                return [TextContent(type="text", text="No archived memories found")]
+            lines = ["Archived memories:", ""]
+            for e in entries:
+                age_days = int((time.time() - (e.archived_at or e.created_at)) / 86400)
+                content_display = e.content[:57] + "..." if len(e.content) > 60 else e.content
+                lines.append(f"  [{e.id}] ({age_days}d archived) [{e.category}] {content_display}")
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning="\n".join(lines),
+                data={"memories": [e.model_dump() for e in entries]},
+                suggestions=["Use memory(restore, memory_id='...') to bring one back to active"],
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "archive_status":
+            stats = self.memory.get_archive_stats(project_path)
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"Hot: {stats['hot_total']} memories | Archive: {stats['archive_total']} memories",
+                data=stats,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
-                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent"
+                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent, archive, restore, archive_search, archive_status"
             )
 
     async def handle_work(self, operation: str, args: dict) -> list[TextContent]:

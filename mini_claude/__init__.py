@@ -8,4 +8,4 @@ Mini Claude acts as a persistent, intelligent assistant that can:
 - And more tools to come...
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
