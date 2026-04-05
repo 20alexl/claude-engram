@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "mini-claude": {
-      "command": "/path/to/mini_claude/run_server.sh",
-      "args": []
+      "command": "python",
+      "args": ["-m", "mini_claude.server"]
     }
   }
 }

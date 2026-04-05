@@ -379,12 +379,82 @@ def _normalize_path(path: str) -> str:
     return normalized
 
 
-def get_project_dir() -> str:
-    """Get the current project directory (normalized for consistent lookups)."""
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
-    if project_dir:
-        return _normalize_path(project_dir)
-    return _normalize_path(os.getcwd())
+# Project markers — files that indicate a project root
+_PROJECT_MARKERS = {
+    "pyproject.toml", "package.json", "Cargo.toml", "go.mod", "go.sum",
+    "pom.xml", "build.gradle", "CMakeLists.txt", "Makefile",
+    "setup.py", "setup.cfg", ".git", "CLAUDE.md",
+}
+
+# Cache: file_path -> resolved project dir (avoids repeated filesystem walks)
+_project_dir_cache: dict[str, str] = {}
+
+
+def resolve_project_for_file(file_path: str, workspace_root: str = "") -> str:
+    """
+    Resolve which sub-project a file belongs to within a workspace.
+
+    Walks up from the file toward workspace_root, looking for project markers
+    (pyproject.toml, package.json, Cargo.toml, .git, etc.).
+
+    Returns the project directory, or workspace_root if no marker found.
+    """
+    if not file_path:
+        return workspace_root or _normalize_path(os.getcwd())
+
+    # Check cache
+    if file_path in _project_dir_cache:
+        return _project_dir_cache[file_path]
+
+    workspace = Path(workspace_root).resolve() if workspace_root else Path.cwd().resolve()
+    target = Path(file_path).resolve()
+
+    # If the file IS the workspace (not inside a sub-project), just use workspace
+    if target == workspace or not str(target).startswith(str(workspace)):
+        return _normalize_path(str(workspace))
+
+    # Walk up from file's directory toward workspace root
+    current = target.parent if target.is_file() else target
+    best_project = workspace  # Default fallback
+
+    while current >= workspace:
+        for marker in _PROJECT_MARKERS:
+            if (current / marker).exists():
+                best_project = current
+                # Don't break — keep walking up. We want the CLOSEST marker
+                # to the file, but if we're at workspace level that's just cwd.
+                # So we actually want to stop at the first marker we find.
+                result = _normalize_path(str(current))
+                _project_dir_cache[file_path] = result
+                return result
+        if current == workspace:
+            break
+        current = current.parent
+
+    result = _normalize_path(str(best_project))
+    _project_dir_cache[file_path] = result
+    return result
+
+
+def get_project_dir(file_path: str = "") -> str:
+    """
+    Get the project directory, optionally scoped to a file's sub-project.
+
+    Priority:
+    1. CLAUDE_PROJECT_DIR env var (if set explicitly)
+    2. Sub-project resolution from file_path (walks up looking for markers)
+    3. Current working directory (fallback)
+    """
+    explicit = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if explicit:
+        return _normalize_path(explicit)
+
+    workspace_root = _normalize_path(os.getcwd())
+
+    if file_path:
+        return resolve_project_for_file(file_path, workspace_root)
+
+    return workspace_root
 
 
 def get_memory_file() -> Path:
@@ -393,7 +463,13 @@ def get_memory_file() -> Path:
 
 
 def load_project_memory(project_dir: str) -> dict:
-    """Load memories for a specific project."""
+    """
+    Load memories for a project, including inherited workspace-level memories.
+
+    In a multi-project workspace (e:/workspace/projectA, e:/workspace/projectB),
+    memories stored under the workspace root apply to all sub-projects.
+    This function merges entries from the exact project path AND all ancestor paths.
+    """
     memory_file = get_memory_file()
     if not memory_file.exists():
         return {}
@@ -402,21 +478,51 @@ def load_project_memory(project_dir: str) -> dict:
         data = json.loads(memory_file.read_text())
         projects = data.get("projects", {})
 
-        # Normalize for consistent lookup (handles D:/ vs d:/, backslashes, etc.)
+        # Normalize for consistent lookup
         normalized = _normalize_path(project_dir)
-        if normalized in projects:
-            return projects[normalized]
 
-        # Try matching against normalized keys (for old entries with inconsistent paths)
-        for path, proj in projects.items():
-            if _normalize_path(path) == normalized:
-                return proj
+        # Collect the primary project (exact match)
+        primary = projects.get(normalized)
+        if not primary:
+            # Try matching against normalized keys
+            for path, proj in projects.items():
+                if _normalize_path(path) == normalized:
+                    primary = proj
+                    break
 
-        # Fallback: match by project name only
+        # Collect entries from ancestor paths (workspace-level memories)
+        ancestor_entries = []
+        check_path = str(Path(normalized).parent)
+        while check_path:
+            norm_check = check_path.replace("\\", "/")
+            if len(norm_check) >= 2 and norm_check[1] == ":":
+                norm_check = norm_check[0].lower() + norm_check[1:]
+            if norm_check in projects:
+                ancestor_entries.extend(projects[norm_check].get("entries", []))
+            parent = str(Path(check_path).parent)
+            if parent == check_path:
+                break
+            check_path = parent
+
+        if primary:
+            result = dict(primary)
+            if ancestor_entries:
+                # Merge ancestor entries, avoiding duplicates by ID
+                existing_ids = {e.get("id") for e in result.get("entries", [])}
+                for entry in ancestor_entries:
+                    if entry.get("id") not in existing_ids:
+                        result.setdefault("entries", []).append(entry)
+            return result
+
+        # No exact match — try name-based fallback
         project_name = Path(project_dir).name
         for path, proj in projects.items():
             if Path(path).name == project_name:
                 return proj
+
+        # No project found at all — return ancestor entries if any
+        if ancestor_entries:
+            return {"entries": ancestor_entries, "project_name": Path(project_dir).name}
 
         return {}
     except Exception:
@@ -586,7 +692,7 @@ def get_handoff_data() -> dict:
     try:
         data = json.loads(handoff_file.read_text())
         # Check age - only return if less than 48 hours old
-        age_hours = (time.time() - data.get("created_at", 0)) / 3600
+        age_hours = (time.time() - data.get("created", data.get("created_at", 0))) / 3600
         if age_hours < 48:
             return data
         return {}
@@ -786,26 +892,24 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
 
 def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
     """
-    Get memories relevant to a specific file context.
-    Uses the new MemoryStore.get_contextual_memories() method.
+    Get scored memories relevant to a file context using HotMemoryReader.
 
-    Returns list of memory content strings (max 3).
+    Uses relevance scoring (file match, tags, recency, importance) instead
+    of naive filename substring matching. Returns top 3 most relevant.
     """
     try:
-        # Import MemoryStore using absolute import (consistent with line 1387)
-        from mini_claude.tools.memory import MemoryStore
+        from mini_claude.tools.memory import HotMemoryReader
 
-        memory = MemoryStore()
-        memories = memory.get_contextual_memories(
-            project_path=project_dir,
-            file_path=file_path,
-            limit=3,
-        )
-
-        # Return formatted memory strings
+        reader = HotMemoryReader()
+        context = {
+            "file_path": file_path,
+            "tool_name": "Edit",
+            "tags": [],
+        }
+        scored = reader.get_scored_memories(project_dir, context, limit=3)
         return [
-            f"{m.content[:80]}..." if len(m.content) > 80 else m.content
-            for m in memories
+            f"{m['content'][:80]}..." if len(m['content']) > 80 else m['content']
+            for m in scored
         ]
     except Exception:
         return []
@@ -1175,8 +1279,8 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
         if func_matches:
             issues.append("Function(s) >50 lines - break them down")
 
-        # Check for vague names
-        vague_names = ['data', 'temp', 'tmp', 'foo', 'bar', 'stuff', 'thing', 'x', 'y', 'z']
+        # Check for vague names (only clearly bad ones, not x/y/z/data which are often legitimate)
+        vague_names = ['temp', 'tmp', 'foo', 'bar', 'stuff', 'thing']
         for name in vague_names:
             if re.search(rf'\b{name}\b\s*=', content):
                 issues.append(f"Vague variable name: '{name}'")
@@ -1189,8 +1293,8 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
                 issues.append(f"Found placeholder: '{p}'")
                 break
 
-        # Check for silent failure (CRITICAL)
-        if re.search(r'except\s*:\s*pass', content) or re.search(r'except\s+\w+:\s*pass', content):
+        # Check for silent failure (CRITICAL) - only match at start of line (not in comments/strings)
+        if re.search(r'^\s*except\s*:\s*pass', content, re.MULTILINE) or re.search(r'^\s*except\s+\w+:\s*pass', content, re.MULTILINE):
             issues.append("DANGER: Found 'except: pass' - silent failure pattern")
 
         # Check for hardcoded values
@@ -1304,15 +1408,270 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
     return ""
 
 
+def _score_decision_intent(text: str) -> tuple[float, str]:
+    """
+    Score whether a sentence expresses a decision. No LLM needed.
+
+    Uses weighted keyword + sentence structure analysis:
+    - Decision verbs (use, switch, adopt, prefer, go with)
+    - Directive markers (let's, we should, from now on, always, never)
+    - Contrast signals (instead of, rather than, not X but Y, over)
+    - Negation constraints (don't, stop, avoid, never)
+
+    Returns (score 0.0-1.0, extracted_decision_text).
+    Score >= 0.5 = capture as decision.
+    """
+    text_lower = text.lower().strip()
+    score = 0.0
+    best_match = ""
+
+    # --- Decision verb presence (0.35 max) ---
+    # Strong verbs that almost always indicate a decision
+    strong_verbs = [
+        "switch to", "go with", "adopt", "move to", "migrate to",
+        "replace with", "swap to", "change to", "convert to", "upgrade to",
+        "downgrade to", "rewrite in", "refactor to", "get rid of",
+    ]
+    # Moderate verbs that need additional context
+    moderate_verbs = [
+        "use", "prefer", "choose", "pick", "stick with", "keep using",
+        "implement with", "build with", "import from", "import",
+        "replace", "remove", "drop",
+    ]
+    verb_score = 0.0
+    for verb in strong_verbs:
+        if verb in text_lower:
+            verb_score = 0.35
+            break
+    if verb_score == 0:
+        for verb in moderate_verbs:
+            if verb in text_lower:
+                verb_score = 0.25
+                break
+    score += verb_score
+
+    # --- Directive markers (0.25 max) ---
+    directive_patterns = [
+        (r"\blet'?s\s+", 0.25),
+        (r"\bwe\s+should\b", 0.25),
+        (r"\bfrom\s+now\s+on\b", 0.25),
+        (r"\bgoing\s+forward\b", 0.2),
+        (r"\balways\s+", 0.2),
+        (r"\bnever\s+", 0.2),
+        (r"\bmake\s+sure\s+(to|we)\b", 0.15),
+        (r"\bi\s+want\s+(to|you\s+to)\b", 0.2),
+        (r"\bplease\s+(use|switch|change|adopt|go|replace|remove|drop|stop|rewrite)\b", 0.25),
+        (r"\bgo\s+ahead\s+and\b", 0.2),
+        (r"\bjust\s+(use|do|go|switch|replace)\b", 0.2),
+    ]
+    for pattern, weight in directive_patterns:
+        if re.search(pattern, text_lower):
+            score += weight
+            break
+
+    # --- Contrast/comparison signals (0.2 max) ---
+    contrast_patterns = [
+        (r"\binstead\s+of\b", 0.2),
+        (r"\brather\s+than\b", 0.2),
+        (r"\bnot\s+\w+\s+but\b", 0.15),
+        (r"\bover\s+\w+", 0.1),
+        (r"\binstead\b", 0.1),
+        (r"\brather\b", 0.1),
+        (r"\breplace\b", 0.15),
+    ]
+    for pattern, weight in contrast_patterns:
+        if re.search(pattern, text_lower):
+            score += weight
+            break
+
+    # --- Negation constraints (0.2 max) ---
+    negation_patterns = [
+        (r"\bdon'?t\s+(use|do|add|include|import|ever)\b", 0.2),
+        (r"\bstop\s+(using|doing|importing)\b", 0.2),
+        (r"\bavoid\s+\w", 0.2),
+        (r"\bnever\s+\w", 0.2),
+        (r"\bremove\s+(the|all)\b", 0.15),
+        (r"\bget\s+rid\s+of\b", 0.2),
+        (r"\bdrop\s+(the|all|this)\b", 0.15),
+    ]
+    for pattern, weight in negation_patterns:
+        if re.search(pattern, text_lower):
+            score += weight
+            break
+
+    # --- Penalties ---
+    # Questions are not decisions
+    if "?" in text:
+        score *= 0.3
+    # Very short text is probably not a decision
+    if len(text_lower) < 25:
+        score *= 0.5
+    # "can you" / "could you" / "would you" are requests, not decisions
+    if re.search(r"\b(can|could|would|should)\s+you\b", text_lower):
+        score *= 0.6
+    # "what if" / "how about" are exploratory
+    if re.search(r"\b(what\s+if|how\s+about|maybe|perhaps)\b", text_lower):
+        score *= 0.5
+
+    # --- Extract the decision text ---
+    # Try to find the most decision-like sentence/clause
+    extraction_patterns = [
+        # "let's use X instead of Y"
+        r"(let'?s\s+.{10,120}?)(?:\.|$|\n)",
+        # "we should X"
+        r"(we\s+should\s+.{10,120}?)(?:\.|$|\n)",
+        # "from now on X" / "going forward X"
+        r"((?:from\s+now\s+on|going\s+forward),?\s+.{10,120}?)(?:\.|$|\n)",
+        # "please use/switch/change X"
+        r"(please\s+(?:use|switch|change|adopt|go|replace|drop|remove|stop)\s+.{5,120}?)(?:\.|$|\n)",
+        # "don't use X" / "avoid X" / "stop using X" / "never X"
+        r"((?:don'?t|do\s+not|stop|avoid|never)\s+(?:use|using|do|doing|add|include)\s+.{5,100}?)(?:\.|$|\n)",
+        # "use X instead of Y" / "switch to X"
+        r"((?:use|switch\s+to|go\s+with|adopt|prefer|replace\s+\w+\s+with)\s+.{5,100}?)(?:\.|$|\n)",
+        # "I want to/you to X"
+        r"(i\s+want\s+(?:to|you\s+to)\s+.{10,120}?)(?:\.|$|\n)",
+        # "always/never X"
+        r"((?:always|never)\s+.{10,100}?)(?:\.|$|\n)",
+    ]
+
+    for pattern in extraction_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            best_match = match.group(1).strip()
+            break
+
+    # Fallback: if score is high but no extraction, take first 120 chars
+    if score >= 0.5 and not best_match:
+        # Take up to first period or newline
+        first_sentence = re.split(r'[.\n]', text_lower)[0].strip()
+        if len(first_sentence) > 15:
+            best_match = first_sentence[:120]
+
+    return (min(score, 1.0), best_match)
+
+
+def _auto_capture_from_prompt(project_dir: str, prompt: str):
+    """
+    Auto-capture decisions from user prompts.
+
+    Two-tier scoring:
+    1. Semantic (AllMiniLM) — if sentence-transformers is installed, uses cosine
+       similarity against pre-computed decision templates. Best accuracy.
+    2. Regex fallback — weighted keyword + sentence structure analysis. Fast, no deps.
+
+    If semantic scoring is available and confident, uses that result.
+    Otherwise falls back to regex. Only captures when score >= 0.45.
+    Does NOT log the full prompt (privacy).
+    """
+    prompt_lower = prompt.lower().strip()
+
+    # Skip very short or command-like prompts
+    if len(prompt_lower) < 25 or prompt_lower.startswith("/"):
+        return
+
+    try:
+        import hashlib
+
+        best_score = 0.0
+        best_text = ""
+
+        # Tier 1: Try semantic scoring (AllMiniLM)
+        try:
+            from mini_claude.hooks.intent import score_decision_semantic
+            sem_score, sem_text = score_decision_semantic(prompt)
+            if sem_score > best_score:
+                best_score = sem_score
+                best_text = sem_text
+        except Exception:
+            pass  # sentence-transformers not installed or other error
+
+        # Tier 2: Regex fallback (always runs, may upgrade the score)
+        sentences = re.split(r'(?<=[.!])\s+|\n+', prompt)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
+        if len(sentences) <= 1:
+            sentences = [prompt.strip()]
+
+        for sentence in sentences:
+            regex_score, regex_text = _score_decision_intent(sentence)
+            if regex_score > best_score:
+                best_score = regex_score
+                best_text = regex_text
+
+        # Only capture when confident (0.45 threshold — semantic scores are well-calibrated,
+        # regex scores tend to cluster around 0.4-0.6 for borderline cases)
+        if best_score < 0.45 or not best_text or len(best_text) < 15:
+            return
+
+        memory_file = get_memory_file()
+        data = {}
+        if memory_file.exists():
+            data = json.loads(memory_file.read_text())
+
+        norm_dir = _normalize_path(project_dir)
+        projects = data.get("projects", {})
+        if norm_dir not in projects:
+            return
+
+        content = f"DECISION: (from user) {best_text[:150]}"
+        entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
+
+        # Check for duplicate (exact match or high word overlap)
+        existing_entries = projects[norm_dir].get("entries", [])
+        existing_contents = {e.get("content", "") for e in existing_entries}
+        if content in existing_contents:
+            return
+
+        # Also check word overlap with existing decisions to avoid near-dupes
+        new_words = set(best_text.lower().split())
+        for e in existing_entries:
+            if e.get("category") != "decision":
+                continue
+            existing_words = set(e.get("content", "").lower().split())
+            if existing_words and new_words:
+                overlap = len(new_words & existing_words) / len(new_words | existing_words)
+                if overlap > 0.7:
+                    return  # Too similar to existing
+
+        # Extract file references from the decision text
+        file_refs = re.findall(
+            r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
+            best_text
+        )
+
+        projects[norm_dir].setdefault("entries", []).append({
+            "id": entry_id,
+            "content": content,
+            "category": "decision",
+            "source": "auto-prompt",
+            "relevance": 6,
+            "created_at": time.time(),
+            "last_accessed": time.time(),
+            "access_count": 1,
+            "tags": ["decision"],
+            "related_files": file_refs[:5],
+        })
+        projects[norm_dir]["last_updated"] = time.time()
+
+        data["projects"] = projects
+        data["version"] = data.get("version", 2)
+        if "global" not in data:
+            data["global"] = []
+
+        temp_file = memory_file.with_suffix(".json.tmp")
+        temp_file.write_text(json.dumps(data, indent=2))
+        temp_file.replace(memory_file)
+    except Exception:
+        pass  # Silent failure — auto-capture must never break the hook
+
+
 def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> str:
     """
     Auto-detect and log common mistake patterns from command output.
     Returns description of logged mistake, or empty string if nothing detected.
 
-    NOTE: This only works for commands that EXIT SUCCESSFULLY but show errors in output
-    (e.g., test runs that show failures). For commands that fail (exit code != 0),
-    Claude Code doesn't fire PostToolUse hooks, so this won't be called.
-    See: https://github.com/anthropics/claude-code/issues/6371
+    Detects error patterns in command output.
+    Called from PostToolUse (exit 0 commands) and PostToolUseFailure (exit != 0).
+    PostToolUseFailure is now the primary path for catching errors.
     """
     if not output or len(output) > 5000:
         # Skip empty output and large outputs (build logs, test suites)
@@ -1349,19 +1708,21 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             mistake_type = f"Syntax error in {file_name}:{line}"
             how_to_avoid = "Check syntax before running - use linter or read the file"
 
-    # Pattern 3: Type errors
+    # Pattern 3: Type errors (only log if we can parse the actual message)
     elif "TypeError" in output:
         match = re.search(r"TypeError: (.+)", output)
-        error_msg = match.group(1)[:60] if match else "type mismatch"
-        mistake_type = f"Type error: {error_msg}"
-        how_to_avoid = "Check argument types and return values"
+        if match:
+            error_msg = match.group(1)[:60]
+            mistake_type = f"Type error: {error_msg}"
+            how_to_avoid = "Check argument types and return values"
 
-    # Pattern 4: Attribute errors
+    # Pattern 4: Attribute errors (only log if we can parse the actual message)
     elif "AttributeError" in output:
         match = re.search(r"AttributeError: (.+)", output)
-        error_msg = match.group(1)[:60] if match else "attribute not found"
-        mistake_type = f"Attribute error: {error_msg}"
-        how_to_avoid = "Check object type and available attributes"
+        if match:
+            error_msg = match.group(1)[:60]
+            mistake_type = f"Attribute error: {error_msg}"
+            how_to_avoid = "Check object type and available attributes"
 
     # Pattern 5: Test failures (require pytest/unittest markers in output)
     elif "AssertionError" in output or re.search(r"\d+ failed,?\s*\d+\s*(passed|error)", output) or "FAILURES\n" in output:
@@ -1382,20 +1743,56 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
     if mistake_type:
         try:
-            from mini_claude.tools.memory import MemoryStore
-
-            memory = MemoryStore()
+            # Write directly to memory file instead of creating a full MemoryStore
+            # (MemoryStore parses the entire file which is slow in a hook)
+            import hashlib
+            memory_file = get_memory_file()
             content = f"MISTAKE: {mistake_type}"
             if how_to_avoid:
                 content += f" - Fix: {how_to_avoid}"
 
-            memory.remember_discovery(
-                project_path=project_dir,
-                content=content,
-                source="auto-detected",
-                relevance=9,  # High relevance for mistakes
-                category="mistake",  # Use proper category so pre_edit_check can find them
-            )
+            data = {}
+            if memory_file.exists():
+                data = json.loads(memory_file.read_text())
+
+            norm_dir = _normalize_path(project_dir)
+            projects = data.get("projects", {})
+            if norm_dir not in projects:
+                projects[norm_dir] = {
+                    "project_path": norm_dir,
+                    "project_name": Path(project_dir).name,
+                    "entries": [],
+                    "recent_searches": [],
+                    "last_updated": time.time(),
+                }
+
+            entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
+
+            # Check for duplicate before adding
+            existing_contents = {e.get("content", "") for e in projects[norm_dir].get("entries", [])}
+            if content not in existing_contents:
+                projects[norm_dir]["entries"].append({
+                    "id": entry_id,
+                    "content": content,
+                    "category": "mistake",
+                    "source": "auto-detected",
+                    "relevance": 9,
+                    "created_at": time.time(),
+                    "last_accessed": time.time(),
+                    "access_count": 1,
+                    "tags": ["mistake", "bugfix"],
+                    "related_files": [],
+                })
+                projects[norm_dir]["last_updated"] = time.time()
+
+                data["projects"] = projects
+                data["version"] = data.get("version", 2)
+                if "global" not in data:
+                    data["global"] = []
+
+                temp_file = memory_file.with_suffix(".json.tmp")
+                temp_file.write_text(json.dumps(data, indent=2))
+                temp_file.replace(memory_file)
 
             # Reset error counter since we logged it
             state = load_state()
@@ -1453,9 +1850,7 @@ def main():
 
     elif hook_type == "write":
         file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        content = ""
-        if not sys.stdin.isatty():
-            content = sys.stdin.read()
+        content = _read_stdin_with_timeout(0.5)  # Use timeout to avoid blocking
         result = reminder_for_write(project_dir, file_path, content)
         if result:
             print(result)
@@ -1483,48 +1878,45 @@ def main():
             # Cross-platform stdin reading with timeout
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
-                    data = json_module.loads(stdin_data)
-                    command = data.get("tool_input", {}).get("command", "")
-                    # tool_response is an object with stdout/stderr fields
-                    tool_response = data.get("tool_response", {})
-                    if isinstance(tool_response, dict):
-                        stdout = tool_response.get("stdout", "")
-                        stderr = tool_response.get("stderr", "")
-                        response = f"{stdout}\n{stderr}".strip()
-                    else:
-                        response = str(tool_response)
+                data = json_module.loads(stdin_data)
+                command = data.get("tool_input", {}).get("command", "")
+                # tool_response is an object with stdout/stderr fields
+                tool_response = data.get("tool_response", {})
+                if isinstance(tool_response, dict):
+                    stdout = tool_response.get("stdout", "")
+                    stderr = tool_response.get("stderr", "")
+                    response = f"{stdout}\n{stderr}".strip()
+                else:
+                    response = str(tool_response)
 
-                    # SEARCH SPIRAL DETECTION: Track failed search commands
-                    if detect_search_failure_in_output(command, response):
-                        record_search_failure(command[:50])
-                    elif detect_search_failure_in_output(command, ""):
-                        # Command was a search command but didn't fail - reset counter
-                        pass  # detect returns False when output is empty
-                    else:
-                        # Check if first word is a search command (success resets spiral)
-                        import re as _re2
-                        first_word = _re2.split(r'\s+', command.lower().strip())[0] if command else ""
-                        if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
-                            record_search_success()
+                # SEARCH SPIRAL DETECTION: Track failed search commands
+                if detect_search_failure_in_output(command, response):
+                    record_search_failure(command[:50])
+                else:
+                    # Check if first word is a search command (success resets spiral)
+                    import re as _re2
+                    first_word = _re2.split(r'\s+', command.lower().strip())[0] if command else ""
+                    if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
+                        record_search_success()
 
-                    # This handler only fires for successful commands (exit 0).
-                    # Don't manufacture fake errors from output content.
-                    result = reminder_for_bash(project_dir, command, "0", output=response)
+                # This handler only fires for successful commands (exit 0).
+                # Don't manufacture fake errors from output content.
+                result = reminder_for_bash(project_dir, command, "0", output=response)
 
-                    # Add search spiral suggestion if in spiral
-                    spiral_suggestion = get_search_spiral_suggestion(project_dir)
-                    if spiral_suggestion:
-                        result = (result + "\n" + spiral_suggestion) if result else spiral_suggestion
+                # Add search spiral suggestion if in spiral
+                spiral_suggestion = get_search_spiral_suggestion(project_dir)
+                if spiral_suggestion:
+                    result = (result + "\n" + spiral_suggestion) if result else spiral_suggestion
 
-                    if result:
-                        # Output JSON format for PostToolUse to add context to Claude
-                        hook_output = {
-                            "hookSpecificOutput": {
-                                "hookEventName": "PostToolUse",
-                                "additionalContext": result
-                            }
+                if result:
+                    # Output JSON format for PostToolUse to add context to Claude
+                    hook_output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUse",
+                            "additionalContext": result
                         }
-                        print(json_module.dumps(hook_output))
+                    }
+                    print(json_module.dumps(hook_output))
         except Exception:
             pass  # Silent failure
 
@@ -1537,6 +1929,9 @@ def main():
             if stdin_data:
                 data = json_module.loads(stdin_data)
                 file_path = data.get("tool_input", {}).get("file_path", "")
+                # Resolve sub-project from the file
+                if file_path:
+                    project_dir = get_project_dir(file_path)
 
                 if file_path:
                     # AUTO-RECORD the edit
@@ -1579,14 +1974,387 @@ def main():
         except Exception:
             pass  # Silent failure
 
+    # ==================================================================
+    # PostToolUseFailure for ALL tools - catches any failed tool call
+    # Gets: {tool_name, tool_input, error, is_interrupt, tool_use_id}
+    # ==================================================================
+    elif hook_type in ("tool_failure_json", "bash_failure_json"):
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                tool_name = data.get("tool_name", "")
+                tool_input = data.get("tool_input", {})
+                error_msg = data.get("error", "")
+                is_interrupt = data.get("is_interrupt", False)
+
+                # Resolve sub-project from file_path if available
+                if isinstance(tool_input, dict):
+                    fp = tool_input.get("file_path", "")
+                    if fp:
+                        project_dir = get_project_dir(fp)
+
+                # Don't log user interrupts as mistakes
+                if is_interrupt:
+                    pass  # Silent
+                else:
+                    lines = []
+
+                    if tool_name == "Bash":
+                        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+
+                        # Auto-log mistake from error output
+                        if error_msg:
+                            logged = _auto_log_detected_mistake(project_dir, command, error_msg)
+                            if logged:
+                                lines.append(f"Auto-logged: {logged}")
+
+                        # Auto-record failed test
+                        if command:
+                            first_cmd = re.split(r'&&|\|\||;', command.lower().strip())[0].strip()
+                            test_commands = ['pytest', 'jest', 'mocha', 'npm test', 'yarn test',
+                                             'make test', 'cargo test', 'go test', 'python -m pytest',
+                                             'python -m unittest']
+                            if any(first_cmd.startswith(c) for c in test_commands):
+                                _auto_record_test(False, error_msg[:200])
+                                lines.append("FAIL Test tracked")
+
+                    elif tool_name in ("Edit", "Write"):
+                        file_path = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
+                        if file_path and error_msg:
+                            file_name = Path(file_path).name
+                            # Auto-log edit failure with file context
+                            _auto_log_detected_mistake(
+                                project_dir, f"edit {file_name}",
+                                f"Edit failed on {file_name}: {error_msg[:200]}"
+                            )
+                            lines.append(f"Edit failure on {file_name} tracked")
+
+                    elif tool_name == "Read" and error_msg:
+                        # Track file-not-found patterns
+                        file_path = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
+                        if "not found" in error_msg.lower() or "no such file" in error_msg.lower():
+                            record_search_failure(file_path[:50])
+
+                    # Track error counter
+                    state = load_state()
+                    state["errors_without_log"] = state.get("errors_without_log", 0) + 1
+                    save_state(state)
+
+                    if not lines:
+                        lines.append(f"{tool_name} failed. Log with work(log_mistake) to track.")
+
+                    result = "\n".join(lines)
+                    hook_output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUseFailure",
+                            "additionalContext": f"<mini-claude-error>{result}</mini-claude-error>"
+                        }
+                    }
+                    print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # NEW: PreCompact - auto-save checkpoint before context compaction
+    # ==================================================================
+    elif hook_type == "pre_compact_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            trigger = "auto"
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                trigger = data.get("trigger", "auto")
+
+            # Auto-save checkpoint with current session state
+            state = load_state()
+            files_edited = state.get("files_edited_this_session", [])
+
+            checkpoint_dir = Path.home() / ".mini_claude" / "checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+            checkpoint = {
+                "task_id": f"auto_compact_{int(time.time())}",
+                "task_description": f"Auto-saved before {trigger} compaction",
+                "current_step": "Context was compacted",
+                "completed_steps": [],
+                "pending_steps": ["Restore context with session_start"],
+                "files_involved": files_edited[:10],
+                "key_decisions": [],
+                "blockers": [],
+                "timestamp": time.time(),
+                "metadata": {"project_path": project_dir, "trigger": trigger},
+                "handoff_summary": f"Context compacted ({trigger}). {len(files_edited)} files were being edited.",
+                "handoff_context_needed": [],
+                "handoff_warnings": ["Context was compacted - call session_start to restore memories"],
+            }
+
+            # Save as latest checkpoint
+            latest = checkpoint_dir / "latest_checkpoint.json"
+            temp = latest.with_suffix(".json.tmp")
+            temp.write_text(json_module.dumps(checkpoint, indent=2))
+            temp.replace(latest)
+
+            hook_output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreCompact",  # not a real hookEventName but ignored
+                    "additionalContext": "<mini-claude-compact>Checkpoint auto-saved before compaction</mini-claude-compact>"
+                }
+            }
+            print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # NEW: PostCompact - inject restore reminder into compacted context
+    # ==================================================================
+    elif hook_type == "post_compact_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            summary = ""
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                summary = data.get("compact_summary", "")
+
+            # Load rules and mistakes to re-inject after compaction
+            project_memory = load_project_memory(project_dir)
+            rules = get_project_rules(project_memory)
+            mistakes = get_past_mistakes(project_memory)
+
+            lines = []
+            lines.append("MINI CLAUDE: Context was compacted. Call session_start to restore full context.")
+            if rules:
+                lines.append(f"Rules ({len(rules)}):")
+                for r in rules[:3]:
+                    lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
+            if mistakes:
+                lines.append(f"Past mistakes ({len(mistakes)}):")
+                for m in mistakes[:3]:
+                    lines.append(f"  [{m['id']}] {_truncate(m['content'], 80)}")
+
+            hook_output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostCompact",  # not a real hookEventName but ignored
+                    "additionalContext": "\n".join(lines)
+                }
+            }
+            print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # NEW: SessionStart hook - native session tracking (replaces marker files)
+    # ==================================================================
+    elif hook_type == "session_start_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            source = "startup"
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                source = data.get("source", "startup")
+
+            # Auto-start mini_claude session
+            mark_session_started(project_dir)
+
+            # Start persistent scorer server in background (if sentence-transformers available)
+            try:
+                from mini_claude.hooks.scorer_server import start_server_background
+                start_server_background()  # Non-blocking, returns immediately if already running
+            except Exception:
+                pass  # sentence-transformers not installed — regex fallback will be used
+
+            lines = []
+            lines.append(f"Mini Claude session started ({source})")
+
+            # Load and show key context
+            project_memory = load_project_memory(project_dir)
+            rules = get_project_rules(project_memory)
+            mistakes = get_past_mistakes(project_memory)
+
+            if rules:
+                lines.append(f"Rules ({len(rules)}):")
+                for r in rules[:5]:
+                    lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
+            if mistakes:
+                lines.append(f"Past mistakes ({len(mistakes)}):")
+                for m in mistakes[:5]:
+                    lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
+
+            _append_memory_summary(lines, project_memory, project_dir)
+
+            # Check for checkpoint/handoff to restore
+            checkpoint = get_checkpoint_data()
+            handoff = get_handoff_data()
+            if checkpoint:
+                age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
+                lines.append(f"CHECKPOINT ({age_hours:.1f}h ago): {_truncate(checkpoint.get('task_description', '?'), 80)}")
+            if handoff:
+                lines.append(f"HANDOFF: {_truncate(handoff.get('summary', '?'), 100)}")
+
+            hook_output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": "\n".join(lines)
+                }
+            }
+            print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # prompt_json - reads stdin JSON, auto-captures decisions from user
+    # ==================================================================
+    elif hook_type == "prompt_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            prompt_text = ""
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                prompt_text = data.get("prompt", "")
+
+            # Auto-capture decisions from user prompts
+            if prompt_text and len(prompt_text) > 20:
+                _auto_capture_from_prompt(project_dir, prompt_text)
+
+            result = reminder_for_prompt(project_dir, prompt_text)
+            if result:
+                hook_output = {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": result
+                    }
+                }
+                print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
+    # ==================================================================
+    # Stop hook - auto-save what Claude was doing when session stops
+    # Gets: {last_assistant_message, stop_hook_active}
+    # ==================================================================
+    elif hook_type == "stop_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                last_message = data.get("last_assistant_message", "")
+
+                # Auto-save session state
+                state = load_state()
+                files_edited = state.get("files_edited_this_session", [])
+
+                if files_edited or last_message:
+                    # Save a lightweight handoff for next session
+                    checkpoint_dir = Path.home() / ".mini_claude" / "checkpoints"
+                    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+                    handoff = {
+                        "created": time.time(),
+                        "summary": f"Session stopped. {len(files_edited)} files edited.",
+                        "next_steps": ["Review what was in progress"],
+                        "context_needed": [],
+                        "warnings": [],
+                        "project_path": project_dir,
+                        "last_message_preview": last_message[:300] if last_message else "",
+                        "files_in_progress": files_edited[:10],
+                    }
+
+                    handoff_file = checkpoint_dir / "latest_handoff.json"
+                    temp = handoff_file.with_suffix(".json.tmp")
+                    temp.write_text(json_module.dumps(handoff, indent=2))
+                    temp.replace(handoff_file)
+
+                # Also persist session files for next session context
+                mark_session_ended()
+        except Exception:
+            pass
+
+    # ==================================================================
+    # SessionEnd hook - clean teardown, save state, output summary
+    # Gets: {reason: 'clear'|'resume'|'logout'|'prompt_input_exit'|'other'}
+    # ==================================================================
+    elif hook_type == "session_end_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            reason = "other"
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                reason = data.get("reason", "other")
+
+            # Gather session summary before clearing state
+            state = load_state()
+            files_edited = state.get("files_edited_this_session", [])
+
+            mark_session_ended()
+
+            # Build summary
+            lines = [f"Mini Claude session ended ({reason})."]
+            if files_edited:
+                lines.append(f"Files edited: {len(files_edited)}")
+                for f in files_edited[:5]:
+                    lines.append(f"  - {Path(f).name}")
+
+            # Count memories created this session
+            project_memory = load_project_memory(project_dir)
+            counts = get_memory_counts(project_memory)
+            if counts.get("total", 0) > 0:
+                lines.append(f"Memories: {counts['total']} total ({counts.get('mistake', 0)} mistakes, {counts.get('rule', 0)} rules)")
+
+            hook_output = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionEnd",
+                    "additionalContext": "\n".join(lines)
+                }
+            }
+            print(json_module.dumps(hook_output))
+        except Exception:
+            # Even if summary fails, make sure session state is saved
+            try:
+                mark_session_ended()
+            except Exception:
+                pass
+
+    # ==================================================================
+    # pre_edit_json - reads stdin JSON for PreToolUse Edit/Write
+    # ==================================================================
+    elif hook_type == "pre_edit_json":
+        import json as json_module
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            file_path = ""
+            if stdin_data:
+                data = json_module.loads(stdin_data)
+                file_path = data.get("tool_input", {}).get("file_path", "")
+
+            # Resolve sub-project from the file being edited
+            if file_path:
+                project_dir = get_project_dir(file_path)
+                result = reminder_for_edit(project_dir, file_path)
+                if result:
+                    hook_output = {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "additionalContext": result
+                        }
+                    }
+                    print(json_module.dumps(hook_output))
+        except Exception:
+            pass
+
     elif hook_type == "error":
         error_msg = sys.argv[2] if len(sys.argv) > 2 else ""
         print(reminder_for_error(project_dir, error_msg))
 
-    # Tool callback hooks - called by handlers when Mini Claude tools are used
+    # Legacy tool callback hooks - called by handlers when Mini Claude tools are used
     elif hook_type == "session_started":
         mark_session_started(project_dir)
-        print("<mini-claude-session-started>Session started! Mini Claude is now active.</mini-claude-session-started>")
 
     elif hook_type == "pre_edit_checked":
         file_path = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -1605,9 +2373,19 @@ def main():
     elif hook_type == "mistake_logged":
         mark_mistake_logged()
 
-    else:
+    # Legacy argv-based handlers (kept for backward compat)
+    elif hook_type == "prompt":
         prompt_text = sys.argv[2] if len(sys.argv) > 2 else ""
         print(reminder_for_prompt(project_dir, prompt_text))
+
+    elif hook_type == "edit":
+        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
+        result = reminder_for_edit(project_dir, file_path)
+        if result:
+            print(result)
+
+    else:
+        pass  # Unknown hook type - silent
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ The queue is important because:
 - Queueing serializes requests for better throughput
 
 Environment variables:
-- MINI_CLAUDE_MODEL: Which Ollama model to use (default: qwen2.5-coder:7b)
+- MINI_CLAUDE_MODEL: Which Ollama model to use (default: gemma3:12b)
 - MINI_CLAUDE_OLLAMA_URL: Ollama API URL (default: http://localhost:11434)
 - MINI_CLAUDE_TIMEOUT: Timeout in seconds for LLM calls (default: 300)
 - MINI_CLAUDE_KEEP_ALIVE: How long to keep model loaded after call (default: 0)
@@ -27,7 +27,7 @@ from typing import Optional, Union
 
 
 # Default model - can be overridden via environment variable
-DEFAULT_MODEL = "qwen2.5-coder:7b"
+DEFAULT_MODEL = "gemma3:12b"
 DEFAULT_TIMEOUT = 300.0  # 5 minutes - local LLMs on slow machines need time
 DEFAULT_KEEP_ALIVE = 0  # Unload immediately to free GPU memory
 

@@ -1,184 +1,93 @@
 # Mini Claude
 
-Persistent memory for Claude Code. Also: loop detection, scope guards, code analysis, and a local LLM for second opinions.
+Persistent memory and self-awareness for Claude Code. Tracks mistakes, decisions, and context across sessions automatically via hooks. Includes loop detection, scope guards, tiered memory with archiving, semantic intent scoring, and a local LLM for code analysis.
 
-## What It Does
+## Features
 
-Claude Code forgets everything between sessions and after context compaction. Mini Claude provides:
+- **Auto-tracks mistakes** from any failed tool. Warns before editing the same file again.
+- **Auto-captures decisions** from user prompts ("let's use X instead of Y") via semantic + regex scoring.
+- **Detects edit loops** when the same file is edited 3+ times without progress.
+- **Survives compaction** by auto-saving checkpoints and re-injecting rules/mistakes after.
+- **Saves session handoffs** so the next session picks up where you left off.
+- **Archives old memories** to cold storage instead of deleting. Searchable, restorable.
+- **Scores and injects context** before every edit, surfacing the 3 most relevant memories.
+- **Scopes memory per project** in multi-project workspaces. Workspace-level rules cascade down.
 
-- **Checkpoints** - Save task state, auto-restore after compaction
-- **Mistake memory** - Log errors, get warned next time you touch that file
-- **Decision memory** - Log WHY you chose something
-- **Loop detection** - Warns when editing same file 3+ times (death spiral)
-- **Scope guards** - Declare allowed files, prevent over-refactoring
-- **Impact analysis** - See what depends on a file before changing it
-- **Convention storage** - Store project rules, check code against them
-
-Runs locally with Ollama for semantic search and code analysis. No cloud, no API costs.
+Most of this works automatically via Claude Code hooks. No tool invocations needed.
 
 ## Install
 
-### Requirements
-
-- Python 3.10+
-- [Ollama](https://ollama.ai) with `qwen2.5-coder:7b`
-- Claude Code (VSCode extension or CLI)
-
-### Steps
-
 ```bash
-# 1. Install Ollama and pull model
-ollama pull qwen2.5-coder:7b
+# 1. Ollama (for semantic search / code analysis)
+ollama pull gemma3:12b
 
 # 2. Clone and install
 git clone https://github.com/20alexl/mini_claude.git
 cd mini_claude
 python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
 
-# Linux/Mac
-source venv/bin/activate
+pip install -e .                # Base
+pip install -e ".[semantic]"    # + AllMiniLM decision capture (recommended)
 
-# Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
-# Windows (cmd)
-venv\Scripts\activate.bat
-
-pip install -e mini_claude/
-
-# 3. Run installer
+# 3. Configure hooks + MCP server
 python install.py
 ```
 
-The installer creates launcher scripts and MCP configuration.
+### Per-Project Setup
 
-**Don't delete the venv folder** - VSCode runs Mini Claude from it.
-
-## Setup Per Project
-
-**Option 1: Use the installer**
 ```bash
 python install.py --setup /path/to/your/project
 ```
 
-**Option 2: Copy manually**
-- Copy `.mcp.json` to your project root (required - tells VSCode where the MCP server is)
-- Copy [`CLAUDE.md`](CLAUDE.md) to your project root (tells Claude how to use Mini Claude)
+Or copy `.mcp.json` and `CLAUDE.md` to your project root manually.
 
-## Auto-Tracking
+## Quick Usage
 
-Mini Claude automatically tracks without you needing to call tools:
+After install, Mini Claude works automatically. You'll see hook output like:
 
-| What | How |
-|------|---------|
-| **Edits** | Auto-logged after each Edit/Write. Shows "Edit tracked: file.py (edit #3)" |
-| **Tests** | Auto-logged after pytest/npm test. Shows "PASS/FAIL Test tracked" |
-| **Mistakes** | Auto-detected from common error patterns in failed commands |
+```
+Mini Claude session started (startup)
+Rules (2):
+  [a1b2c3] Always use strict TypeScript
+Past mistakes (1):
+  [d4e5f6] Broke the auth middleware by removing the session check
+Edit tracked: server.py (edit #2)
+FAIL Test tracked
+Auto-logged: Import error: Module 'flask' not found
+```
 
-Parallel LLM requests are automatically queued to prevent GPU contention.
+For manual operations:
 
-## Tools
-
-### Session Management
-
-| Tool | Purpose |
-|------|---------|
-| `session_start` | Load memories, mistakes, checkpoint, last session context |
-| `session_end` | Optional - shows session summary (memories auto-save) |
-| `pre_edit_check` | Check mistakes, loops, scope before editing |
-
-### Memory & Work Tracking
-
-| Tool | Purpose |
-|------|---------|
-| `memory(remember/search/clusters)` | Store and find discoveries |
-| `work(log_mistake)` | Record error + how to avoid |
-| `work(log_decision)` | Record choice + reasoning |
-
-### Context Protection
-
-| Tool | Purpose |
-|------|---------|
-| `context(checkpoint_save)` | Save task state for compaction survival |
-| `context(checkpoint_restore)` | Restore after compaction |
-| `context(verify_completion)` | Verify task is actually done |
-
-### Scope & Loop Detection
-
-| Tool | Purpose |
-|------|---------|
-| `scope(declare)` | Set allowed files for task |
-| `scope(check)` | Verify file is in scope |
-| `loop(check)` | Check if editing too much |
-
-### Code Analysis
-
-| Tool | Purpose |
-|------|---------|
-| `impact_analyze` | What depends on this file |
-| `deps_map` | Map imports/dependencies |
-| `scout_search` | Semantic codebase search (reads actual code) |
-| `scout_analyze` | Analyze code snippet with LLM |
-| `file_summarize` | Quick file purpose summary |
-| `code_quality_check` | Detect AI slop |
-| `audit_batch` | Audit multiple files |
-| `find_similar_issues` | Find bug patterns |
-
-### Conventions
-
-| Tool | Purpose |
-|------|---------|
-| `convention(add)` | Store project rule |
-| `convention(check)` | Check code against rules |
-| `code_pattern_check` | Check against conventions with LLM |
-
-### Validation
-
-| Tool | Purpose |
-|------|---------|
-| `output(validate_code)` | Check for silent failures |
+```python
+memory(operation="remember", content="...", project_path="/path")
+memory(operation="add_rule", content="Always do X", project_path="/path")
+work(operation="log_decision", decision="...", reason="...")
+scout_search(query="how does auth work", directory="/path")
+```
 
 ## Configuration
 
 ```bash
-# Different model
-export MINI_CLAUDE_MODEL="qwen2.5-coder:14b"
-
-# Remote Ollama
-export MINI_CLAUDE_OLLAMA_URL="http://192.168.1.100:11434"
+export MINI_CLAUDE_MODEL="gemma3:27b"           # Ollama model (default: gemma3:12b)
+export MINI_CLAUDE_OLLAMA_URL="http://host:11434" # Remote Ollama
+export MINI_CLAUDE_KEEP_ALIVE="5m"               # Keep model loaded
+export MINI_CLAUDE_ARCHIVE_DAYS=30               # Archive threshold (default: 14)
+export MINI_CLAUDE_SCORER_TIMEOUT=3600           # Scorer idle timeout (default: 1800)
 ```
 
 ## Troubleshooting
 
-### MCP Server Not Connecting
+| Problem | Fix |
+|---------|-----|
+| MCP server not connecting | Check `ollama list`, restart Claude Code |
+| Hooks not firing | Run `python install.py` to reinstall |
+| Memories not showing | `memory(operation="archive_status", project_path="/path")` to check counts |
+| `ModuleNotFoundError` | Activate the venv first |
 
-1. Check Ollama is running: `ollama list`
-2. Restart VSCode
-3. Check Claude Code → MCP Servers status
+## Documentation
 
-### Ollama Not Running
-
-```bash
-ollama serve
-ollama pull qwen2.5-coder:7b
-```
-
-## Architecture
-
-```text
-Claude Code
-    │
-    ├── MCP Server (Mini Claude)
-    │       │
-    │       └── ~/.mini_claude/ (state files)
-    │
-    └── Ollama (local LLM)
-```
-
-State is stored in `~/.mini_claude/` per project.
-
-## Issues
-
-Report bugs or request features: https://github.com/20alexl/mini_claude/issues
+**[Read the Library Book](./library-book/)** for the complete guide: design principles, internals, full usage guide, advanced features, gotchas, and complete tool reference.
 
 ## License
 

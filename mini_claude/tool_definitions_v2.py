@@ -75,13 +75,17 @@ TOOL_DEFINITIONS = [
 - delete: Remove single memory (memory_id)
 - batch_delete: Bulk delete by IDs (memory_ids) or by category. Rules/mistakes protected from category delete.
 - promote: Promote memory to rule (memory_id, reason)
-- recent: Get recent memories newest first (category, limit)""",
+- recent: Get recent memories newest first (category, limit)
+- archive: Move old inactive memories to cold storage (dry_run to preview)
+- restore: Bring archived memory back to active (memory_id)
+- archive_search: Search archived memories (query, tags, limit)
+- archive_status: Show hot vs archived memory counts""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent"],
+                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent", "archive", "restore", "archive_search", "archive_status"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},

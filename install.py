@@ -16,7 +16,7 @@ Usage:
 
 Requirements:
   - Python 3.10+
-  - Ollama running with qwen2.5-coder:7b (or another model)
+  - Ollama running with gemma3:12b (or another model)
   - Claude Code installed
 """
 
@@ -81,14 +81,14 @@ def check_package_installed():
 def install_package():
     """Install the mini_claude package."""
     script_dir = Path(__file__).parent.resolve()
-    package_dir = script_dir / "mini_claude"
 
-    if not package_dir.exists():
-        return False, "mini_claude package directory not found"
+    # pyproject.toml is at the repo root (same dir as install.py)
+    if not (script_dir / "pyproject.toml").exists():
+        return False, "pyproject.toml not found in repo root"
 
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", str(package_dir)],
+            [sys.executable, "-m", "pip", "install", "-e", str(script_dir)],
             capture_output=True,
             text=True
         )
@@ -109,33 +109,20 @@ def create_memory_dir():
 def create_launcher_script():
     """Create a launcher script that handles paths with spaces."""
     script_dir = Path(__file__).parent.resolve()
+    scripts_dir = script_dir / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
 
     if is_windows():
-        # Create batch launcher for Windows
-        launcher = script_dir / "run_server.bat"
-        launcher_content = '''@echo off
-REM Mini Claude MCP Server launcher for Windows
-REM This wrapper handles paths with spaces
-
-setlocal
-set "SCRIPT_DIR=%~dp0"
-"%SCRIPT_DIR%venv\\Scripts\\python.exe" -m mini_claude.server %*
-'''
+        launcher = scripts_dir / "run_server.bat"
+        launcher_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m mini_claude.server %%*\n'
         try:
-            launcher.write_text(launcher_content)
+            launcher.write_text(launcher_content.replace('%%', '%'))
             return str(launcher)
         except Exception:
             return None
     else:
-        # Create bash launcher for Linux/Mac
-        launcher = script_dir / "run_server.sh"
-        launcher_content = '''#!/bin/bash
-# Mini Claude MCP Server launcher
-# This wrapper handles paths with spaces
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/venv/bin/python" -m mini_claude.server "$@"
-'''
+        launcher = scripts_dir / "run_server.sh"
+        launcher_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m mini_claude.server "$@"\n'
         try:
             launcher.write_text(launcher_content)
             launcher.chmod(0o755)
@@ -147,33 +134,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 def create_hook_launcher_script():
     """Create a hook launcher script that handles paths with spaces."""
     script_dir = Path(__file__).parent.resolve()
+    scripts_dir = script_dir / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
 
     if is_windows():
-        # Create batch launcher for Windows hooks
-        hook_launcher = script_dir / "run_hook.bat"
-        hook_content = '''@echo off
-REM Mini Claude Hook launcher for Windows
-REM This wrapper handles paths with spaces for the enforcement hooks
-
-setlocal
-set "SCRIPT_DIR=%~dp0"
-"%SCRIPT_DIR%venv\\Scripts\\python.exe" -m mini_claude.hooks.remind %*
-'''
+        hook_launcher = scripts_dir / "run_hook.bat"
+        hook_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m mini_claude.hooks.remind %%*\n'
         try:
-            hook_launcher.write_text(hook_content)
+            hook_launcher.write_text(hook_content.replace('%%', '%'))
             return str(hook_launcher)
         except Exception:
             return None
     else:
-        # Create bash launcher for hooks on Linux/Mac
-        hook_launcher = script_dir / "run_hook.sh"
-        hook_content = '''#!/bin/bash
-# Mini Claude Hook launcher
-# This wrapper handles paths with spaces for the enforcement hooks
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/venv/bin/python" -m mini_claude.hooks.remind "$@"
-'''
+        hook_launcher = scripts_dir / "run_hook.sh"
+        hook_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m mini_claude.hooks.remind "$@"\n'
         try:
             hook_launcher.write_text(hook_content)
             hook_launcher.chmod(0o755)
@@ -187,12 +161,12 @@ def get_hooks_config():
     script_dir = Path(__file__).parent.resolve()
 
     if is_windows():
-        hook_launcher = script_dir / "run_hook.bat"
+        hook_launcher = script_dir / "scripts" / "run_hook.bat"
         hook_cmd = str(hook_launcher)
         # Windows uses 2>NUL for stderr redirection
         stderr_redirect = "2>NUL"
     else:
-        hook_launcher = script_dir / "run_hook.sh"
+        hook_launcher = script_dir / "scripts" / "run_hook.sh"
         hook_cmd = str(hook_launcher)
         # Unix uses 2>/dev/null for stderr redirection
         stderr_redirect = "2>/dev/null"
@@ -205,7 +179,7 @@ def get_hooks_config():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'"{hook_cmd}" prompt {stderr_redirect} || echo ""',
+                            "command": f'"{hook_cmd}" prompt_json {stderr_redirect} || echo ""',
                             "timeout": 2000
                         }
                     ]
@@ -217,7 +191,7 @@ def get_hooks_config():
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f'"{hook_cmd}" edit "$TOOL_INPUT_FILE_PATH" {stderr_redirect} || echo ""',
+                            "command": f'"{hook_cmd}" pre_edit_json {stderr_redirect} || echo ""',
                             "timeout": 1000
                         }
                     ]
@@ -244,13 +218,153 @@ def get_hooks_config():
                         }
                     ]
                 }
+            ],
+            "PostToolUseFailure": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" tool_failure_json {stderr_redirect} || echo ""',
+                            "timeout": 1000
+                        }
+                    ]
+                }
+            ],
+            "PreCompact": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" pre_compact_json {stderr_redirect} || echo ""',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
+            "PostCompact": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" post_compact_json {stderr_redirect} || echo ""',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
+            "SessionStart": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" session_start_json {stderr_redirect} || echo ""',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" stop_json {stderr_redirect} || echo ""',
+                            "timeout": 2000
+                        }
+                    ]
+                }
+            ],
+            "SessionEnd": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f'"{hook_cmd}" session_end_json {stderr_redirect} || echo ""',
+                            "timeout": 1500
+                        }
+                    ]
+                }
             ]
         }
     }
 
 
+def _is_mini_claude_hook(command: str) -> bool:
+    """Check if a hook command belongs to mini_claude."""
+    return "mini_claude" in command or "run_hook" in command
+
+
+def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
+    """
+    Merge mini_claude hooks into existing hooks without destroying user's other hooks.
+
+    Strategy per hook event:
+    - If event doesn't exist in existing: add our matchers
+    - If event exists: for each of our matchers, check if our command is already there
+      - If our command is there: update it (in case args changed)
+      - If not: append our matcher
+    - Never touch matchers that don't belong to mini_claude
+    """
+    merged = dict(existing_hooks)  # Shallow copy of event keys
+
+    for event, new_matchers in new_hooks.items():
+        if event not in merged:
+            # Event doesn't exist yet — add our matchers wholesale
+            merged[event] = new_matchers
+            continue
+
+        existing_matchers = merged[event]
+        if not isinstance(existing_matchers, list):
+            existing_matchers = []
+
+        for new_matcher in new_matchers:
+            new_pattern = new_matcher.get("matcher", "")
+            new_hooks_list = new_matcher.get("hooks", [])
+
+            # Find existing matcher with same pattern that has a mini_claude hook
+            found = False
+            for i, existing_matcher in enumerate(existing_matchers):
+                if existing_matcher.get("matcher", "") != new_pattern:
+                    continue
+
+                existing_hook_list = existing_matcher.get("hooks", [])
+
+                # Check if any existing hook in this matcher is ours
+                our_idx = None
+                for j, hook in enumerate(existing_hook_list):
+                    if _is_mini_claude_hook(hook.get("command", "")):
+                        our_idx = j
+                        break
+
+                if our_idx is not None:
+                    # Update our existing hook in place
+                    if new_hooks_list:
+                        existing_hook_list[our_idx] = new_hooks_list[0]
+                    found = True
+                    break
+
+            if not found:
+                # No existing matcher with our hook — append as new matcher
+                existing_matchers.append(new_matcher)
+
+        merged[event] = existing_matchers
+
+    return merged
+
+
 def install_hooks_config():
-    """Install hooks configuration to ~/.claude/settings.json."""
+    """
+    Install hooks configuration to ~/.claude/settings.json.
+
+    Merges mini_claude hooks into existing hooks without destroying
+    the user's other hooks (e.g., from other tools or custom scripts).
+    """
     settings_file = Path.home() / ".claude" / "settings.json"
     settings_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -265,8 +379,9 @@ def install_hooks_config():
     # Get new hooks config
     hooks_config = get_hooks_config()
 
-    # Merge - hooks config overwrites existing hooks
-    existing["hooks"] = hooks_config["hooks"]
+    # Merge — preserves user's other hooks
+    existing_hooks = existing.get("hooks", {})
+    existing["hooks"] = _merge_hooks(existing_hooks, hooks_config["hooks"])
 
     try:
         settings_file.write_text(json.dumps(existing, indent=2))
@@ -281,9 +396,9 @@ def get_mcp_config():
 
     # Use launcher script (handles paths with spaces better)
     if is_windows():
-        launcher = script_dir / "run_server.bat"
+        launcher = script_dir / "scripts" / "run_server.bat"
     else:
-        launcher = script_dir / "run_server.sh"
+        launcher = script_dir / "scripts" / "run_server.sh"
 
     if launcher.exists():
         return {
@@ -341,13 +456,7 @@ def copy_claude_md(target_dir: Path):
         return False, "CLAUDE.md already exists in target (not overwriting)"
 
     try:
-        # Read and customize the template
         content = source.read_text()
-        # Replace the hardcoded path with the target path
-        content = content.replace(
-            '/media/alex/New Volume/Code/mini_cluade',
-            str(target_dir)
-        )
         target.write_text(content)
         return True, str(target)
     except Exception as e:
@@ -388,7 +497,7 @@ def main():
     print("\nMini Claude gives Claude Code persistent memory and")
     print("self-awareness tools to help avoid repeating mistakes.")
 
-    total_steps = 6
+    total_steps = 7
     script_dir = Path(__file__).parent.resolve()
 
     # Step 1: Check virtual environment
@@ -413,7 +522,7 @@ def main():
         print_error("Ollama is not running")
         print("  Please start Ollama and pull the model:")
         print("    ollama serve")
-        print("    ollama pull qwen2.5-coder:7b")
+        print("    ollama pull gemma3:12b")
         response = input("\n  Continue anyway? (y/n): ")
         if response.lower() != 'y':
             return 1
@@ -467,6 +576,19 @@ def main():
     else:
         print_error(f"Failed: {result}")
 
+    # Step 7: Pre-build semantic intent cache (optional)
+    print_step(7, total_steps, "Building semantic intent cache...")
+    try:
+        from mini_claude.hooks.intent import build_template_cache
+        if build_template_cache():
+            print_success("AllMiniLM decision templates cached (semantic intent scoring enabled)")
+        else:
+            print_warning("sentence-transformers not installed - using regex-based intent scoring")
+            print("  To enable semantic scoring: pip install sentence-transformers numpy")
+    except Exception as e:
+        print_warning(f"Could not build intent cache: {e}")
+        print("  Regex-based intent scoring will be used as fallback")
+
     # Summary
     print("\n" + "=" * 60)
     print("Installation complete!")
@@ -500,28 +622,25 @@ def main():
     print("4. Claude should use: session_start(project_path=\"/your/project\")")
 
     print("\n" + "-" * 60)
-    print("38 TOOLS AVAILABLE")
+    print("TOOLS AVAILABLE (v2 - combined)")
     print("-" * 60)
     print("""
-  Session & Memory:
-    session_start, memory_remember, memory_recall, memory_forget
+  Essential:
+    mini_claude_status, session_start, session_end, pre_edit_check
 
-  Work Tracking:
-    work_log_mistake, work_log_decision, work_pre_edit_check
-    work_session_summary, work_save_session
+  Combined (use 'operation' parameter):
+    memory (remember/recall/forget/search/cleanup/add_rule/...)
+    work (log_mistake/log_decision)
+    scope (declare/check/expand/status/clear)
+    loop (record_edit/record_test/check/status/reset)
+    context (checkpoint_save/checkpoint_restore/handoff_create/...)
+    convention (add/get/check/remove)
+    output (validate_code/validate_result)
 
-  Safety Guards:
-    code_quality_check, loop_record_edit, loop_check_before_edit
-    scope_declare, scope_check, scope_expand, scope_status
-
-  Context Protection:
-    context_checkpoint_save, context_checkpoint_restore
-    context_instruction_add, context_handoff_create
-    context_self_check, output_validate_code
-
-  Analysis:
+  Standalone:
     scout_search, scout_analyze, file_summarize, deps_map
-    impact_analyze, convention_add, convention_check
+    impact_analyze, code_quality_check, code_pattern_check
+    audit_batch, find_similar_issues
 """)
 
     return 0

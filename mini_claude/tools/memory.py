@@ -16,6 +16,8 @@ v2: Smart memory management with:
 """
 
 import json
+import math
+import os
 import re
 import time
 import hashlib
@@ -40,6 +42,21 @@ class MemoryEntry(BaseModel):
     tags: list[str] = Field(default_factory=list)  # Auto-extracted: ["auth", "bootstrap"]
     related_files: list[str] = Field(default_factory=list)  # Files this memory relates to
     cluster_id: Optional[str] = None  # Which cluster this belongs to
+
+    # v3: Archive support
+    archived_at: Optional[float] = None  # When moved to archive; None = active
+
+
+# Scoring weights for memory relevance ranking
+SCORE_WEIGHTS = {
+    "file_match": 0.35,
+    "tag_overlap": 0.20,
+    "recency": 0.20,
+    "relevance": 0.15,
+    "access_freq": 0.10,
+}
+CATEGORY_BONUSES = {"rule": 0.3, "mistake": 0.2}
+RECENCY_HALF_LIFE_DAYS = 30
 
 
 class MemoryCluster(BaseModel):
@@ -114,12 +131,18 @@ class MemoryStore:
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.storage_dir / "memory.json"
+        self.archive_file = self.storage_dir / "archive.json"
 
         # In-memory cache
         self._projects: dict[str, ProjectMemory] = {}
         self._global_entries: list[MemoryEntry] = []
         self._load_error: str | None = None  # Track if memory file was corrupted
         self._save_error: str | None = None  # Track if save failed
+
+        # v3: Archive tier (lazy-loaded, never on hot path)
+        self._archive_projects: dict[str, ProjectMemory] = {}
+        self._archive_loaded: bool = False
+        self.archive_after_days: int = int(os.environ.get("MINI_CLAUDE_ARCHIVE_DAYS", "14"))
 
         # Load existing memory
         self._load()
@@ -543,7 +566,13 @@ class MemoryStore:
                 "key_files": proj.key_files,
                 "key_directories": proj.key_directories,
                 "discoveries": [
-                    {"content": e.content, "relevance": e.relevance}
+                    {
+                        "id": e.id,
+                        "content": e.content,
+                        "relevance": e.relevance,
+                        "category": e.category,
+                        "created_at": e.created_at,
+                    }
                     for e in entries[:limit]
                 ],
                 "recent_searches": proj.recent_searches[-5:],
@@ -861,8 +890,9 @@ class MemoryStore:
         Actions:
         1. Find and remove broken/incomplete memories
         2. Find and optionally merge duplicates
-        3. Decay old low-relevance memories (if apply_decay=True)
-        4. Create clusters from related memories
+        3. Archive old inactive memories to cold tier (instead of deleting)
+        4. Decay old low-relevance memories (if apply_decay=True)
+        5. Create clusters from related memories
 
         Args:
             project_path: The project to clean up
@@ -882,6 +912,7 @@ class MemoryStore:
             "broken_found": [],
             "duplicates_found": [],
             "duplicates_merged": [],
+            "archived": [],
             "decayed": [],
             "removed": [],
             "clusters_created": [],
@@ -918,6 +949,20 @@ class MemoryStore:
                 })
             else:
                 seen_content[entry.id] = entry
+
+        # Archive old inactive memories (before decay, so they're preserved not deleted)
+        if apply_decay:
+            for entry in proj.entries:
+                if any(r["entry_id"] == entry.id for r in report["removed"]):
+                    continue
+                if any(d["entry_id"] == entry.id for d in report["duplicates_found"]):
+                    continue
+                if self._is_archivable(entry):
+                    report["archived"].append({
+                        "entry_id": entry.id,
+                        "age_days": int((time.time() - entry.last_accessed) / 86400),
+                        "content_preview": entry.content[:50] + "...",
+                    })
 
         # Calculate decay for old memories (only if apply_decay is True)
         # PROTECTED CATEGORIES: rules and mistakes NEVER decay
@@ -980,6 +1025,8 @@ class MemoryStore:
             actions.append(f"{len(report['broken_found'])} broken")
         if report["duplicates_found"]:
             actions.append(f"{len(report['duplicates_found'])} duplicates")
+        if report["archived"]:
+            actions.append(f"{len(report['archived'])} archived")
         if report["decayed"]:
             actions.append(f"{len(report['decayed'])} decayed")
         if report["clusters_created"]:
@@ -1070,6 +1117,27 @@ class MemoryStore:
                     original.content = entry.content
                 ids_to_remove.add(entry.id)
                 report["duplicates_merged"].append(dup["entry_id"])
+
+        # Archive old entries (move to cold tier instead of deleting)
+        if report.get("archived"):
+            self._load_archive()
+            norm_path = self._normalize_path(proj.project_path)
+            if norm_path not in self._archive_projects:
+                self._archive_projects[norm_path] = ProjectMemory(
+                    project_path=norm_path,
+                    project_name=proj.project_name,
+                )
+            archive_proj = self._archive_projects[norm_path]
+            archive_ids = {e.id for e in archive_proj.entries}
+
+            for arch_info in report["archived"]:
+                entry = self._get_entry_by_id(proj, arch_info["entry_id"])
+                if entry and entry.id not in archive_ids:
+                    entry.archived_at = time.time()
+                    archive_proj.entries.append(entry)
+                    ids_to_remove.add(entry.id)
+
+            self._save_archive()
 
         # Apply decay
         for decay_info in report["decayed"]:
@@ -1488,6 +1556,301 @@ class MemoryStore:
             self._update_indexes(proj, entry)
 
     # =========================================================================
+    # v3: Archive Tier & Smart Scoring
+    # =========================================================================
+
+    def _load_archive(self):
+        """Lazy-load archive data. Only called by archive operations, never on hot path."""
+        if self._archive_loaded:
+            return
+        if self.archive_file.exists():
+            try:
+                data = json.loads(self.archive_file.read_text())
+                for path, proj_data in data.get("projects", {}).items():
+                    norm_path = self._normalize_path(path)
+                    proj_data["project_path"] = norm_path
+                    self._archive_projects[norm_path] = ProjectMemory(**proj_data)
+            except Exception:
+                pass  # Archive is best-effort
+        self._archive_loaded = True
+
+    def _save_archive(self) -> bool:
+        """Save archive to disk. Same atomic pattern as _save()."""
+        data = {
+            "version": 2,
+            "projects": {
+                path: proj.model_dump()
+                for path, proj in self._archive_projects.items()
+            },
+        }
+        try:
+            temp_file = self.archive_file.with_suffix(".json.tmp")
+            temp_file.write_text(json.dumps(data, indent=2))
+            temp_file.replace(self.archive_file)
+            return True
+        except Exception:
+            return False
+
+    def _is_archivable(self, entry: MemoryEntry) -> bool:
+        """Check if an entry should be moved to archive."""
+        # Rules and mistakes are NEVER archived
+        if entry.category in ("rule", "mistake"):
+            return False
+        # High relevance entries stay hot longer
+        if entry.relevance >= 7:
+            return False
+        age_days = (time.time() - entry.last_accessed) / 86400
+        return age_days > self.archive_after_days
+
+    def archive_old_memories(
+        self,
+        project_path: str,
+        dry_run: bool = True,
+    ) -> dict:
+        """
+        Move old inactive memories from hot to archive tier.
+
+        Returns report with counts and previews.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"archived_count": 0, "entries": [], "dry_run": dry_run}
+
+        to_archive = [e for e in proj.entries if self._is_archivable(e)]
+
+        report = {
+            "archived_count": len(to_archive),
+            "entries": [
+                {"id": e.id, "category": e.category, "age_days": int((time.time() - e.last_accessed) / 86400),
+                 "preview": e.content[:60] + "..." if len(e.content) > 60 else e.content}
+                for e in to_archive
+            ],
+            "dry_run": dry_run,
+        }
+
+        if not dry_run and to_archive:
+            self._load_archive()
+            norm_path = self._normalize_path(project_path)
+
+            # Ensure archive project exists
+            if norm_path not in self._archive_projects:
+                self._archive_projects[norm_path] = ProjectMemory(
+                    project_path=norm_path,
+                    project_name=proj.project_name,
+                )
+
+            archive_proj = self._archive_projects[norm_path]
+            archive_ids = {e.id for e in archive_proj.entries}
+
+            # Move entries
+            for entry in to_archive:
+                entry.archived_at = time.time()
+                if entry.id not in archive_ids:
+                    archive_proj.entries.append(entry)
+
+            # Remove from hot
+            archived_ids = {e.id for e in to_archive}
+            proj.entries = [e for e in proj.entries if e.id not in archived_ids]
+            self._rebuild_indexes(proj)
+
+            self._save()
+            self._save_archive()
+
+        return report
+
+    def restore_from_archive(
+        self,
+        project_path: str,
+        memory_id: str,
+    ) -> tuple[bool, str]:
+        """Move a memory from archive back to active hot tier."""
+        self._load_archive()
+        norm_path = self._normalize_path(project_path)
+        archive_proj = self._archive_projects.get(norm_path)
+
+        if not archive_proj:
+            return (False, "No archive for this project")
+
+        entry = self._get_entry_by_id(archive_proj, memory_id)
+        if not entry:
+            return (False, f"Memory {memory_id} not found in archive")
+
+        # Move to hot
+        entry.archived_at = None
+        entry.last_accessed = time.time()
+        entry.access_count += 1
+
+        proj = self.remember_project(project_path)
+        proj.entries.append(entry)
+        self._update_indexes(proj, entry)
+
+        # Remove from archive
+        archive_proj.entries = [e for e in archive_proj.entries if e.id != memory_id]
+
+        self._save()
+        self._save_archive()
+        return (True, f"Restored memory {memory_id} to active")
+
+    def search_archive(
+        self,
+        project_path: str,
+        query: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        limit: int = 5,
+    ) -> list[MemoryEntry]:
+        """Search archived memories. Read-only — does not update access counts."""
+        self._load_archive()
+        norm_path = self._normalize_path(project_path)
+        archive_proj = self._archive_projects.get(norm_path)
+        if not archive_proj:
+            return []
+
+        results = []
+        for entry in archive_proj.entries:
+            matched = False
+            if query:
+                query_words = set(query.lower().split())
+                content_words = set(entry.content.lower().split())
+                if query_words & content_words:
+                    matched = True
+            if tags:
+                if set(tags) & set(entry.tags):
+                    matched = True
+            if not query and not tags:
+                matched = True  # Return all if no filter
+            if matched:
+                results.append(entry)
+
+        return sorted(results, key=lambda x: x.relevance, reverse=True)[:limit]
+
+    def get_archive_stats(self, project_path: str) -> dict:
+        """Get hot vs archived memory counts."""
+        self._load_archive()
+        norm_path = self._normalize_path(project_path)
+
+        hot_proj = self.get_project(project_path)
+        archive_proj = self._archive_projects.get(norm_path)
+
+        hot_entries = hot_proj.entries if hot_proj else []
+        archive_entries = archive_proj.entries if archive_proj else []
+
+        # Count by category
+        hot_cats = {}
+        for e in hot_entries:
+            hot_cats[e.category] = hot_cats.get(e.category, 0) + 1
+
+        archive_cats = {}
+        for e in archive_entries:
+            archive_cats[e.category] = archive_cats.get(e.category, 0) + 1
+
+        return {
+            "hot_total": len(hot_entries),
+            "hot_categories": hot_cats,
+            "archive_total": len(archive_entries),
+            "archive_categories": archive_cats,
+        }
+
+    def _score_memory_relevance(self, entry: MemoryEntry, context: dict) -> float:
+        """
+        Score a memory's relevance to the current context.
+
+        Context dict: {"file_path": str, "tool_name": str, "command": str, "tags": list[str]}
+        Returns 0.0-1.0 score.
+        """
+        score = 0.0
+
+        # File path match
+        file_score = 0.0
+        ctx_file = context.get("file_path", "")
+        if ctx_file:
+            ctx_name = Path(ctx_file).name
+            ctx_dir = str(Path(ctx_file).parent)
+            ctx_ext = Path(ctx_file).suffix
+
+            for rf in entry.related_files:
+                rf_name = Path(rf).name
+                if rf == ctx_file or rf_name == ctx_name:
+                    file_score = 1.0
+                    break
+                elif str(Path(rf).parent) == ctx_dir:
+                    file_score = max(file_score, 0.6)
+                elif Path(rf).suffix == ctx_ext:
+                    file_score = max(file_score, 0.2)
+
+            if file_score < 0.4 and ctx_name in entry.content:
+                file_score = max(file_score, 0.4)
+
+        score += SCORE_WEIGHTS["file_match"] * file_score
+
+        # Tag overlap
+        ctx_tags = set(context.get("tags", []))
+        if ctx_file:
+            for pattern, tag in self.TAG_PATTERNS.items():
+                if re.search(pattern, ctx_file, re.IGNORECASE):
+                    ctx_tags.add(tag)
+
+        if ctx_tags and entry.tags:
+            tag_score = len(ctx_tags & set(entry.tags)) / len(ctx_tags)
+        else:
+            tag_score = 0.0
+        score += SCORE_WEIGHTS["tag_overlap"] * tag_score
+
+        # Recency (exponential decay)
+        age_days = (time.time() - entry.last_accessed) / 86400
+        recency_score = math.exp(-age_days / RECENCY_HALF_LIFE_DAYS)
+        score += SCORE_WEIGHTS["recency"] * recency_score
+
+        # Relevance score
+        score += SCORE_WEIGHTS["relevance"] * (entry.relevance / 10.0)
+
+        # Access frequency
+        score += SCORE_WEIGHTS["access_freq"] * min(entry.access_count / 10.0, 1.0)
+
+        # Category bonuses
+        score += CATEGORY_BONUSES.get(entry.category, 0.0)
+
+        return min(score, 1.0)
+
+    def score_and_rank(
+        self,
+        project_path: str,
+        context: dict,
+        limit: int = 3,
+        include_archive: bool = False,
+    ) -> list[tuple[MemoryEntry, float]]:
+        """
+        Score and rank memories by relevance to context.
+
+        Returns list of (entry, score) tuples, sorted descending.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        entries = list(proj.entries)
+
+        if include_archive:
+            self._load_archive()
+            norm_path = self._normalize_path(project_path)
+            archive_proj = self._archive_projects.get(norm_path)
+            if archive_proj:
+                entries.extend(archive_proj.entries)
+
+        scored = [(e, self._score_memory_relevance(e, context)) for e in entries]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        # Update access tracking for returned results (hot only)
+        for entry, _ in scored[:limit]:
+            if entry.archived_at is None:
+                entry.last_accessed = time.time()
+                entry.access_count += 1
+
+        if scored[:limit]:
+            self._save()
+
+        return scored[:limit]
+
+    # =========================================================================
     # v4: LLM-Powered Memory Consolidation
     # =========================================================================
 
@@ -1661,3 +2024,156 @@ Output ONLY the consolidated memory text (no explanation):"""
             "content": new_entry.content[:100] + "...",
             "removed_count": len(old_ids),
         }
+
+
+# =============================================================================
+# HotMemoryReader — Lightweight reader for hook-time injection
+# =============================================================================
+
+# Tag patterns duplicated from MemoryStore for standalone use in hooks
+_HOOK_TAG_PATTERNS = {
+    r"\bauth\b|login|password|authentication": "auth",
+    r"test|pytest|unittest|jest": "testing",
+    r"config|settings|\.env": "config",
+    r"database|db|sql|migration": "database",
+    r"api|endpoint|route|handler": "api",
+    r"security|vulnerability": "security",
+    r"performance|optimize|slow": "performance",
+    r"bug|fix|error|crash": "bugfix",
+}
+
+
+class HotMemoryReader:
+    """
+    Lightweight, read-only reader for hook-time memory injection.
+
+    Reads only memory.json (hot tier), never archive.
+    Works on raw dicts (no Pydantic parsing) for speed.
+    Designed to be instantiated per hook call — no caching.
+    """
+
+    def __init__(self, storage_dir: str = "~/.mini_claude"):
+        self.memory_file = Path(storage_dir).expanduser() / "memory.json"
+
+    def get_scored_memories(
+        self,
+        project_path: str,
+        context: dict,
+        limit: int = 3,
+    ) -> list[dict]:
+        """
+        Score and rank hot memories for injection.
+
+        Args:
+            project_path: Project directory
+            context: {"file_path": str, "tool_name": str, "command": str, "tags": list[str]}
+            limit: Max memories to return
+
+        Returns:
+            List of raw entry dicts sorted by score descending.
+        """
+        if not self.memory_file.exists():
+            return []
+
+        try:
+            data = json.loads(self.memory_file.read_text())
+        except Exception:
+            return []
+
+        # Find project — check exact path, then walk up parent paths
+        # This handles the workspace case: memories stored under e:/workspace
+        # are found when the hook resolves e:/workspace/mini_claude as the project
+        normalized = str(Path(project_path).resolve()).replace("\\", "/")
+        if len(normalized) >= 2 and normalized[1] == ":":
+            normalized = normalized[0].lower() + normalized[1:]
+
+        projects = data.get("projects", {})
+
+        # Collect entries from this project AND all ancestor projects
+        # (e.g., workspace-level memories apply to sub-projects too)
+        all_entries = []
+        check_path = normalized
+        while check_path:
+            if check_path in projects:
+                all_entries.extend(projects[check_path].get("entries", []))
+            # Move up one directory
+            parent = str(Path(check_path).parent).replace("\\", "/")
+            if parent == check_path:
+                break  # Hit root
+            check_path = parent
+
+        # Also try name-based fallback for the primary project
+        if not all_entries:
+            project_name = Path(project_path).name
+            for path, p in projects.items():
+                if Path(path).name == project_name:
+                    all_entries.extend(p.get("entries", []))
+                    break
+
+        if not all_entries:
+            return []
+
+        entries = all_entries
+        if not entries:
+            return []
+
+        # Score each entry
+        scored = []
+        for entry in entries:
+            score = self._score_entry(entry, context)
+            if score > 0.1:  # Skip completely irrelevant
+                scored.append((entry, score))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [e for e, _ in scored[:limit]]
+
+    @staticmethod
+    def _score_entry(entry: dict, context: dict) -> float:
+        """Score a raw entry dict against context. Fast, no Pydantic."""
+        score = 0.0
+        ctx_file = context.get("file_path", "")
+        related_files = entry.get("related_files", [])
+        content = entry.get("content", "")
+        entry_tags = set(entry.get("tags", []))
+
+        # File match (0.35)
+        file_score = 0.0
+        if ctx_file:
+            ctx_name = Path(ctx_file).name
+            for rf in related_files:
+                if Path(rf).name == ctx_name:
+                    file_score = 1.0
+                    break
+            if file_score < 0.4 and ctx_name in content:
+                file_score = 0.4
+        score += SCORE_WEIGHTS["file_match"] * file_score
+
+        # Tag overlap (0.20)
+        ctx_tags = set(context.get("tags", []))
+        if ctx_file:
+            for pattern, tag in _HOOK_TAG_PATTERNS.items():
+                if re.search(pattern, ctx_file, re.IGNORECASE):
+                    ctx_tags.add(tag)
+        if ctx_tags and entry_tags:
+            tag_score = len(ctx_tags & entry_tags) / len(ctx_tags)
+        else:
+            tag_score = 0.0
+        score += SCORE_WEIGHTS["tag_overlap"] * tag_score
+
+        # Recency (0.20)
+        last_accessed = entry.get("last_accessed", entry.get("created_at", 0))
+        age_days = (time.time() - last_accessed) / 86400 if last_accessed else 999
+        recency_score = math.exp(-age_days / RECENCY_HALF_LIFE_DAYS)
+        score += SCORE_WEIGHTS["recency"] * recency_score
+
+        # Relevance (0.15)
+        score += SCORE_WEIGHTS["relevance"] * (entry.get("relevance", 5) / 10.0)
+
+        # Access frequency (0.10)
+        score += SCORE_WEIGHTS["access_freq"] * min(entry.get("access_count", 1) / 10.0, 1.0)
+
+        # Category bonuses
+        category = entry.get("category", "")
+        score += CATEGORY_BONUSES.get(category, 0.0)
+
+        return min(score, 1.0)
