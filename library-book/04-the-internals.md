@@ -91,7 +91,7 @@ Storage: ~/.claude_engram/
 - Binds to `127.0.0.1:0` (OS picks port), writes port to `~/.claude_engram/scorer_port`
 - Protocol: JSON lines over TCP (`{"text": "..."}\n` → `{"score": 0.85, "text": "..."}\n`)
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
-- Auto-exits after 30 min idle (configurable via `MINI_CLAUDE_SCORER_TIMEOUT`)
+- Auto-exits after 30 min idle (configurable via `CLAUDE_ENGRAM_SCORER_TIMEOUT`)
 - Thread-per-connection for concurrent hook requests
 
 ### Handlers (`handlers.py`)

@@ -23,7 +23,7 @@ import threading
 from pathlib import Path
 
 # How long to stay alive without requests (seconds)
-IDLE_TIMEOUT = int(os.environ.get("MINI_CLAUDE_SCORER_TIMEOUT", "1800"))  # 30 min default
+IDLE_TIMEOUT = int(os.environ.get("CLAUDE_ENGRAM_SCORER_TIMEOUT", "1800"))  # 30 min default
 
 # Where to store the port number so hooks can find us
 PORT_FILE = Path.home() / ".claude_engram" / "scorer_port"

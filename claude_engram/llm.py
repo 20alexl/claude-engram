@@ -10,10 +10,10 @@ The queue is important because:
 - Queueing serializes requests for better throughput
 
 Environment variables:
-- MINI_CLAUDE_MODEL: Which Ollama model to use (default: gemma3:12b)
-- MINI_CLAUDE_OLLAMA_URL: Ollama API URL (default: http://localhost:11434)
-- MINI_CLAUDE_TIMEOUT: Timeout in seconds for LLM calls (default: 300)
-- MINI_CLAUDE_KEEP_ALIVE: How long to keep model loaded after call (default: 0)
+- CLAUDE_ENGRAM_MODEL: Which Ollama model to use (default: gemma3:12b)
+- CLAUDE_ENGRAM_OLLAMA_URL: Ollama API URL (default: http://localhost:11434)
+- CLAUDE_ENGRAM_TIMEOUT: Timeout in seconds for LLM calls (default: 300)
+- CLAUDE_ENGRAM_KEEP_ALIVE: How long to keep model loaded after call (default: 0)
   - "0" = Unload immediately (saves GPU memory, slower next call)
   - "5m" = Keep loaded 5 minutes (faster next call, uses GPU memory)
   - "-1" = Keep loaded forever
@@ -44,19 +44,19 @@ class LLMClient:
         keep_alive: Union[int, str] = None,
     ):
         # Allow environment variables to override defaults
-        self.base_url = base_url or os.environ.get("MINI_CLAUDE_OLLAMA_URL", "http://localhost:11434")
-        self.model = model or os.environ.get("MINI_CLAUDE_MODEL", DEFAULT_MODEL)
+        self.base_url = base_url or os.environ.get("CLAUDE_ENGRAM_OLLAMA_URL", "http://localhost:11434")
+        self.model = model or os.environ.get("CLAUDE_ENGRAM_MODEL", DEFAULT_MODEL)
         # Timeout: explicit param > env var > default (300s)
         if timeout is not None:
             self.timeout = timeout
         else:
-            env_timeout = os.environ.get("MINI_CLAUDE_TIMEOUT")
+            env_timeout = os.environ.get("CLAUDE_ENGRAM_TIMEOUT")
             self.timeout = float(env_timeout) if env_timeout else DEFAULT_TIMEOUT
         # Keep alive: how long Ollama keeps model loaded after call
         if keep_alive is not None:
             self.keep_alive = keep_alive
         else:
-            env_keep_alive = os.environ.get("MINI_CLAUDE_KEEP_ALIVE")
+            env_keep_alive = os.environ.get("CLAUDE_ENGRAM_KEEP_ALIVE")
             if env_keep_alive:
                 # Try to parse as int, otherwise use as string (e.g., "5m")
                 try:
@@ -177,7 +177,7 @@ class LLMClient:
                         "model": self.model,
                         "prompt": prompt,
                         "stream": False,
-                        "keep_alive": self.keep_alive,  # Configurable via MINI_CLAUDE_KEEP_ALIVE
+                        "keep_alive": self.keep_alive,  # Configurable via CLAUDE_ENGRAM_KEEP_ALIVE
                         "options": {
                             "temperature": temperature,
                         }
