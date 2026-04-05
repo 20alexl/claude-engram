@@ -11,13 +11,13 @@ Usage:
   cd claude-engram
   python -m venv venv
   source venv/bin/activate  # or venv\\Scripts\\activate on Windows
-  pip install -e mini_claude/
+  pip install -e .
   python install.py
 
 Requirements:
   - Python 3.10+
-  - Ollama running with gemma3:12b (or another model)
-  - Claude Code installed
+  - Claude Code (CLI, desktop app, or IDE extension)
+  - Ollama (optional — only needed for semantic search and code analysis)
 """
 
 import json

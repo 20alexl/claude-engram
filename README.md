@@ -18,19 +18,16 @@ Most of this works automatically via Claude Code hooks. No tool invocations need
 ## Install
 
 ```bash
-# 1. Ollama (for semantic search / code analysis)
-ollama pull gemma3:12b
-
-# 2. Clone and install
+# 1. Clone and install
 git clone https://github.com/20alexl/claude-engram.git
 cd claude-engram
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 
-pip install -e .                # Base
+pip install -e .                # Base (all hook features work without Ollama)
 pip install -e ".[semantic]"    # + AllMiniLM decision capture (recommended)
 
-# 3. Configure hooks + MCP server
+# 2. Configure hooks + MCP server
 python install.py
 ```
 
@@ -41,6 +38,19 @@ python install.py --setup /path/to/your/project
 ```
 
 Or copy `.mcp.json` and `CLAUDE.md` to your project root manually.
+
+### Mid-Project Adoption
+
+Already deep in a project? Install normally, then tell Claude to dump what it knows:
+
+```
+Save everything you know about this project into claude-engram:
+- memory(add_rule) for each project convention
+- memory(remember) for key facts about the architecture
+- work(log_decision) for decisions we've made and why
+```
+
+From that point on, hooks auto-track everything. No "start from scratch" required.
 
 ## Quick Usage
 
@@ -66,10 +76,27 @@ work(operation="log_decision", decision="...", reason="...")
 scout_search(query="how does auth work", directory="/path")
 ```
 
+## Ollama (Optional)
+
+Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, and LLM-based convention checking. All hook features (mistake tracking, decision capture, loop detection, scoring, archiving, compaction survival) work without it.
+
+```bash
+# Install if you want semantic search / code analysis
+ollama pull gemma3:12b
+
+# Or use a tiny model to save resources
+ollama pull gemma3:4b
+export MINI_CLAUDE_MODEL="gemma3:4b"
+
+# GPU/CPU split (Ollama handles this automatically when VRAM is limited)
+# Force partial offload: N layers on GPU, rest on CPU
+OLLAMA_NUM_GPU=20 ollama serve
+```
+
 ## Configuration
 
 ```bash
-export MINI_CLAUDE_MODEL="gemma3:27b"           # Ollama model (default: gemma3:12b)
+export MINI_CLAUDE_MODEL="gemma3:4b"             # Any Ollama model (default: gemma3:12b)
 export MINI_CLAUDE_OLLAMA_URL="http://host:11434" # Remote Ollama
 export MINI_CLAUDE_KEEP_ALIVE="5m"               # Keep model loaded
 export MINI_CLAUDE_ARCHIVE_DAYS=30               # Archive threshold (default: 14)
