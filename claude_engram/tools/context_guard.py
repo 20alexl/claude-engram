@@ -63,7 +63,7 @@ class ContextGuard:
     """
 
     def __init__(self, storage_dir: Optional[Path] = None):
-        self.storage_dir = storage_dir or Path.home() / ".mini_claude" / "checkpoints"
+        self.storage_dir = storage_dir or Path.home() / ".claude_engram" / "checkpoints"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         self._current_checkpoint: Optional[TaskCheckpoint] = None

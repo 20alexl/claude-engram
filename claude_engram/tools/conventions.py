@@ -48,7 +48,7 @@ class ConventionTracker:
     - "Auth tokens go in headers, not query params"
     """
 
-    def __init__(self, storage_dir: str = "~/.mini_claude"):
+    def __init__(self, storage_dir: str = "~/.claude_engram"):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.conventions_file = self.storage_dir / "conventions.json"

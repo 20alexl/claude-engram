@@ -28,11 +28,11 @@ There's no formal test suite yet. Testing is done via inline verification:
 
 ```bash
 # Basic import check
-python -c "from mini_claude.server import server; print('OK')"
+python -c "from claude_engram.server import server; print('OK')"
 
 # Test memory system
 python -c "
-from mini_claude.tools.memory import MemoryStore, HotMemoryReader
+from claude_engram.tools.memory import MemoryStore, HotMemoryReader
 m = MemoryStore()
 m.remember_discovery('/tmp/test', 'Test', relevance=5)
 assert m.recall(project_path='/tmp/test')['project'] is not None
@@ -41,12 +41,12 @@ print('Memory OK')
 "
 
 # Test hooks compile
-python -m py_compile mini_claude/hooks/remind.py && echo "OK"
+python -m py_compile claude_engram/hooks/remind.py && echo "OK"
 
 # Test hook handlers match config
 python -c "
 import json, re, inspect
-from mini_claude.hooks.remind import main
+from claude_engram.hooks.remind import main
 with open('hooks_config.json') as f:
     types = re.findall(r'remind\s+(\w+)', f.read())
 source = inspect.getsource(main)
@@ -68,7 +68,7 @@ No formal linter configured yet. Follow existing patterns:
 
 ## Before Submitting a PR
 
-- [ ] All existing imports still work (`python -c "from mini_claude.server import server"`)
+- [ ] All existing imports still work (`python -c "from claude_engram.server import server"`)
 - [ ] `hooks_config.json` handler types match `main()` in `remind.py`
 - [ ] `install.py`'s `get_hooks_config()` output matches `hooks_config.json`
 - [ ] New hook handlers output proper JSON with `hookSpecificOutput.additionalContext`

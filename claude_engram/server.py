@@ -1,7 +1,7 @@
 """
 Claude Engram MCP Server
 
-The main entry point that exposes mini_claude's capabilities to Claude Code
+The main entry point that exposes claude_engram's capabilities to Claude Code
 via the Model Context Protocol.
 
 This file is intentionally kept as a thin routing layer.
@@ -45,7 +45,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # ESSENTIAL TOOLS (always needed)
         # =====================================================================
 
-        case "mini_claude_status":
+        case "claude_engram_status":
             return await handlers.status()
 
         case "session_start":

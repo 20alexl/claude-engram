@@ -451,7 +451,7 @@ class HabitTracker:
 
 
 # Singleton state directory
-_state_dir = Path.home() / ".mini_claude"
+_state_dir = Path.home() / ".claude_engram"
 _habit_tracker = HabitTracker(_state_dir)
 
 

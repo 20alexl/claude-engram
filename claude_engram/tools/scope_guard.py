@@ -45,7 +45,7 @@ class ScopeGuard:
         self._edits_made: list[tuple[str, float]] = []  # (file, timestamp)
 
         # Persistence for hooks to read
-        self._state_file = Path.home() / ".mini_claude" / "scope_guard.json"
+        self._state_file = Path.home() / ".claude_engram" / "scope_guard.json"
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
 
     def _persist_state(self):

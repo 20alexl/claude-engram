@@ -606,10 +606,10 @@ class Handlers:
             # Start habit tracking session
             start_habit_session()
             record_session_tool_use("session_start", f"project: {project_path}")
-            # Create session marker for hooks to detect (in ~/.mini_claude/ for Windows)
+            # Create session marker for hooks to detect (in ~/.claude_engram/ for Windows)
             try:
                 from pathlib import Path
-                marker = Path.home() / ".mini_claude" / "session_active"
+                marker = Path.home() / ".claude_engram" / "session_active"
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(project_path)
             except Exception:

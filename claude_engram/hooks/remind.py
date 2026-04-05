@@ -54,7 +54,7 @@ def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
 
 def get_state_file() -> Path:
     """Get the hook state file path."""
-    return Path.home() / ".mini_claude" / "hook_state.json"
+    return Path.home() / ".claude_engram" / "hook_state.json"
 
 
 def load_state() -> dict:
@@ -139,8 +139,8 @@ def mark_session_started(project_dir: str):
     _increment_tool_usage(state, "session_start")
     save_state(state)
 
-    # Also create the marker file (in ~/.mini_claude/ for Windows compatibility)
-    marker = Path.home() / ".mini_claude" / "session_active"
+    # Also create the marker file (in ~/.claude_engram/ for Windows compatibility)
+    marker = Path.home() / ".claude_engram" / "session_active"
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(project_dir)
@@ -459,7 +459,7 @@ def get_project_dir(file_path: str = "") -> str:
 
 def get_memory_file() -> Path:
     """Get the Claude Engram memory file path."""
-    return Path.home() / ".mini_claude" / "memory.json"
+    return Path.home() / ".claude_engram" / "memory.json"
 
 
 def load_project_memory(project_dir: str) -> dict:
@@ -635,8 +635,8 @@ def check_session_active(project_dir: str) -> bool:
         if active_project == project_dir or Path(active_project).name == Path(project_dir).name:
             return True
 
-    # Fallback to marker file (in ~/.mini_claude/ for Windows compatibility)
-    marker = Path.home() / ".mini_claude" / "session_active"
+    # Fallback to marker file (in ~/.claude_engram/ for Windows compatibility)
+    marker = Path.home() / ".claude_engram" / "session_active"
     if marker.exists():
         try:
             active_project = marker.read_text().strip()
@@ -648,7 +648,7 @@ def check_session_active(project_dir: str) -> bool:
 
 def get_loop_status() -> dict:
     """Get loop detection status."""
-    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
     if not loop_file.exists():
         return {}
     try:
@@ -659,7 +659,7 @@ def get_loop_status() -> dict:
 
 def get_scope_status() -> dict:
     """Get scope guard status."""
-    scope_file = Path.home() / ".mini_claude" / "scope_guard.json"
+    scope_file = Path.home() / ".claude_engram" / "scope_guard.json"
     if not scope_file.exists():
         return {}
     try:
@@ -670,7 +670,7 @@ def get_scope_status() -> dict:
 
 def get_checkpoint_data() -> dict:
     """Load the latest checkpoint data if it exists."""
-    checkpoint_file = Path.home() / ".mini_claude" / "checkpoints" / "latest_checkpoint.json"
+    checkpoint_file = Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
     if not checkpoint_file.exists():
         return {}
     try:
@@ -686,7 +686,7 @@ def get_checkpoint_data() -> dict:
 
 def get_handoff_data() -> dict:
     """Load the latest handoff data if it exists."""
-    handoff_file = Path.home() / ".mini_claude" / "checkpoints" / "latest_handoff.json"
+    handoff_file = Path.home() / ".claude_engram" / "checkpoints" / "latest_handoff.json"
     if not handoff_file.exists():
         return {}
     try:
@@ -898,7 +898,7 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
     of naive filename substring matching. Returns top 3 most relevant.
     """
     try:
-        from mini_claude.tools.memory import HotMemoryReader
+        from claude_engram.tools.memory import HotMemoryReader
 
         reader = HotMemoryReader()
         context = {
@@ -920,7 +920,7 @@ def _auto_record_edit(file_path: str, description: str = "auto-tracked"):
     Automatically record an edit in loop detector.
     Called post-edit to track changes invisibly.
     """
-    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
     loop_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Load loop detector state
@@ -959,7 +959,7 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
     Called after test runs to track results invisibly.
     Returns confirmation message.
     """
-    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
     loop_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Load loop detector state
@@ -1056,7 +1056,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
     # CHECK FOR SEARCH SPIRAL FIRST - always show if in spiral
     spiral_suggestion = get_search_spiral_suggestion(project_dir)
     if spiral_suggestion:
-        return f"<mini-claude-reminder>\n{spiral_suggestion}\n</mini-claude-reminder>"
+        return f"<engram-reminder>\n{spiral_suggestion}\n</engram-reminder>"
 
     # CHECK IF WE SHOULD SHOW ANYTHING AT ALL
     should_show, reason = should_show_full_reminder(project_dir, prompt)
@@ -1067,7 +1067,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
     session_active = check_session_active(project_dir)
     project_memory = load_project_memory(project_dir)
 
-    lines = ["<mini-claude-reminder>"]
+    lines = ["<engram-reminder>"]
 
     if not session_active:
         # AUTO-START SESSION - No more nagging!
@@ -1154,7 +1154,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                 lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
             lines.append("")
 
-    lines.append("</mini-claude-reminder>")
+    lines.append("</engram-reminder>")
     return "\n".join(lines)
 
 
@@ -1176,7 +1176,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     state = load_state()
     session_active = check_session_active(project_dir)
 
-    lines = ["<mini-claude-edit-reminder>"]
+    lines = ["<engram-edit-reminder>"]
     has_content = False
 
     # AUTO-INJECTION: Run pre_edit_check automatically
@@ -1249,7 +1249,7 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
 
     # Auto-recording happens silently post-edit - no need to announce it
 
-    lines.append("</mini-claude-edit-reminder>")
+    lines.append("</engram-edit-reminder>")
 
     if has_content:
         return "\n".join(lines)
@@ -1302,13 +1302,13 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
             issues.append("DANGER: Possible hardcoded secret")
 
         if issues:
-            lines.append("<mini-claude-write-quality>")
+            lines.append("<engram-write-quality>")
             lines.append("Code Quality Warnings:")
             for issue in issues[:5]:
                 lines.append(f"  {issue}")
             lines.append("")
             lines.append("Run: code_quality_check(code) for full analysis")
-            lines.append("</mini-claude-write-quality>")
+            lines.append("</engram-write-quality>")
             has_quality_issues = True
 
     if edit_reminder:
@@ -1372,7 +1372,7 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
 
         # Show confirmation (not reminder)
         status_emoji = "PASS" if passed else "FAIL"
-        lines.append("<mini-claude-test-tracked>")
+        lines.append("<engram-test-tracked>")
         if state_changed:
             if passed:
                 lines.append(f"{status_emoji} Test tracked: NOW PASSING (were failing)")
@@ -1382,7 +1382,7 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
             lines.append(f"{status_emoji} Test tracked: {result} (baseline established)")
         else:
             lines.append(f"{status_emoji} Test tracked: {result}")
-        lines.append("</mini-claude-test-tracked>")
+        lines.append("</engram-test-tracked>")
         has_content = True
 
     # Check if command failed
@@ -1395,12 +1395,12 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
         # NEW: Auto-detect and auto-log common mistakes
         auto_logged = _auto_log_detected_mistake(project_dir, command, output)
 
-        lines.append("<mini-claude-error-reminder>")
+        lines.append("<engram-error-reminder>")
         if auto_logged:
             lines.append(f"Auto-logged: {auto_logged}")
         else:
             lines.append("Log with work(log_mistake) to get warned next time")
-        lines.append("</mini-claude-error-reminder>")
+        lines.append("</engram-error-reminder>")
         has_content = True
 
     if has_content:
@@ -1577,7 +1577,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
 
         # Tier 1: Try semantic scoring (AllMiniLM)
         try:
-            from mini_claude.hooks.intent import score_decision_semantic
+            from claude_engram.hooks.intent import score_decision_semantic
             sem_score, sem_text = score_decision_semantic(prompt)
             if sem_score > best_score:
                 best_score = sem_score
@@ -1813,13 +1813,13 @@ def reminder_for_error(project_dir: str, error_message: str = "") -> str:
     errors = state["errors_without_log"]
     save_state(state)
 
-    lines = ["<mini-claude-error-reminder>"]
+    lines = ["<engram-error-reminder>"]
     if errors >= 3:
         lines.append(f"{errors} errors without logging. Consider:")
         lines.append("  work(operation='log_mistake', description='...', how_to_avoid='...')")
     else:
         lines.append("Log recurring errors with work(log_mistake) to get warned next time")
-    lines.append("</mini-claude-error-reminder>")
+    lines.append("</engram-error-reminder>")
     return "\n".join(lines)
 
 
@@ -1950,7 +1950,7 @@ def main():
                         save_state(state)
 
                     # Get edit count for this file
-                    loop_file = Path.home() / ".mini_claude" / "loop_detector.json"
+                    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
                     edit_count = 1
                     if loop_file.exists():
                         try:
@@ -1961,7 +1961,7 @@ def main():
 
                     # Show confirmation
                     file_name = Path(file_path).name
-                    result = f"<mini-claude-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</mini-claude-edit-tracked>"
+                    result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
 
                     # Output JSON format for PostToolUse
                     hook_output = {
@@ -2049,7 +2049,7 @@ def main():
                     hook_output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PostToolUseFailure",
-                            "additionalContext": f"<mini-claude-error>{result}</mini-claude-error>"
+                            "additionalContext": f"<engram-error>{result}</engram-error>"
                         }
                     }
                     print(json_module.dumps(hook_output))
@@ -2072,7 +2072,7 @@ def main():
             state = load_state()
             files_edited = state.get("files_edited_this_session", [])
 
-            checkpoint_dir = Path.home() / ".mini_claude" / "checkpoints"
+            checkpoint_dir = Path.home() / ".claude_engram" / "checkpoints"
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
             checkpoint = {
@@ -2100,7 +2100,7 @@ def main():
             hook_output = {
                 "hookSpecificOutput": {
                     "hookEventName": "PreCompact",  # not a real hookEventName but ignored
-                    "additionalContext": "<mini-claude-compact>Checkpoint auto-saved before compaction</mini-claude-compact>"
+                    "additionalContext": "<engram-compact>Checkpoint auto-saved before compaction</engram-compact>"
                 }
             }
             print(json_module.dumps(hook_output))
@@ -2157,12 +2157,12 @@ def main():
                 data = json_module.loads(stdin_data)
                 source = data.get("source", "startup")
 
-            # Auto-start mini_claude session
+            # Auto-start claude_engram session
             mark_session_started(project_dir)
 
             # Start persistent scorer server in background (if sentence-transformers available)
             try:
-                from mini_claude.hooks.scorer_server import start_server_background
+                from claude_engram.hooks.scorer_server import start_server_background
                 start_server_background()  # Non-blocking, returns immediately if already running
             except Exception:
                 pass  # sentence-transformers not installed — regex fallback will be used
@@ -2251,7 +2251,7 @@ def main():
 
                 if files_edited or last_message:
                     # Save a lightweight handoff for next session
-                    checkpoint_dir = Path.home() / ".mini_claude" / "checkpoints"
+                    checkpoint_dir = Path.home() / ".claude_engram" / "checkpoints"
                     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
                     handoff = {

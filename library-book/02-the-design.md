@@ -24,7 +24,7 @@ In a multi-project workspace, editing `auth.py` in project A should surface proj
 
 ### 5. Zero infrastructure beyond Ollama
 
-No cloud services, no databases, no background daemons (except the optional ~90MB scorer server). Everything persists to flat JSON files in `~/.mini_claude/`. The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
+No cloud services, no databases, no background daemons (except the optional ~90MB scorer server). Everything persists to flat JSON files in `~/.claude_engram/`. The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
 
 ## Key Tradeoffs
 

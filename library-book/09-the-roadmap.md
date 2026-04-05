@@ -43,7 +43,7 @@
 
 | Feature | Why Not |
 |---------|---------|
-| Cloud storage | Claude Engram is privacy-first. All data stays local in `~/.mini_claude/`. |
+| Cloud storage | Claude Engram is privacy-first. All data stays local in `~/.claude_engram/`. |
 | Database backend (SQLite, Redis) | Adds dependencies. JSON files work for the scale we target (<1000 memories per project). |
 | GUI / web dashboard | Out of scope. This is a library, not an app. |
 | Python 3.9 support | 3.10+ for `match/case`, `X | Y` type unions, and cleaner code. |
