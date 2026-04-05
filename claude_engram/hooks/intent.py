@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 # Cache directory for pre-computed embeddings
-_CACHE_DIR = Path.home() / ".mini_claude" / "embeddings"
+_CACHE_DIR = Path.home() / ".claude_engram" / "embeddings"
 _TEMPLATE_CACHE = _CACHE_DIR / "decision_templates.json"
 
 # Decision templates — sentences that express clear decisions.
@@ -172,13 +172,13 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
 
     # Path 1: Try persistent server (fastest — model already loaded)
     try:
-        from mini_claude.hooks.scorer_server import score_via_server
+        from claude_engram.hooks.scorer_server import score_via_server
         score, extracted = score_via_server(text)
         if score > 0.0 or extracted:
             return (score, extracted)
         # Server returned 0 — could be genuine 0 or server not running.
         # Check if server is actually reachable before falling through.
-        from mini_claude.hooks.scorer_server import PORT_FILE
+        from claude_engram.hooks.scorer_server import PORT_FILE
         if PORT_FILE.exists():
             return (score, extracted)  # Server is running, score is genuinely 0
     except Exception:

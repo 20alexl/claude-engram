@@ -29,7 +29,7 @@ Claude Code
     └── Ollama (local LLM)                    ← Semantic search, code analysis
         └── gemma3:12b (configurable)
 
-Storage: ~/.mini_claude/
+Storage: ~/.claude_engram/
     ├── memory.json          ← Hot tier (rules, mistakes, recent)
     ├── archive.json         ← Cold tier (old memories)
     ├── checkpoints/         ← Task state, handoffs
@@ -88,7 +88,7 @@ Storage: ~/.mini_claude/
 **Why it's separate:** Loading `sentence-transformers` + AllMiniLM takes ~500ms per process. Hooks spawn a new process each time. A persistent server amortizes the load cost across all hook calls in a session.
 
 **Key internals:**
-- Binds to `127.0.0.1:0` (OS picks port), writes port to `~/.mini_claude/scorer_port`
+- Binds to `127.0.0.1:0` (OS picks port), writes port to `~/.claude_engram/scorer_port`
 - Protocol: JSON lines over TCP (`{"text": "..."}\n` → `{"score": 0.85, "text": "..."}\n`)
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
 - Auto-exits after 30 min idle (configurable via `MINI_CLAUDE_SCORER_TIMEOUT`)
@@ -146,8 +146,8 @@ Storage: ~/.mini_claude/
 ## Directory Structure
 
 ```
-mini_claude/
-├── mini_claude/
+claude_engram/
+├── claude_engram/
 │   ├── __init__.py          # Package version
 │   ├── server.py            # MCP server entry point (thin router)
 │   ├── handlers.py          # All MCP handler logic (~2000 lines)

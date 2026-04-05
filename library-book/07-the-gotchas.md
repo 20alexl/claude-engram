@@ -26,10 +26,10 @@
 ```bash
 pip install -e ".[semantic]"
 # Verify manually:
-python -m mini_claude.hooks.scorer_server  # Should say "Scorer server listening..."
+python -m claude_engram.hooks.scorer_server  # Should say "Scorer server listening..."
 ```
 
-**Lesson:** Semantic scoring is optional. The regex fallback captures most clear decisions. Check `~/.mini_claude/scorer_port` to see if the server is running.
+**Lesson:** Semantic scoring is optional. The regex fallback captures most clear decisions. Check `~/.claude_engram/scorer_port` to see if the server is running.
 
 ---
 
@@ -67,7 +67,7 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 **Cause:** Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, LLM-based convention checking, and memory consolidation. All hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving) work without Ollama.
 
-**Fix:** Nothing to fix. Just know that `mini_claude_status` will report "failed" if Ollama is down, but that only affects the LLM-powered tools.
+**Fix:** Nothing to fix. Just know that `claude_engram_status` will report "failed" if Ollama is down, but that only affects the LLM-powered tools.
 
 **Lesson:** Claude Engram has two layers: the hook system (no external deps) and the LLM tools (requires Ollama). They're independent.
 
@@ -77,7 +77,7 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 **Symptom:** MCP server won't start. Hooks error with `ModuleNotFoundError`.
 
-**Cause:** The venv contains the installed `mini_claude` package. The launcher scripts and `.mcp.json` point to the venv's Python. Deleting it breaks everything.
+**Cause:** The venv contains the installed `claude_engram` package. The launcher scripts and `.mcp.json` point to the venv's Python. Deleting it breaks everything.
 
 **Fix:** Recreate the venv and reinstall:
 ```bash

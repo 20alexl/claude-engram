@@ -14,7 +14,7 @@ TOOL_DEFINITIONS = [
     # =========================================================================
 
     Tool(
-        name="mini_claude_status",
+        name="claude_engram_status",
         description="Check Claude Engram health. Returns: status, model, memory stats.",
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),

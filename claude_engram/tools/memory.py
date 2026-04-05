@@ -1,7 +1,7 @@
 """
 Memory - Persistent Knowledge Store for Claude Engram
 
-Allows mini_claude to remember:
+Allows claude_engram to remember:
 - Project understanding (structure, patterns, key files)
 - Previous discoveries and searches
 - Priorities and important notes
@@ -127,7 +127,7 @@ class MemoryStore:
         r"install|setup|dependency": "setup",
     }
 
-    def __init__(self, storage_dir: str = "~/.mini_claude"):
+    def __init__(self, storage_dir: str = "~/.claude_engram"):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.storage_dir / "memory.json"
@@ -2052,7 +2052,7 @@ class HotMemoryReader:
     Designed to be instantiated per hook call — no caching.
     """
 
-    def __init__(self, storage_dir: str = "~/.mini_claude"):
+    def __init__(self, storage_dir: str = "~/.claude_engram"):
         self.memory_file = Path(storage_dir).expanduser() / "memory.json"
 
     def get_scored_memories(
@@ -2082,7 +2082,7 @@ class HotMemoryReader:
 
         # Find project — check exact path, then walk up parent paths
         # This handles the workspace case: memories stored under e:/workspace
-        # are found when the hook resolves e:/workspace/mini_claude as the project
+        # are found when the hook resolves e:/workspace/claude_engram as the project
         normalized = str(Path(project_path).resolve()).replace("\\", "/")
         if len(normalized) >= 2 and normalized[1] == ":":
             normalized = normalized[0].lower() + normalized[1:]

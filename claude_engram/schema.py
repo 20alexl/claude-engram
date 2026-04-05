@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 
 class WorkLog(BaseModel):
-    """What mini_claude did during this operation."""
+    """What claude_engram did during this operation."""
     what_i_tried: list[str] = Field(default_factory=list)
     what_worked: list[str] = Field(default_factory=list)
     what_failed: list[str] = Field(default_factory=list)
@@ -30,7 +30,7 @@ class SearchResult(BaseModel):
 
 class MiniClaudeResponse(BaseModel):
     """
-    The structured response every mini_claude tool returns.
+    The structured response every claude_engram tool returns.
 
     This is the core of the "junior agent" pattern - rich communication
     that tells Claude not just WHAT was found, but HOW and WHY.

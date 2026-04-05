@@ -4,7 +4,7 @@ Claude Engram Installer
 
 Sets up Claude Engram for use with Claude Code:
 1. Creates virtual environment (if needed)
-2. Installs the mini_claude package
+2. Installs the claude_engram package
 3. Shows how to enable in your projects
 
 Usage:
@@ -70,16 +70,16 @@ def check_ollama():
 
 
 def check_package_installed():
-    """Check if mini_claude package is installed."""
+    """Check if claude_engram package is installed."""
     try:
-        import mini_claude
+        import claude_engram
         return True
     except ImportError:
         return False
 
 
 def install_package():
-    """Install the mini_claude package."""
+    """Install the claude_engram package."""
     script_dir = Path(__file__).parent.resolve()
 
     # pyproject.toml is at the repo root (same dir as install.py)
@@ -101,7 +101,7 @@ def install_package():
 
 def create_memory_dir():
     """Create the Claude Engram memory directory."""
-    memory_dir = Path.home() / ".mini_claude"
+    memory_dir = Path.home() / ".claude_engram"
     memory_dir.mkdir(parents=True, exist_ok=True)
     return str(memory_dir)
 
@@ -114,7 +114,7 @@ def create_launcher_script():
 
     if is_windows():
         launcher = scripts_dir / "run_server.bat"
-        launcher_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m mini_claude.server %%*\n'
+        launcher_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.server %%*\n'
         try:
             launcher.write_text(launcher_content.replace('%%', '%'))
             return str(launcher)
@@ -122,7 +122,7 @@ def create_launcher_script():
             return None
     else:
         launcher = scripts_dir / "run_server.sh"
-        launcher_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m mini_claude.server "$@"\n'
+        launcher_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m claude_engram.server "$@"\n'
         try:
             launcher.write_text(launcher_content)
             launcher.chmod(0o755)
@@ -139,7 +139,7 @@ def create_hook_launcher_script():
 
     if is_windows():
         hook_launcher = scripts_dir / "run_hook.bat"
-        hook_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m mini_claude.hooks.remind %%*\n'
+        hook_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.hooks.remind %%*\n'
         try:
             hook_launcher.write_text(hook_content.replace('%%', '%'))
             return str(hook_launcher)
@@ -147,7 +147,7 @@ def create_hook_launcher_script():
             return None
     else:
         hook_launcher = scripts_dir / "run_hook.sh"
-        hook_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m mini_claude.hooks.remind "$@"\n'
+        hook_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m claude_engram.hooks.remind "$@"\n'
         try:
             hook_launcher.write_text(hook_content)
             hook_launcher.chmod(0o755)
@@ -295,21 +295,21 @@ def get_hooks_config():
     }
 
 
-def _is_mini_claude_hook(command: str) -> bool:
-    """Check if a hook command belongs to mini_claude."""
-    return "mini_claude" in command or "run_hook" in command
+def _is_claude_engram_hook(command: str) -> bool:
+    """Check if a hook command belongs to claude_engram."""
+    return "claude_engram" in command or "run_hook" in command
 
 
 def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
     """
-    Merge mini_claude hooks into existing hooks without destroying user's other hooks.
+    Merge claude_engram hooks into existing hooks without destroying user's other hooks.
 
     Strategy per hook event:
     - If event doesn't exist in existing: add our matchers
     - If event exists: for each of our matchers, check if our command is already there
       - If our command is there: update it (in case args changed)
       - If not: append our matcher
-    - Never touch matchers that don't belong to mini_claude
+    - Never touch matchers that don't belong to claude_engram
     """
     merged = dict(existing_hooks)  # Shallow copy of event keys
 
@@ -327,7 +327,7 @@ def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
             new_pattern = new_matcher.get("matcher", "")
             new_hooks_list = new_matcher.get("hooks", [])
 
-            # Find existing matcher with same pattern that has a mini_claude hook
+            # Find existing matcher with same pattern that has a claude_engram hook
             found = False
             for i, existing_matcher in enumerate(existing_matchers):
                 if existing_matcher.get("matcher", "") != new_pattern:
@@ -338,7 +338,7 @@ def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
                 # Check if any existing hook in this matcher is ours
                 our_idx = None
                 for j, hook in enumerate(existing_hook_list):
-                    if _is_mini_claude_hook(hook.get("command", "")):
+                    if _is_claude_engram_hook(hook.get("command", "")):
                         our_idx = j
                         break
 
@@ -362,7 +362,7 @@ def install_hooks_config():
     """
     Install hooks configuration to ~/.claude/settings.json.
 
-    Merges mini_claude hooks into existing hooks without destroying
+    Merges claude_engram hooks into existing hooks without destroying
     the user's other hooks (e.g., from other tools or custom scripts).
     """
     settings_file = Path.home() / ".claude" / "settings.json"
@@ -425,7 +425,7 @@ def get_mcp_config():
         "mcpServers": {
             "claude-engram": {
                 "command": python_path,
-                "args": ["-m", "mini_claude.server"]
+                "args": ["-m", "claude_engram.server"]
             }
         }
     }
@@ -450,7 +450,7 @@ def copy_claude_md(target_dir: Path):
     target = target_dir / "CLAUDE.md"
 
     if not source.exists():
-        return False, "CLAUDE.md not found in mini_claude repo"
+        return False, "CLAUDE.md not found in claude_engram repo"
 
     if target.exists():
         return False, "CLAUDE.md already exists in target (not overwriting)"
@@ -528,7 +528,7 @@ def main():
             return 1
 
     # Step 3: Install package
-    print_step(3, total_steps, "Installing mini_claude package...")
+    print_step(3, total_steps, "Installing claude_engram package...")
     if check_package_installed():
         print_success("Package already installed")
     else:
@@ -538,7 +538,7 @@ def main():
         else:
             print_error(f"Failed to install package: {error}")
             print("\n  Try manually:")
-            print(f"    pip install -e \"{script_dir / 'mini_claude'}\"")
+            print(f"    pip install -e \"{script_dir / 'claude_engram'}\"")
             return 1
 
     # Step 4: Create memory directory
@@ -579,7 +579,7 @@ def main():
     # Step 7: Pre-build semantic intent cache (optional)
     print_step(7, total_steps, "Building semantic intent cache...")
     try:
-        from mini_claude.hooks.intent import build_template_cache
+        from claude_engram.hooks.intent import build_template_cache
         if build_template_cache():
             print_success("AllMiniLM decision templates cached (semantic intent scoring enabled)")
         else:
@@ -626,7 +626,7 @@ def main():
     print("-" * 60)
     print("""
   Essential:
-    mini_claude_status, session_start, session_end, pre_edit_check
+    claude_engram_status, session_start, session_end, pre_edit_check
 
   Combined (use 'operation' parameter):
     memory (remember/recall/forget/search/cleanup/add_rule/...)
@@ -652,9 +652,9 @@ def main_with_args():
         # Setup a specific project
         target_dir = sys.argv[2]
 
-        # Quick check that mini_claude is importable
+        # Quick check that claude_engram is importable
         if not check_package_installed():
-            print("Error: mini_claude package not installed.")
+            print("Error: claude_engram package not installed.")
             print("Run 'python install.py' first to install.")
             return 1
 

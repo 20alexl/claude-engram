@@ -26,8 +26,8 @@ from pathlib import Path
 IDLE_TIMEOUT = int(os.environ.get("MINI_CLAUDE_SCORER_TIMEOUT", "1800"))  # 30 min default
 
 # Where to store the port number so hooks can find us
-PORT_FILE = Path.home() / ".mini_claude" / "scorer_port"
-PID_FILE = Path.home() / ".mini_claude" / "scorer_pid"
+PORT_FILE = Path.home() / ".claude_engram" / "scorer_port"
+PID_FILE = Path.home() / ".claude_engram" / "scorer_pid"
 
 
 def _load_model_and_templates():
@@ -35,7 +35,7 @@ def _load_model_and_templates():
     import numpy as np
     from sentence_transformers import SentenceTransformer
 
-    cache_file = Path.home() / ".mini_claude" / "embeddings" / "decision_templates.json"
+    cache_file = Path.home() / ".claude_engram" / "embeddings" / "decision_templates.json"
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -45,7 +45,7 @@ def _load_model_and_templates():
         non_decision_embs = np.array(cache["non_decision_embeddings"])
     else:
         # Build cache on the fly
-        from mini_claude.hooks.intent import DECISION_TEMPLATES, NON_DECISION_TEMPLATES, build_template_cache
+        from claude_engram.hooks.intent import DECISION_TEMPLATES, NON_DECISION_TEMPLATES, build_template_cache
         build_template_cache()
         cache = json.loads(cache_file.read_text())
         decision_embs = np.array(cache["decision_embeddings"])
@@ -57,7 +57,7 @@ def _load_model_and_templates():
 def _score_text(text, model, decision_embs, non_decision_embs):
     """Score a single text against templates. Returns (score, extracted_text)."""
     import numpy as np
-    from mini_claude.hooks.intent import DECISION_THRESHOLD, AMBIGUITY_MARGIN
+    from claude_engram.hooks.intent import DECISION_THRESHOLD, AMBIGUITY_MARGIN
 
     if len(text.strip()) < 15:
         return 0.0, ""
@@ -233,7 +233,7 @@ def start_server_background():
             kwargs["start_new_session"] = True
 
         subprocess.Popen(
-            [sys.executable, "-m", "mini_claude.hooks.scorer_server"],
+            [sys.executable, "-m", "claude_engram.hooks.scorer_server"],
             **kwargs,
         )
         return True  # Fire-and-forget — don't wait

@@ -8,7 +8,7 @@
 
 ### Essential Tools
 
-#### `mini_claude_status()`
+#### `claude_engram_status()`
 
 Check Claude Engram health (Ollama connection, model availability, memory stats, queue stats).
 
@@ -186,7 +186,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ## File Storage Layout
 
 ```
-~/.mini_claude/
+~/.claude_engram/
 ├── memory.json              # Hot tier memories (per-project entries)
 ├── archive.json             # Cold tier (auto-created on first archive)
 ├── conventions.json         # Project coding conventions
@@ -223,7 +223,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 - Default model changed from `qwen2.5-coder:7b` to `gemma3:12b`
 - Fixed: handoff key mismatch (`created` vs `created_at`)
 - Fixed: `recall()` missing `id`/`category`/`created_at` fields
-- Fixed: `install.py` wrong install path (`mini_claude/` → `.`)
+- Fixed: `install.py` wrong install path (`claude_engram/` → `.`)
 - Fixed: hook false fires on `x`/`y`/`data` variable names
 - Fixed: `except: pass` detection matching inside comments
 - Fixed: generic TypeError/AttributeError auto-logging without parseable message

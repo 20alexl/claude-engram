@@ -55,10 +55,10 @@ Past mistakes (1):
 
 ```bash
 # Check that the MCP server responds
-python -c "from mini_claude.server import server; print('OK')"
+python -c "from claude_engram.server import server; print('OK')"
 
 # Check hooks are installed
-python -m mini_claude.hooks.remind prompt_json < /dev/null
+python -m claude_engram.hooks.remind prompt_json < /dev/null
 ```
 
 ## Set Up a Project
@@ -75,7 +75,7 @@ python install.py --setup /path/to/your/project
 
 | Issue | Fix |
 |-------|-----|
-| `ModuleNotFoundError: mini_claude` | Activate the venv: `source mini_claude/venv/bin/activate` |
+| `ModuleNotFoundError: claude_engram` | Activate the venv: `source claude_engram/venv/bin/activate` |
 | MCP server not showing in Claude Code | Restart Claude Code. Check `.mcp.json` exists in project root. |
 | Ollama connection refused | Start Ollama: `ollama serve` |
 | Hooks not firing | Run `python install.py` to reinstall hooks to `~/.claude/settings.json` |

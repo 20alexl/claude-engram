@@ -154,7 +154,7 @@ Handled automatically:
 ## Technical Notes
 
 - Local LLM: Ollama with `gemma3:12b` (configurable via `MINI_CLAUDE_MODEL`)
-- Storage: `~/.mini_claude/` (memory.json, archive.json, checkpoints/, embeddings/)
+- Storage: `~/.claude_engram/` (memory.json, archive.json, checkpoints/, embeddings/)
 - Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
 - Keep-alive: Set `MINI_CLAUDE_KEEP_ALIVE=5m` to keep Ollama model loaded
 - Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
