@@ -228,7 +228,7 @@ class WorkTracker:
         past_context = []
         if self._current_project:
             memories = self.memory.recall(project_path=self._current_project)
-            project = memories.get("project", {})
+            project = memories.get("project") or {}
             discoveries = project.get("discoveries", [])
 
             for disc in discoveries:
@@ -281,7 +281,7 @@ class WorkTracker:
             return None
 
         memories = self.memory.recall(project_path=self._current_project)
-        project = memories.get("project", {})
+        project = memories.get("project") or {}
         discoveries = project.get("discoveries", [])
 
         # Look for mistakes that might be relevant
