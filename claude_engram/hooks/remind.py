@@ -2096,14 +2096,8 @@ def main():
             temp = latest.with_suffix(".json.tmp")
             temp.write_text(json_module.dumps(checkpoint, indent=2))
             temp.replace(latest)
-
-            hook_output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreCompact",  # not a real hookEventName but ignored
-                    "additionalContext": "<engram-compact>Checkpoint auto-saved before compaction</engram-compact>"
-                }
-            }
-            print(json_module.dumps(hook_output))
+            # PreCompact has no hookSpecificOutput in Claude Code's schema
+            # The value is the checkpoint file saved above
         except Exception:
             pass
 
@@ -2135,13 +2129,9 @@ def main():
                 for m in mistakes[:3]:
                     lines.append(f"  [{m['id']}] {_truncate(m['content'], 80)}")
 
-            hook_output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PostCompact",  # not a real hookEventName but ignored
-                    "additionalContext": "\n".join(lines)
-                }
-            }
-            print(json_module.dumps(hook_output))
+            # PostCompact has no hookSpecificOutput in Claude Code's schema.
+            # Print as plain stdout — Claude Code shows this as hook output.
+            print("\n".join(lines))
         except Exception:
             pass
 
@@ -2307,13 +2297,9 @@ def main():
             if counts.get("total", 0) > 0:
                 lines.append(f"Memories: {counts['total']} total ({counts.get('mistake', 0)} mistakes, {counts.get('rule', 0)} rules)")
 
-            hook_output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionEnd",
-                    "additionalContext": "\n".join(lines)
-                }
-            }
-            print(json_module.dumps(hook_output))
+            # SessionEnd has no hookSpecificOutput in Claude Code's schema.
+            # Just do the side effects (mark_session_ended above).
+            pass
         except Exception:
             # Even if summary fails, make sure session state is saved
             try:
