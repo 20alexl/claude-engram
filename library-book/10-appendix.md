@@ -227,6 +227,8 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 - Fixed: hook false fires on `x`/`y`/`data` variable names
 - Fixed: `except: pass` detection matching inside comments
 - Fixed: generic TypeError/AttributeError auto-logging without parseable message
+- Fixed: `session_start` crash when `recall()` returns `{"project": None}` for new sub-projects
+- Fixed: scorer server visible console window on Windows
 
 ### v0.1.0 — Initial Release
 

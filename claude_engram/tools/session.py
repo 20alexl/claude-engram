@@ -79,7 +79,7 @@ class SessionManager:
 
         # Build combined context - COMPACT version
         # Only return counts - protected items (mistakes, rules) are in warnings
-        project = memories.get("project", {})
+        project = memories.get("project") or {}
         discoveries = project.get("discoveries", [])
 
         # Count by type for summary
@@ -156,7 +156,7 @@ class SessionManager:
 
     def _build_summary(self, memories: dict, conventions: list) -> dict:
         """Build a quick summary of what was loaded."""
-        project = memories.get("project", {})
+        project = memories.get("project") or {}
 
         return {
             "has_project_memory": bool(project),

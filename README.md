@@ -84,33 +84,48 @@ Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, and
 # Install if you want semantic search / code analysis
 ollama pull gemma3:12b
 
-# Or use a tiny model to save resources
+# Or use a smaller model to save resources (literal search still works, semantic is weaker)
 ollama pull gemma3:4b
+```
+
+Set the model via system environment variable (`.mcp.json` `env` field has a bug on Windows):
+
+```bash
+# Linux/Mac
 export CLAUDE_ENGRAM_MODEL="gemma3:4b"
 
-# GPU/CPU split (Ollama handles this automatically when VRAM is limited)
-# Force partial offload: N layers on GPU, rest on CPU
-OLLAMA_NUM_GPU=20 ollama serve
+# Windows (PowerShell, persistent)
+[System.Environment]::SetEnvironmentVariable("CLAUDE_ENGRAM_MODEL", "gemma3:4b", "User")
+# Then restart Claude Code
+```
+
+GPU/CPU split is handled by Ollama automatically when VRAM is limited, or force it:
+```bash
+OLLAMA_NUM_GPU=20 ollama serve   # N layers on GPU, rest on CPU
 ```
 
 ## Configuration
 
-```bash
-export CLAUDE_ENGRAM_MODEL="gemma3:4b"             # Any Ollama model (default: gemma3:12b)
-export CLAUDE_ENGRAM_OLLAMA_URL="http://host:11434" # Remote Ollama
-export CLAUDE_ENGRAM_KEEP_ALIVE="5m"               # Keep model loaded
-export CLAUDE_ENGRAM_ARCHIVE_DAYS=30               # Archive threshold (default: 14)
-export CLAUDE_ENGRAM_SCORER_TIMEOUT=3600           # Scorer idle timeout (default: 1800)
-```
+Set via system environment variables. Restart Claude Code after changes.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Any Ollama model |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Remote Ollama |
+| `CLAUDE_ENGRAM_KEEP_ALIVE` | `0` | Keep model loaded (`5m`, `-1`) |
+| `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer server idle timeout (seconds) |
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---------|-----|
 | MCP server not connecting | Check `ollama list`, restart Claude Code |
+| Model "not found" despite being set | Set env var system-wide (see above), restart Claude Code |
 | Hooks not firing | Run `python install.py` to reinstall |
 | Memories not showing | `memory(operation="archive_status", project_path="/path")` to check counts |
 | `ModuleNotFoundError` | Activate the venv first |
+| `scout_search` returns no results | Semantic search needs a larger model. Literal search always works. |
 
 ## Documentation
 

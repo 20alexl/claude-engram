@@ -61,6 +61,37 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 ---
 
+### Gotcha: `CLAUDE_ENGRAM_MODEL` env var not picked up
+
+**Symptom:** You set `CLAUDE_ENGRAM_MODEL=gemma3:4b` but the status tool still shows `gemma3:12b`.
+
+**Cause:** The MCP server runs as a separate process launched by Claude Code. Setting env vars in your terminal only affects that terminal — not the MCP server process. The `.mcp.json` `env` field exists but has a known issue on Windows where values arrive empty.
+
+**Fix:** Set the env var system-wide, then restart Claude Code:
+```bash
+# Windows (PowerShell)
+[System.Environment]::SetEnvironmentVariable("CLAUDE_ENGRAM_MODEL", "gemma3:4b", "User")
+
+# Linux/Mac (add to ~/.bashrc or ~/.zshrc)
+export CLAUDE_ENGRAM_MODEL="gemma3:4b"
+```
+
+**Lesson:** MCP server env vars must be set system-wide, not per-terminal. Always restart Claude Code after changing them.
+
+---
+
+### Gotcha: `scout_search` returns empty with small models
+
+**Symptom:** `scout_search(query="how does auth work")` returns no results, but `scout_search(query="authenticate")` works.
+
+**Cause:** Semantic search asks the LLM to identify relevant files from natural language queries. Smaller models (`gemma3:4b`, `gemma3:1b`) are weaker at this reasoning. Literal/keyword search always works regardless of model size.
+
+**Fix:** Use specific terms instead of natural language, or use a larger model for better semantic search.
+
+**Lesson:** `gemma3:4b` is fine for most features. If semantic search matters, use `gemma3:12b` or larger.
+
+---
+
 ### Gotcha: Ollama not required for most features
 
 **Symptom:** Ollama isn't running but Claude Engram seems to work fine.
