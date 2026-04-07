@@ -10,8 +10,8 @@
 
 | Tier | File | What Lives Here | Loaded By |
 |------|------|----------------|-----------|
-| Hot | `memory.json` | Rules, mistakes, recent discoveries, active context | Every hook call |
-| Cold | `archive.json` | Old inactive memories | Only on explicit archive operations |
+| Hot | `projects/<hash>/memory.json` | Rules, mistakes, recent discoveries, active context | Hook calls (per-project) |
+| Cold | `projects/<hash>/archive.json` | Old inactive memories | Only on explicit archive operations |
 
 ### Archiving
 

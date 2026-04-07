@@ -30,16 +30,23 @@ Claude Code
         └── gemma3:12b (configurable)
 
 Storage: ~/.claude_engram/
-    ├── memory.json          ← Hot tier (rules, mistakes, recent)
-    ├── archive.json         ← Cold tier (old memories)
+    ├── manifest.json        ← Maps project paths to hash dirs
+    ├── global.json          ← Global entries (cross-project)
+    ├── projects/
+    │   └── <hash>/
+    │       ├── memory.json  ← This project's memories (hot tier)
+    │       ├── archive.json ← This project's cold tier
+    │       ├── embeddings.npy          ← Binary AllMiniLM vectors (numpy)
+    │       ├── embeddings_index.json   ← ID-to-row mapping
+    │       └── embeddings_pending.json ← Hook writes (merged on load)
     ├── checkpoints/         ← Task state, handoffs
-    ├── embeddings/          ← Cached AllMiniLM templates
+    ├── embeddings/          ← Cached AllMiniLM decision templates
     ├── hook_state.json      ← Hook tracking counters
     ├── loop_detector.json   ← Edit counts per file
     ├── scope_guard.json     ← Declared scope state
     ├── conventions.json     ← Project coding rules
-    ├── scorer_port           ← TCP port for scorer server
-    └── scorer_pid            ← PID of scorer server
+    ├── scorer_port          ← TCP port for scorer server
+    └── scorer_pid           ← PID of scorer server
 ```
 
 ## Core Components
@@ -61,7 +68,7 @@ Storage: ~/.claude_engram/
 
 **What it does:** Lightweight, read-only memory reader for hooks. Reads raw JSON dicts (no Pydantic parsing) for speed.
 
-**Why it's separate:** Hooks run in a separate Python process with 1-2s timeout. Full `MemoryStore` initialization is too slow. `HotMemoryReader` loads memory.json, scores entries, and returns in ~5ms.
+**Why it's separate:** Hooks run in a separate Python process with 1-2s timeout. Full `MemoryStore` initialization is too slow. `HotMemoryReader` loads only the active project's memory via manifest lookup, scores entries, and returns in ~5ms.
 
 **Key internals:**
 - Parent-path fallback: when looking up a sub-project path, also checks parent paths for inherited workspace-level memories
