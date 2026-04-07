@@ -1902,6 +1902,48 @@ class MemoryStore:
         except Exception:
             return []
 
+    def _rerank(
+        self,
+        query: str,
+        entries: list[MemoryEntry],
+        limit: int = 10,
+    ) -> list[tuple[MemoryEntry, float]]:
+        """
+        Rerank entries by embedding similarity to query.
+
+        Takes initial results from keyword/scored search and reranks them
+        using cosine similarity between query embedding and each entry's
+        stored embedding. Entries without embeddings keep their original rank.
+        """
+        query_emb = self._get_embedding(query)
+        if not query_emb:
+            # Can't rerank without embeddings — return original order with placeholder scores
+            return [(e, 1.0 - i * 0.01) for i, e in enumerate(entries[:limit])]
+
+        self._load_embeddings()
+
+        scored = []
+        unscored = []
+
+        for entry in entries:
+            if entry.id in self._embeddings:
+                stored = self._embeddings[entry.id]
+                sim = sum(a * b for a, b in zip(query_emb, stored))
+                scored.append((entry, sim))
+            else:
+                unscored.append(entry)
+
+        # Sort scored by similarity, append unscored at the end
+        scored.sort(key=lambda x: x[1], reverse=True)
+        result = scored[:limit]
+
+        # Fill remaining slots with unscored entries
+        remaining = limit - len(result)
+        if remaining > 0 and unscored:
+            result.extend([(e, 0.0) for e in unscored[:remaining]])
+
+        return result
+
     def embed_memory(self, memory_id: str, content: str):
         """Generate and store embedding for a memory entry."""
         emb = self._get_embedding(content)
@@ -1999,16 +2041,21 @@ class MemoryStore:
             # Vector adds entries that keyword/scored missed, boosts ones they found
             rrf_scores[eid] = rrf_scores.get(eid, 0) + 0.5 / (k + rank + 1)
 
-        # Build final ranked list
+        # Build initial ranked list from RRF
         entry_map = {e.id: e for e in proj.entries}
         ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
-        results = []
-        for eid, score in ranked[:limit]:
+        # Get top candidates for reranking (2x limit for better rerank pool)
+        candidates = []
+        for eid, score in ranked[:limit * 2]:
             if eid in entry_map:
-                results.append((entry_map[eid], score))
+                candidates.append(entry_map[eid])
 
-        return results
+        # Rerank top candidates by embedding similarity to query
+        if candidates and query:
+            return self._rerank(query, candidates, limit)
+
+        return [(entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map]
 
     def embed_all_memories(self, project_path: str) -> int:
         """

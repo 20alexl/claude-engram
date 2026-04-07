@@ -137,7 +137,7 @@ def run_benchmark(category="all", limit=50, top_k=10):
                 text = msg.get("text", "")
                 if text:
                     m.remember_discovery(
-                        project, text[:300],
+                        project, text[:2000],
                         relevance=5,
                         source=f"msg_{msg_idx}",
                         auto_embed=False,

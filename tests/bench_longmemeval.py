@@ -75,7 +75,7 @@ def run_benchmark(data_path, limit=None, granularity="session"):
         for sess_idx, (session, sess_id) in enumerate(zip(sessions, session_ids)):
             user_turns = [t["content"] for t in session if t["role"] == "user"]
             if user_turns:
-                content = "\n".join(user_turns)[:500]
+                content = "\n".join(user_turns)[:2000]
                 m.remember_discovery(
                     project, content,
                     relevance=5,
@@ -87,51 +87,18 @@ def run_benchmark(data_path, limit=None, granularity="session"):
         # Batch embed all memories at once
         m.embed_all_memories(project)
 
-        # Query using keyword search
+        # Hybrid search: keyword + scored + vector + reranking
         t0 = time.time()
 
-        # Strategy: extract key terms from question for keyword search
-        query_words = set(question.lower().split())
-        # Remove stop words
-        stop = {"what", "who", "where", "when", "how", "did", "does", "is", "was", "the",
-                "a", "an", "in", "on", "at", "to", "for", "of", "with", "and", "or", "that",
-                "this", "it", "from", "by", "about", "which", "do", "has", "have", "had",
-                "be", "been", "being", "are", "were", "will", "would", "could", "should",
-                "can", "may", "might", "shall", "must", "my", "your", "their", "our", "me",
-                "i", "you", "he", "she", "they", "we", "him", "her", "them", "us"}
-        keywords = [w for w in query_words if w not in stop and len(w) > 2]
-
-        # Strategy 1: Keyword search (exact term matching — strong baseline)
-        search_results = m.search_memories(project, query=" ".join(keywords[:5]), limit=50)
-
-        # Strategy 2: Score-based ranking
-        scored_results = m.score_and_rank(
-            project, {"file_path": "", "tags": [], "command": question}, limit=50)
-
-        # Strategy 3: Vector search (semantic — catches what keywords miss)
-        vector_results = m.vector_search(project, question, limit=50)
+        hybrid_results = m.hybrid_search(project, query=question, limit=50)
 
         elapsed = time.time() - t0
         total_time += elapsed
 
-        # Combine: keyword first (strongest for exact matches), then vector (new),
-        # then scored (weakest for this task)
+        # Extract session IDs
         retrieved_session_ids = []
         seen = set()
-
-        for entry_obj in search_results:
-            sid = entry_obj.source
-            if sid and sid not in seen:
-                retrieved_session_ids.append(sid)
-                seen.add(sid)
-
-        for entry_obj, score in vector_results:
-            sid = entry_obj.source
-            if sid and sid not in seen:
-                retrieved_session_ids.append(sid)
-                seen.add(sid)
-
-        for entry_obj, score in scored_results:
+        for entry_obj, score in hybrid_results:
             sid = entry_obj.source
             if sid and sid not in seen:
                 retrieved_session_ids.append(sid)

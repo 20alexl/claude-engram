@@ -1,34 +1,60 @@
 # Claude Engram
 
-Persistent memory and self-awareness for Claude Code. Tracks mistakes, decisions, and context across sessions automatically via hooks. Includes loop detection, scope guards, tiered memory with archiving, semantic intent scoring, and a local LLM for code analysis.
+Persistent memory for AI coding assistants. Auto-tracks mistakes, decisions, and context. Retrieves the right memory at the right time using hybrid search (keyword + vector + reranking). Works with any MCP-compatible tool.
+
+## Benchmarks
+
+Tested against the same benchmarks as [MemPalace](https://github.com/milla-jovovich/mempalace):
+
+| Benchmark | Claude Engram | MemPalace | |
+|---|---|---|---|
+| **ConvoMem** (250 items, 5 categories) | **0.960** | 0.929 | We win |
+| **LoCoMo** (1,986 multi-hop questions) | **0.649** | 0.603 | We win |
+| **LongMemEval** Recall@10 (50 questions) | **0.980** | 0.982 | Tie |
+| **LongMemEval** Recall@5 | 0.920 | 0.966 | |
+| **LongMemEval** NDCG@10 | 0.872 | 0.889 | |
+| **Speed** | **42ms/query** | ~600ms/query | **14x faster** |
+| **Dependencies** | AllMiniLM (optional) | ChromaDB | |
+
+Reproduce: `python tests/bench_longmemeval.py`, `bench_locomo.py`, `bench_convomem.py`
+
+## Compatibility
+
+| Platform | What Works | Auto-Capture |
+|---|---|---|
+| **Claude Code** (CLI, desktop, VS Code, JetBrains) | Everything | Yes — 10 hook events |
+| **Cursor** | MCP tools (memory, search, scope, etc.) | No hooks |
+| **Windsurf** | MCP tools | No hooks |
+| **Continue.dev** | MCP tools | No hooks |
+| **Zed** | MCP tools | No hooks |
+| **Any MCP client** | MCP tools | No hooks |
+| **Python code** | `MemoryStore` SDK directly | N/A |
+
+With Claude Code, hooks auto-capture mistakes, decisions, edits, test results, and session state. With other tools, you use the MCP tools manually — the memory system, hybrid search, archiving, and scoring all work the same.
 
 ## Features
 
-- **Auto-tracks mistakes** from any failed tool. Warns before editing the same file again.
-- **Auto-captures decisions** from user prompts ("let's use X instead of Y") via semantic + regex scoring.
-- **Detects edit loops** when the same file is edited 3+ times without progress.
-- **Survives compaction** by auto-saving checkpoints and re-injecting rules/mistakes after.
-- **Saves session handoffs** so the next session picks up where you left off.
-- **Archives old memories** to cold storage instead of deleting. Searchable, restorable.
-- **Scores and injects context** before every edit, surfacing the 3 most relevant memories.
-- **Scopes memory per project** in multi-project workspaces. Workspace-level rules cascade down.
-
-Most of this works automatically via Claude Code hooks. No tool invocations needed.
+- **Hybrid search** — keyword + AllMiniLM vector + reranking. Beats MemPalace on 2 of 3 benchmarks.
+- **Auto-tracks mistakes** from any failed tool. Warns before editing the same file.
+- **Auto-captures decisions** from prompts ("let's use X") via semantic + regex scoring.
+- **Detects edit loops** when the same file is edited 3+ times.
+- **Survives compaction** — auto-checkpoint before, re-inject rules/mistakes after.
+- **Tiered storage** — hot (fast) + archive (cold, searchable, restorable). Rules and mistakes never archive.
+- **Scored injection** — top 3 memories by file match, tags, recency, importance before every edit.
+- **Multi-project** — memories scoped per sub-project. Workspace rules cascade down.
 
 ## Install
 
 ```bash
-# 1. Clone and install
 git clone https://github.com/20alexl/claude-engram.git
 cd claude-engram
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 
-pip install -e .                # Base (all hook features work without Ollama)
-pip install -e ".[semantic]"    # + AllMiniLM decision capture (recommended)
+pip install -e .                # Core
+pip install -e ".[semantic]"    # + AllMiniLM for vector search and decision capture
 
-# 2. Configure hooks + MCP server
-python install.py
+python install.py               # Configure hooks + MCP server
 ```
 
 ### Per-Project Setup
@@ -37,99 +63,40 @@ python install.py
 python install.py --setup /path/to/your/project
 ```
 
-Or copy `.mcp.json` and `CLAUDE.md` to your project root manually.
+Or copy `.mcp.json` and `CLAUDE.md` to your project root.
 
 ### Mid-Project Adoption
 
-Already deep in a project? Install normally, then tell Claude to dump what it knows:
+Already deep in a project? Install normally, then tell your AI to dump what it knows:
 
 ```
-Save everything you know about this project into claude-engram:
+Save everything you know about this project:
 - memory(add_rule) for each project convention
 - memory(remember) for key facts about the architecture
 - work(log_decision) for decisions we've made and why
 ```
 
-From that point on, hooks auto-track everything. No "start from scratch" required.
-
-## Quick Usage
-
-After install, Claude Engram works automatically. You'll see hook output like:
-
-```
-Claude Engram session started (startup)
-Rules (2):
-  [a1b2c3] Always use strict TypeScript
-Past mistakes (1):
-  [d4e5f6] Broke the auth middleware by removing the session check
-Edit tracked: server.py (edit #2)
-FAIL Test tracked
-Auto-logged: Import error: Module 'flask' not found
-```
-
-For manual operations:
-
-```python
-memory(operation="remember", content="...", project_path="/path")
-memory(operation="add_rule", content="Always do X", project_path="/path")
-work(operation="log_decision", decision="...", reason="...")
-scout_search(query="how does auth work", directory="/path")
-```
-
 ## Ollama (Optional)
 
-Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, and LLM-based convention checking. All hook features (mistake tracking, decision capture, loop detection, scoring, archiving, compaction survival) work without it.
+Only needed for `scout_search`, `scout_analyze`, and LLM-based convention checking. Everything else works without it.
 
 ```bash
-# Install if you want semantic search / code analysis
-ollama pull gemma3:12b
-
-# Or use a smaller model to save resources (literal search still works, semantic is weaker)
-ollama pull gemma3:4b
-```
-
-Set the model via system environment variable (`.mcp.json` `env` field has a bug on Windows):
-
-```bash
-# Linux/Mac
-export CLAUDE_ENGRAM_MODEL="gemma3:4b"
-
-# Windows (PowerShell, persistent)
-[System.Environment]::SetEnvironmentVariable("CLAUDE_ENGRAM_MODEL", "gemma3:4b", "User")
-# Then restart Claude Code
-```
-
-GPU/CPU split is handled by Ollama automatically when VRAM is limited, or force it:
-```bash
-OLLAMA_NUM_GPU=20 ollama serve   # N layers on GPU, rest on CPU
+ollama pull gemma3:4b                    # or gemma3:12b for better semantic search
+export CLAUDE_ENGRAM_MODEL="gemma3:4b"   # Linux/Mac
 ```
 
 ## Configuration
 
-Set via system environment variables. Restart Claude Code after changes.
-
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Any Ollama model |
-| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Remote Ollama |
-| `CLAUDE_ENGRAM_KEEP_ALIVE` | `0` | Keep model loaded (`5m`, `-1`) |
+|---|---|---|
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
-| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer server idle timeout (seconds) |
-
-## Troubleshooting
-
-| Problem | Fix |
-|---------|-----|
-| MCP server not connecting | Check `ollama list`, restart Claude Code |
-| Model "not found" despite being set | Set env var system-wide (see above), restart Claude Code |
-| Hooks not firing | Run `python install.py` to reinstall |
-| Memories not showing | `memory(operation="archive_status", project_path="/path")` to check counts |
-| `ModuleNotFoundError` | Activate the venv first |
-| `scout_search` returns no results | Semantic search needs a larger model. Literal search always works. |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | AllMiniLM server idle timeout (seconds) |
 
 ## Documentation
 
-**[Read the Library Book](./library-book/)** for the complete guide: design principles, internals, full usage guide, advanced features, gotchas, and complete tool reference.
+**[Library Book](./library-book/)** — design, internals, full usage guide, API reference, gotchas.
 
 ## License
 
