@@ -4,17 +4,19 @@ Persistent memory for AI coding assistants. Auto-tracks mistakes, decisions, and
 
 ## Benchmarks
 
-Tested against the same benchmarks as [MemPalace](https://github.com/milla-jovovich/mempalace):
+Retrieval benchmarks on the same public datasets as [MemPalace](https://github.com/milla-jovovich/mempalace):
 
-| Benchmark | Claude Engram | MemPalace | |
-|---|---|---|---|
-| **LongMemEval** Recall@5 (500 questions) | **0.966** | 0.966 | Tied |
-| **LongMemEval** Recall@10 | **0.982** | 0.982 | Tied |
-| **LongMemEval** NDCG@10 | **0.889** | 0.889 | Tied |
-| **ConvoMem** (250 items, 5 categories) | **0.960** | 0.929 | We win |
-| **LoCoMo** (1,986 multi-hop questions) | **0.649** | 0.603 | We win |
-| **Speed** | **43ms/query** | ~600ms/query | **14x faster** |
-| **Dependencies** | AllMiniLM (optional) | ChromaDB | |
+| Benchmark | Claude Engram | MemPalace |
+|---|---|---|
+| **LongMemEval** Recall@5 (500 questions) | 0.966 | 0.966 |
+| **LongMemEval** Recall@10 | 0.982 | 0.982 |
+| **LongMemEval** NDCG@10 | 0.889 | 0.889 |
+| **ConvoMem** (250 items, 5 categories) | 0.960 | 0.929 |
+| **LoCoMo** (1,986 multi-hop questions) | 0.649 | 0.603 |
+| **Speed** | 43ms/query | ~600ms/query |
+| **Dependencies** | AllMiniLM (optional) | ChromaDB |
+
+Different approaches — MemPalace is a conversation archive with a spatial palace structure, knowledge graph, AAAK compression, and specialist agents. Claude Engram is live-capture: hooks into the coding lifecycle to auto-track mistakes, decisions, and context as you work. Comparable retrieval, different strengths.
 
 Reproduce: `python tests/bench_longmemeval.py`, `bench_locomo.py`, `bench_convomem.py`
 
