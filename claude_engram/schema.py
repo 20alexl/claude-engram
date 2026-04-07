@@ -131,69 +131,70 @@ class MiniClaudeResponse(BaseModel):
 
             return "\n".join(lines)
 
-        # NORMAL CASE: Streamlined formatting (less verbose)
-        # Compact status line
-        lines.append(f"**{self.status}** | confidence: {self.confidence}")
+        # NORMAL CASE: Token-efficient output
+        # Only include what Claude actually needs to act on.
+        # Drop: confidence, work_log, verbose JSON, generic suggestions.
 
-        # Reasoning (the most important part)
-        if self.reasoning:
-            lines.append(f"{self.reasoning}")
-        lines.append("")
+        # Status + reasoning (one line)
+        if self.status == "failed" or self.status == "needs_clarification":
+            lines.append(f"{self.status}: {self.reasoning}")
+        elif self.reasoning:
+            lines.append(self.reasoning)
 
-        # Warnings FIRST - they're important
+        # Warnings (critical — always show)
         if self.warnings:
             for w in self.warnings:
                 lines.append(f"  ! {w}")
-            lines.append("")
 
-        # Findings
+        # Findings (search results — compact format)
         if self.findings:
-            for i, f in enumerate(self.findings, 1):
+            for f in self.findings:
                 loc = f"{f.file}:{f.line}" if f.line else f.file
-                lines.append(f"{i}. [{f.relevance}] `{loc}` - {f.summary}")
-                if f.snippet:
-                    lines.append(f"   ```")
-                    lines.append(f"   {f.snippet}")
-                    lines.append(f"   ```")
-            lines.append("")
+                lines.append(f"[{f.relevance}] {loc} — {f.summary}")
 
-        # Data (for non-search tools) - more compact
+        # Data — compact rendering
         if self.data:
             if isinstance(self.data, dict):
                 for key, value in self.data.items():
                     if isinstance(value, list):
-                        if value:  # Only show non-empty lists
-                            lines.append(f"**{key}:**")
+                        if value:
+                            # Compact list: one line per item, no header bloat
                             for item in value[:10]:
-                                lines.append(f"  - {item}")
+                                if isinstance(item, dict):
+                                    # Memory entries: [id] (relevance) content #tags
+                                    mid = item.get("id", "")
+                                    content = item.get("content", str(item))
+                                    rel = item.get("relevance", "")
+                                    tags = " ".join(f"#{t}" for t in item.get("tags", [])[:3])
+                                    lines.append(f"[{mid}] ({rel}) {content[:100]} {tags}".rstrip())
+                                else:
+                                    lines.append(f"  {item}")
                     elif isinstance(value, dict):
-                        lines.append(f"**{key}:** {json.dumps(value, indent=2)}")
-                    elif value is not None and value != "":  # Only show non-empty values
-                        lines.append(f"**{key}:** {value}")
+                        # Inline small dicts, skip large ones
+                        flat = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None and v != "" and v != [])
+                        if flat:
+                            lines.append(f"{key}: {flat}")
+                    elif value is not None and value != "" and value != []:
+                        lines.append(f"{key}: {value}")
             else:
                 lines.append(str(self.data))
-            lines.append("")
 
         # Connections
         if self.connections:
             lines.append(self.connections)
-            lines.append("")
 
-        # Suggestions
-        if self.suggestions:
-            for s in self.suggestions:
-                lines.append(f"  - {s}")
-            lines.append("")
-
-        # Questions
+        # Questions (only when clarification needed)
         if self.questions:
-            lines.append("**Questions:**")
             for q in self.questions:
-                lines.append(f"- {q}")
-            lines.append("")
+                lines.append(f"? {q}")
 
-        # Work log - only show if there's something notable (failures)
+        # Suggestions (only first 2, only if not generic)
+        if self.suggestions:
+            for s in self.suggestions[:2]:
+                lines.append(f"  > {s}")
+
+        # Failures from work log
         if self.work_log.what_failed:
-            lines.append(f"Failed: {', '.join(self.work_log.what_failed)}")
+            lines.append(f"FAILED: {', '.join(self.work_log.what_failed)}")
 
         return "\n".join(lines)
