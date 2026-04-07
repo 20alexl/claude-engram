@@ -114,7 +114,7 @@ def create_launcher_script():
 
     if is_windows():
         launcher = scripts_dir / "run_server.bat"
-        launcher_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.server %%*\n'
+        launcher_content = '@echo off\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.server %%*\n'
         try:
             launcher.write_text(launcher_content.replace('%%', '%'))
             return str(launcher)
@@ -139,7 +139,7 @@ def create_hook_launcher_script():
 
     if is_windows():
         hook_launcher = scripts_dir / "run_hook.bat"
-        hook_content = '@echo off\nsetlocal\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.hooks.remind %%*\n'
+        hook_content = '@echo off\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.hooks.remind %%*\n'
         try:
             hook_launcher.write_text(hook_content.replace('%%', '%'))
             return str(hook_launcher)
