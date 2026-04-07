@@ -55,10 +55,10 @@ def run_benchmark(data_path, limit=None, top_k=10):
             sess_content = conversation[sess_key]
             if isinstance(sess_content, str):
                 # Single string — store directly
-                content = sess_content[:500]
+                content = sess_content[:2000]
             elif isinstance(sess_content, list):
                 # List of turns
-                content = "\n".join(str(t) for t in sess_content)[:500]
+                content = "\n".join(str(t) for t in sess_content)[:2000]
             else:
                 continue
 
