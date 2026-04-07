@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "claude-engram": {
-      "command": "E:\\workspace\\claude-engram\\scripts\\run_server.bat",
-      "args": []
+      "command": "python",
+      "args": ["-m", "claude_engram.server"]
     }
   }
 }
