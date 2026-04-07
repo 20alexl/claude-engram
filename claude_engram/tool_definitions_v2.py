@@ -79,13 +79,15 @@ TOOL_DEFINITIONS = [
 - archive: Move old inactive memories to cold storage (dry_run to preview)
 - restore: Bring archived memory back to active (memory_id)
 - archive_search: Search archived memories (query, tags, limit)
-- archive_status: Show hot vs archived memory counts""",
+- archive_status: Show hot vs archived memory counts
+- hybrid_search: Semantic + keyword + scored search (query, file_path, tags, limit). Best retrieval.
+- embed_all: Generate AllMiniLM embeddings for all memories (enables hybrid_search)""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent", "archive", "restore", "archive_search", "archive_status"],
+                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent", "archive", "restore", "archive_search", "archive_status", "hybrid_search", "embed_all"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},

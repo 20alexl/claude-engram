@@ -102,12 +102,19 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
             return
 
         request = json.loads(data.decode("utf-8").strip())
-        text = request.get("text", "")
 
-        score, extracted = _score_text(text, model, decision_embs, non_decision_embs)
-
-        response = json.dumps({"score": score, "text": extracted}) + "\n"
-        conn.sendall(response.encode("utf-8"))
+        if "embed" in request:
+            # Embedding request: return raw vector
+            text = request["embed"]
+            emb = model.encode([text], normalize_embeddings=True)
+            response = json.dumps({"embedding": emb[0].tolist()}) + "\n"
+            conn.sendall(response.encode("utf-8"))
+        else:
+            # Decision scoring request
+            text = request.get("text", "")
+            score, extracted = _score_text(text, model, decision_embs, non_decision_embs)
+            response = json.dumps({"score": score, "text": extracted}) + "\n"
+            conn.sendall(response.encode("utf-8"))
     except Exception:
         try:
             conn.sendall(json.dumps({"score": 0.0, "text": ""}).encode("utf-8") + b"\n")
@@ -270,6 +277,46 @@ def score_via_server(text: str) -> tuple[float, str]:
         return result.get("score", 0.0), result.get("text", "")
     except Exception:
         return 0.0, ""
+
+
+def embed_via_server(text: str) -> list[float]:
+    """
+    Get embedding vector for text from the persistent server.
+    Returns 384-dim list or empty list if server unavailable.
+    """
+    if not PORT_FILE.exists():
+        return []
+
+    try:
+        port = int(PORT_FILE.read_text().strip())
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2.0)
+        sock.connect(("127.0.0.1", port))
+
+        request = json.dumps({"embed": text}) + "\n"
+        sock.sendall(request.encode("utf-8"))
+
+        # Embedding responses are larger (~3KB for 384 floats)
+        data = b""
+        while b"\n" not in data:
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            data += chunk
+
+        sock.close()
+        result = json.loads(data.decode("utf-8").strip())
+        return result.get("embedding", [])
+    except Exception:
+        return []
+
+
+def embed_batch_via_server(texts: list[str]) -> list[list[float]]:
+    """
+    Get embeddings for multiple texts. One TCP call per text.
+    Returns list of 384-dim vectors. Empty list for failures.
+    """
+    return [embed_via_server(t) for t in texts]
 
 
 if __name__ == "__main__":

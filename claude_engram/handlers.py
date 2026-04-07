@@ -1899,6 +1899,34 @@ class Handlers:
                 data=stats,
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "hybrid_search":
+            results = self.memory.hybrid_search(
+                project_path=project_path,
+                query=args.get("query", ""),
+                file_path=args.get("file_path", ""),
+                tags=args.get("tags"),
+                limit=args.get("limit", 5),
+            )
+            if not results:
+                return [TextContent(type="text", text="No results")]
+            lines = [f"Found {len(results)} results (hybrid: keyword + scored + vector):"]
+            for entry, score in results:
+                lines.append(f"[{entry.id}] ({score:.3f}) {entry.content[:80]}")
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning="\n".join(lines),
+                data={"memories": [e.model_dump() for e, _ in results]},
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "embed_all":
+            count = self.memory.embed_all_memories(project_path)
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"Embedded {count} memories" if count else "All memories already embedded (or scorer server not running)",
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",

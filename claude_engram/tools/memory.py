@@ -144,6 +144,11 @@ class MemoryStore:
         self._archive_loaded: bool = False
         self.archive_after_days: int = int(os.environ.get("CLAUDE_ENGRAM_ARCHIVE_DAYS", "14"))
 
+        # v4: Vector embeddings for semantic search
+        self._embeddings_file = self.storage_dir / "embeddings.json"
+        self._embeddings: dict[str, list[float]] = {}  # memory_id -> 384-dim vector
+        self._embeddings_loaded: bool = False
+
         # Load existing memory
         self._load()
 
@@ -433,7 +438,8 @@ class MemoryStore:
         relevance: int = 5,
         tags: Optional[list[str]] = None,
         related_files: Optional[list[str]] = None,
-        category: str = "discovery",  # Can override: "mistake", "decision", "context", etc.
+        category: str = "discovery",
+        auto_embed: bool = True,  # Set False for bulk inserts, then call embed_all
     ) -> tuple[bool, str]:
         """
         Remember something discovered about a project.
@@ -472,6 +478,13 @@ class MemoryStore:
         self._update_indexes(proj, entry)
         proj.last_updated = time.time()
         self._save()
+
+        # Auto-embed for vector search (non-blocking, best-effort)
+        if auto_embed:
+            try:
+                self.embed_memory(entry.id, entry.content)
+            except Exception:
+                pass  # Embedding is optional — scorer server may not be running
 
         return (True, f"Memory added with id={entry.id}, tags={entry.tags}")
 
@@ -581,9 +594,16 @@ class MemoryStore:
         return result
 
     def forget_project(self, project_path: str):
-        """Clear memory for a project."""
+        """Clear memory for a project, including embeddings."""
         norm = self._normalize_path(project_path)
         if norm in self._projects:
+            # Remove embeddings for this project's entries
+            proj = self._projects[norm]
+            self._load_embeddings()
+            for entry in proj.entries:
+                self._embeddings.pop(entry.id, None)
+            if proj.entries:
+                self._save_embeddings()
             del self._projects[norm]
             self._save()
 
@@ -1851,7 +1871,171 @@ class MemoryStore:
         return scored[:limit]
 
     # =========================================================================
-    # v4: LLM-Powered Memory Consolidation
+    # v4: Vector Embeddings for Semantic Search
+    # =========================================================================
+
+    def _load_embeddings(self):
+        """Lazy-load embedding vectors from disk."""
+        if self._embeddings_loaded:
+            return
+        if self._embeddings_file.exists():
+            try:
+                self._embeddings = json.loads(self._embeddings_file.read_text())
+            except Exception:
+                self._embeddings = {}
+        self._embeddings_loaded = True
+
+    def _save_embeddings(self):
+        """Save embedding vectors to disk (atomic)."""
+        try:
+            temp = self._embeddings_file.with_suffix(".json.tmp")
+            temp.write_text(json.dumps(self._embeddings))
+            temp.replace(self._embeddings_file)
+        except Exception:
+            pass
+
+    def _get_embedding(self, text: str) -> list[float]:
+        """Get embedding for text via scorer server. Returns [] if unavailable."""
+        try:
+            from claude_engram.hooks.scorer_server import embed_via_server
+            return embed_via_server(text)
+        except Exception:
+            return []
+
+    def embed_memory(self, memory_id: str, content: str):
+        """Generate and store embedding for a memory entry."""
+        emb = self._get_embedding(content)
+        if emb:
+            self._load_embeddings()
+            self._embeddings[memory_id] = emb
+            self._save_embeddings()
+
+    def vector_search(
+        self,
+        project_path: str,
+        query: str,
+        limit: int = 10,
+    ) -> list[tuple[MemoryEntry, float]]:
+        """
+        Pure vector search using AllMiniLM embeddings.
+
+        Encodes query, computes cosine similarity against stored embeddings.
+        Returns list of (entry, similarity) sorted descending.
+        """
+        self._load_embeddings()
+        if not self._embeddings:
+            return []
+
+        # Encode query
+        query_emb = self._get_embedding(query)
+        if not query_emb:
+            return []
+
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        # Compute cosine similarity (embeddings are normalized, so dot product)
+        results = []
+        for entry in proj.entries:
+            if entry.id in self._embeddings:
+                stored_emb = self._embeddings[entry.id]
+                # Dot product of normalized vectors = cosine similarity
+                sim = sum(a * b for a, b in zip(query_emb, stored_emb))
+                results.append((entry, sim))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:limit]
+
+    def hybrid_search(
+        self,
+        project_path: str,
+        query: str,
+        file_path: str = "",
+        tags: Optional[list[str]] = None,
+        limit: int = 10,
+    ) -> list[tuple[MemoryEntry, float]]:
+        """
+        Hybrid search combining keyword, scoring, and vector search.
+
+        Merges results from three strategies:
+        1. Keyword search (exact term matching)
+        2. Score-based ranking (file/tag/recency/relevance)
+        3. Vector similarity (AllMiniLM cosine distance)
+
+        Results are fused using Reciprocal Rank Fusion (RRF).
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return []
+
+        # Strategy 1: Keyword search
+        keyword_results = self.search_memories(
+            project_path, query=query, tags=tags, limit=limit * 2,
+        )
+        keyword_ids = [e.id for e in keyword_results]
+
+        # Strategy 2: Score-based ranking
+        context = {"file_path": file_path, "tags": tags or []}
+        scored_results = self.score_and_rank(project_path, context, limit=limit * 2)
+        scored_ids = [e.id for e, _ in scored_results]
+
+        # Strategy 3: Vector search (if embeddings available)
+        vector_ids = []
+        vector_results = self.vector_search(project_path, query, limit=limit * 2)
+        vector_ids = [e.id for e, _ in vector_results]
+
+        # Reciprocal Rank Fusion (RRF) with k=60
+        # Keyword and scored search are primary (they work well for exact matches).
+        # Vector search adds results that keyword misses (semantic matches).
+        k = 60
+        rrf_scores: dict[str, float] = {}
+
+        for rank, eid in enumerate(keyword_ids):
+            rrf_scores[eid] = rrf_scores.get(eid, 0) + 1.5 / (k + rank + 1)
+        for rank, eid in enumerate(scored_ids):
+            rrf_scores[eid] = rrf_scores.get(eid, 0) + 1.0 / (k + rank + 1)
+        for rank, eid in enumerate(vector_ids):
+            # Vector adds entries that keyword/scored missed, boosts ones they found
+            rrf_scores[eid] = rrf_scores.get(eid, 0) + 0.5 / (k + rank + 1)
+
+        # Build final ranked list
+        entry_map = {e.id: e for e in proj.entries}
+        ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+
+        results = []
+        for eid, score in ranked[:limit]:
+            if eid in entry_map:
+                results.append((entry_map[eid], score))
+
+        return results
+
+    def embed_all_memories(self, project_path: str) -> int:
+        """
+        Generate embeddings for all memories that don't have one yet.
+        Called explicitly or during cleanup. Returns count of new embeddings.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return 0
+
+        self._load_embeddings()
+        count = 0
+
+        for entry in proj.entries:
+            if entry.id not in self._embeddings:
+                emb = self._get_embedding(entry.content)
+                if emb:
+                    self._embeddings[entry.id] = emb
+                    count += 1
+
+        if count > 0:
+            self._save_embeddings()
+
+        return count
+
+    # =========================================================================
+    # v5: LLM-Powered Memory Consolidation
     # =========================================================================
 
     def consolidate_memories(
