@@ -187,15 +187,21 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ```
 ~/.claude_engram/
-├── memory.json              # Hot tier memories (per-project entries)
-├── archive.json             # Cold tier (auto-created on first archive)
+├── manifest.json            # Maps project paths to hash directories (v3)
+├── global.json              # Global entries (cross-project)
+├── projects/
+│   └── <hash>/              # Per-project storage (hash from manifest)
+│       ├── memory.json      # This project's hot tier memories
+│       ├── archive.json     # This project's cold tier
+│       ├── embeddings.npy   # Binary AllMiniLM vectors (numpy, optional)
+│       ├── embeddings_index.json  # ID-to-row mapping for embeddings.npy
+│       └── embeddings_pending.json # Hook embedding writes (merged on load)
 ├── conventions.json         # Project coding conventions
 ├── hook_state.json          # Hook tracking state (counters, files edited)
 ├── loop_detector.json       # Per-file edit counts
 ├── scope_guard.json         # Declared scope state
 ├── scorer_port              # TCP port for scorer server (auto-managed)
 ├── scorer_pid               # PID of scorer server (auto-managed)
-├── session_active           # Marker for active session (legacy)
 ├── embeddings/
 │   └── decision_templates.json  # Cached AllMiniLM template embeddings
 ├── checkpoints/
@@ -203,10 +209,24 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │   ├── latest_handoff.json      # Most recent handoff
 │   ├── HANDOFF.md               # Human-readable handoff
 │   └── task_*.json              # Individual checkpoints
-└── habits.json              # Tool usage tracking (historical)
+└── memory.json              # Legacy (auto-migrated to projects/ on first load)
 ```
 
 ## Changelog
+
+### v0.3.0 — 2026-04-07
+
+- Per-project memory storage (manifest.json + projects/\<hash\>/ directories)
+- Binary numpy embeddings (`.npy` with mmap, ~10x faster load than JSON)
+- Lazy project loading (only active project loaded, not all projects)
+- Pending embeddings pattern (hook writes to small file, merged on full load)
+- Embed-on-capture: decisions and mistakes get AllMiniLM embeddings immediately
+- Typo normalization for decision capture (edit-distance correction on trigger words)
+- Vectorized dot products for vector search and reranking (numpy)
+- Integration benchmark suite: 6 benchmarks testing actual product behavior
+- Typo tolerance benchmark
+- Auto-migration from v2 monolithic format (backup preserved)
+- Regex F1 improved 53.3% → 57.6% via typo normalization
 
 ### v0.2.0 — 2026-04-04
 

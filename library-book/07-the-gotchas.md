@@ -37,7 +37,7 @@ python -m claude_engram.hooks.scorer_server  # Should say "Scorer server listeni
 
 **Symptom:** Hooks produce no output, no error. Claude Engram seems dead.
 
-**Cause:** Claude Code gives hooks 1-2 seconds. If `memory.json` is very large, or the scorer server is slow, the hook times out and Claude Code discards the output silently.
+**Cause:** Claude Code gives hooks 1-2 seconds. If the per-project `memory.json` is very large, or the scorer server is slow, the hook times out and Claude Code discards the output silently. Per-project storage (v3) reduces this risk since each project's file is much smaller than the old monolithic file.
 
 **Fix:**
 ```python
@@ -49,13 +49,13 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 ---
 
-### Gotcha: `memory.json` has entries under different path variants
+### Gotcha: Path variant duplicates (pre-v3 only)
 
 **Symptom:** You have memories under `D:/Code/project` AND `d:/code/project` AND `D:\Code\project`. Three separate buckets for the same project.
 
-**Cause:** Older versions didn't normalize paths consistently. Windows drive letters and slash direction can vary.
+**Cause:** Pre-v3 versions stored all projects in one file without consistent path normalization.
 
-**Fix:** Run `memory(cleanup)` which normalizes paths. Or manually call `session_start` which also normalizes on load.
+**Fix:** This is resolved in v3 (per-project storage). The manifest uses normalized paths as keys, and migration merges duplicates automatically. If you still have the old `memory.json`, loading it triggers auto-migration.
 
 **Lesson:** This was fixed in v0.2.0. Path normalization (lowercase drive, forward slashes) now happens on every write.
 

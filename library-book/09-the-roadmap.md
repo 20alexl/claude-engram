@@ -57,7 +57,7 @@ Claude Engram follows semantic versioning:
 - **Minor** (0.x.0): New features, new hook events, memory system changes
 - **Major** (x.0.0): Breaking changes to memory format or MCP tool signatures
 
-The `memory.json` format includes a `version` field. Migrations happen automatically when loading older formats.
+The `manifest.json` format includes a `version` field (currently v3). Migrations from older single-file formats happen automatically on first load.
 
 ---
 

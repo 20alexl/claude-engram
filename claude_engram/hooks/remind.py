@@ -458,18 +458,124 @@ def get_project_dir(file_path: str = "") -> str:
 
 
 def get_memory_file() -> Path:
-    """Get the Claude Engram memory file path."""
+    """Get the Claude Engram memory file path (legacy compat)."""
     return Path.home() / ".claude_engram" / "memory.json"
+
+
+def get_engram_storage_dir() -> Path:
+    """Get the Claude Engram storage directory."""
+    return Path.home() / ".claude_engram"
+
+
+def _get_manifest() -> dict:
+    """Load manifest.json if it exists."""
+    manifest_file = get_engram_storage_dir() / "manifest.json"
+    if manifest_file.exists():
+        try:
+            return json.loads(manifest_file.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def get_project_memory_dir(project_dir: str) -> Path:
+    """Get the per-project memory directory for a project."""
+    storage = get_engram_storage_dir()
+    manifest = _get_manifest()
+    normalized = _normalize_path(project_dir)
+    projects = manifest.get("projects", {})
+    if normalized in projects:
+        hash_id = projects[normalized]["hash"]
+        return storage / "projects" / hash_id
+    # Not in manifest yet — compute hash
+    import hashlib
+    hash_id = hashlib.md5(normalized.encode()).hexdigest()[:8]
+    return storage / "projects" / hash_id
+
+
+def _load_project_entries_from_dir(project_hash_dir: Path) -> list[dict]:
+    """Load entries from a per-project memory.json file."""
+    mem_file = project_hash_dir / "memory.json"
+    if mem_file.exists():
+        try:
+            data = json.loads(mem_file.read_text())
+            return data.get("entries", [])
+        except Exception:
+            pass
+    return []
+
+
+def _load_project_data_from_dir(project_hash_dir: Path) -> dict:
+    """Load full project data from a per-project memory.json file."""
+    mem_file = project_hash_dir / "memory.json"
+    if mem_file.exists():
+        try:
+            return json.loads(mem_file.read_text())
+        except Exception:
+            pass
+    return {}
 
 
 def load_project_memory(project_dir: str) -> dict:
     """
     Load memories for a project, including inherited workspace-level memories.
 
-    In a multi-project workspace (e:/workspace/projectA, e:/workspace/projectB),
-    memories stored under the workspace root apply to all sub-projects.
-    This function merges entries from the exact project path AND all ancestor paths.
+    v5: Uses per-project files via manifest. Falls back to legacy memory.json.
     """
+    storage = get_engram_storage_dir()
+    manifest = _get_manifest()
+    normalized = _normalize_path(project_dir)
+
+    # v5 path: manifest exists with per-project files
+    if manifest.get("projects"):
+        manifest_projects = manifest["projects"]
+
+        # Load primary project
+        primary = None
+        if normalized in manifest_projects:
+            hash_id = manifest_projects[normalized]["hash"]
+            pdir = storage / "projects" / hash_id
+            primary = _load_project_data_from_dir(pdir)
+
+        # Collect entries from ancestor paths
+        ancestor_entries = []
+        check_path = str(Path(normalized).parent)
+        while check_path:
+            norm_check = check_path.replace("\\", "/")
+            if len(norm_check) >= 2 and norm_check[1] == ":":
+                norm_check = norm_check[0].lower() + norm_check[1:]
+            if norm_check in manifest_projects:
+                hash_id = manifest_projects[norm_check]["hash"]
+                pdir = storage / "projects" / hash_id
+                ancestor_entries.extend(_load_project_entries_from_dir(pdir))
+            parent = str(Path(check_path).parent)
+            if parent == check_path:
+                break
+            check_path = parent
+
+        if primary:
+            result = dict(primary)
+            if ancestor_entries:
+                existing_ids = {e.get("id") for e in result.get("entries", [])}
+                for entry in ancestor_entries:
+                    if entry.get("id") not in existing_ids:
+                        result.setdefault("entries", []).append(entry)
+            return result
+
+        # Name-based fallback
+        project_name = Path(project_dir).name
+        for path, info in manifest_projects.items():
+            if Path(path).name == project_name:
+                hash_id = info["hash"]
+                pdir = storage / "projects" / hash_id
+                return _load_project_data_from_dir(pdir)
+
+        if ancestor_entries:
+            return {"entries": ancestor_entries, "project_name": Path(project_dir).name}
+
+        return {}
+
+    # Legacy fallback: single memory.json
     memory_file = get_memory_file()
     if not memory_file.exists():
         return {}
@@ -478,19 +584,13 @@ def load_project_memory(project_dir: str) -> dict:
         data = json.loads(memory_file.read_text())
         projects = data.get("projects", {})
 
-        # Normalize for consistent lookup
-        normalized = _normalize_path(project_dir)
-
-        # Collect the primary project (exact match)
         primary = projects.get(normalized)
         if not primary:
-            # Try matching against normalized keys
             for path, proj in projects.items():
                 if _normalize_path(path) == normalized:
                     primary = proj
                     break
 
-        # Collect entries from ancestor paths (workspace-level memories)
         ancestor_entries = []
         check_path = str(Path(normalized).parent)
         while check_path:
@@ -507,20 +607,17 @@ def load_project_memory(project_dir: str) -> dict:
         if primary:
             result = dict(primary)
             if ancestor_entries:
-                # Merge ancestor entries, avoiding duplicates by ID
                 existing_ids = {e.get("id") for e in result.get("entries", [])}
                 for entry in ancestor_entries:
                     if entry.get("id") not in existing_ids:
                         result.setdefault("entries", []).append(entry)
             return result
 
-        # No exact match — try name-based fallback
         project_name = Path(project_dir).name
         for path, proj in projects.items():
             if Path(path).name == project_name:
                 return proj
 
-        # No project found at all — return ancestor entries if any
         if ancestor_entries:
             return {"entries": ancestor_entries, "project_name": Path(project_dir).name}
 
@@ -1735,80 +1832,143 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         if best_score < 0.45 or not best_text or len(best_text) < 15:
             return
 
-        memory_file = get_memory_file()
-        data = {}
-        if memory_file.exists():
-            data = json.loads(memory_file.read_text())
-
         norm_dir = _normalize_path(project_dir)
-        projects = data.get("projects", {})
-        if norm_dir not in projects:
-            return
+        manifest = _get_manifest()
 
         content = f"DECISION: (from user) {best_text[:150]}"
         entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
 
-        # Check for duplicate (exact match or high word overlap)
-        existing_entries = projects[norm_dir].get("entries", [])
-        existing_contents = {e.get("content", "") for e in existing_entries}
-        if content in existing_contents:
-            return
+        # v5 path: per-project files
+        if manifest.get("projects") and norm_dir in manifest["projects"]:
+            pdir = get_project_memory_dir(project_dir)
+            mem_file = pdir / "memory.json"
+            proj_data = {}
+            if mem_file.exists():
+                proj_data = json.loads(mem_file.read_text())
 
-        # Also check word overlap with existing decisions to avoid near-dupes
-        new_words = set(best_text.lower().split())
-        for e in existing_entries:
-            if e.get("category") != "decision":
-                continue
-            existing_words = set(e.get("content", "").lower().split())
-            if existing_words and new_words:
-                overlap = len(new_words & existing_words) / len(new_words | existing_words)
-                if overlap > 0.7:
-                    return  # Too similar to existing
+            existing_entries = proj_data.get("entries", [])
+            existing_contents = {e.get("content", "") for e in existing_entries}
+            if content in existing_contents:
+                return
 
-        # Extract file references from the decision text
-        file_refs = re.findall(
-            r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
-            best_text
-        )
+            new_words = set(best_text.lower().split())
+            for e in existing_entries:
+                if e.get("category") != "decision":
+                    continue
+                existing_words = set(e.get("content", "").lower().split())
+                if existing_words and new_words:
+                    overlap = len(new_words & existing_words) / len(new_words | existing_words)
+                    if overlap > 0.7:
+                        return
 
-        projects[norm_dir].setdefault("entries", []).append({
-            "id": entry_id,
-            "content": content,
-            "category": "decision",
-            "source": "auto-prompt",
-            "relevance": 6,
-            "created_at": time.time(),
-            "last_accessed": time.time(),
-            "access_count": 1,
-            "tags": ["decision"],
-            "related_files": file_refs[:5],
-        })
-        projects[norm_dir]["last_updated"] = time.time()
+            file_refs = re.findall(
+                r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
+                best_text
+            )
 
-        data["projects"] = projects
-        data["version"] = data.get("version", 2)
-        if "global" not in data:
-            data["global"] = []
+            proj_data.setdefault("entries", []).append({
+                "id": entry_id,
+                "content": content,
+                "category": "decision",
+                "source": "auto-prompt",
+                "relevance": 6,
+                "created_at": time.time(),
+                "last_accessed": time.time(),
+                "access_count": 1,
+                "tags": ["decision"],
+                "related_files": file_refs[:5],
+            })
+            proj_data["last_updated"] = time.time()
 
-        temp_file = memory_file.with_suffix(".json.tmp")
-        temp_file.write_text(json.dumps(data, indent=2))
-        temp_file.replace(memory_file)
+            pdir.mkdir(parents=True, exist_ok=True)
+            temp_file = mem_file.with_suffix(".json.tmp")
+            temp_file.write_text(json.dumps(proj_data, indent=2))
+            temp_file.replace(mem_file)
 
-        # Embed for vector search (best-effort, non-blocking)
-        try:
-            from claude_engram.hooks.scorer_server import embed_via_server
-            emb = embed_via_server(content)
-            if emb:
-                emb_file = memory_file.parent / "embeddings.json"
-                emb_data = {}
-                if emb_file.exists():
-                    emb_data = json.loads(emb_file.read_text())
-                emb_data[entry_id] = emb
-                emb_tmp = emb_file.with_suffix(".json.tmp")
-                emb_tmp.write_text(json.dumps(emb_data))
-                emb_tmp.replace(emb_file)
-        except Exception:
-            pass  # Scorer server not running — embedding will happen on next batch embed
+            # Embed to pending file (fast, no full load)
+            try:
+                from claude_engram.hooks.scorer_server import embed_via_server
+                emb = embed_via_server(content)
+                if emb:
+                    pending_file = pdir / "embeddings_pending.json"
+                    pending = {}
+                    if pending_file.exists():
+                        pending = json.loads(pending_file.read_text())
+                    pending[entry_id] = emb
+                    emb_tmp = pending_file.with_suffix(".json.tmp")
+                    emb_tmp.write_text(json.dumps(pending))
+                    emb_tmp.replace(pending_file)
+            except Exception:
+                pass
+        else:
+            # Legacy fallback: single memory.json
+            memory_file = get_memory_file()
+            data = {}
+            if memory_file.exists():
+                data = json.loads(memory_file.read_text())
+
+            projects = data.get("projects", {})
+            if norm_dir not in projects:
+                return
+
+            existing_entries = projects[norm_dir].get("entries", [])
+            existing_contents = {e.get("content", "") for e in existing_entries}
+            if content in existing_contents:
+                return
+
+            new_words = set(best_text.lower().split())
+            for e in existing_entries:
+                if e.get("category") != "decision":
+                    continue
+                existing_words = set(e.get("content", "").lower().split())
+                if existing_words and new_words:
+                    overlap = len(new_words & existing_words) / len(new_words | existing_words)
+                    if overlap > 0.7:
+                        return
+
+            file_refs = re.findall(
+                r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
+                best_text
+            )
+
+            projects[norm_dir].setdefault("entries", []).append({
+                "id": entry_id,
+                "content": content,
+                "category": "decision",
+                "source": "auto-prompt",
+                "relevance": 6,
+                "created_at": time.time(),
+                "last_accessed": time.time(),
+                "access_count": 1,
+                "tags": ["decision"],
+                "related_files": file_refs[:5],
+            })
+            projects[norm_dir]["last_updated"] = time.time()
+
+            data["projects"] = projects
+            data["version"] = data.get("version", 2)
+            if "global" not in data:
+                data["global"] = []
+
+            temp_file = memory_file.with_suffix(".json.tmp")
+            temp_file.write_text(json.dumps(data, indent=2))
+            temp_file.replace(memory_file)
+
+            # Embed to legacy global embeddings
+            try:
+                from claude_engram.hooks.scorer_server import embed_via_server
+                emb = embed_via_server(content)
+                if emb:
+                    emb_file = memory_file.parent / "embeddings.json"
+                    emb_data = {}
+                    if emb_file.exists():
+                        emb_data = json.loads(emb_file.read_text())
+                    emb_data[entry_id] = emb
+                    emb_tmp = emb_file.with_suffix(".json.tmp")
+                    emb_tmp.write_text(json.dumps(emb_data))
+                    emb_tmp.replace(emb_file)
+            except Exception:
+                pass
     except Exception:
         pass  # Silent failure — auto-capture must never break the hook
 
@@ -1892,72 +2052,108 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
     if mistake_type:
         try:
-            # Write directly to memory file instead of creating a full MemoryStore
-            # (MemoryStore parses the entire file which is slow in a hook)
+            # Write directly to per-project file (fast, no full MemoryStore load)
             import hashlib
-            memory_file = get_memory_file()
             content = f"MISTAKE: {mistake_type}"
             if how_to_avoid:
                 content += f" - Fix: {how_to_avoid}"
 
-            data = {}
-            if memory_file.exists():
-                data = json.loads(memory_file.read_text())
-
             norm_dir = _normalize_path(project_dir)
-            projects = data.get("projects", {})
-            if norm_dir not in projects:
-                projects[norm_dir] = {
-                    "project_path": norm_dir,
-                    "project_name": Path(project_dir).name,
-                    "entries": [],
-                    "recent_searches": [],
-                    "last_updated": time.time(),
-                }
-
             entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
+            manifest = _get_manifest()
 
-            # Check for duplicate before adding
-            existing_contents = {e.get("content", "") for e in projects[norm_dir].get("entries", [])}
-            if content not in existing_contents:
-                projects[norm_dir]["entries"].append({
-                    "id": entry_id,
-                    "content": content,
-                    "category": "mistake",
-                    "source": "auto-detected",
-                    "relevance": 9,
-                    "created_at": time.time(),
-                    "last_accessed": time.time(),
-                    "access_count": 1,
-                    "tags": ["mistake", "bugfix"],
-                    "related_files": [],
-                })
-                projects[norm_dir]["last_updated"] = time.time()
+            new_entry = {
+                "id": entry_id,
+                "content": content,
+                "category": "mistake",
+                "source": "auto-detected",
+                "relevance": 9,
+                "created_at": time.time(),
+                "last_accessed": time.time(),
+                "access_count": 1,
+                "tags": ["mistake", "bugfix"],
+                "related_files": [],
+            }
 
-                data["projects"] = projects
-                data["version"] = data.get("version", 2)
-                if "global" not in data:
-                    data["global"] = []
+            # v5 path: per-project files
+            if manifest.get("projects") and norm_dir in manifest["projects"]:
+                pdir = get_project_memory_dir(project_dir)
+                mem_file = pdir / "memory.json"
+                proj_data = {}
+                if mem_file.exists():
+                    proj_data = json.loads(mem_file.read_text())
 
-                temp_file = memory_file.with_suffix(".json.tmp")
-                temp_file.write_text(json.dumps(data, indent=2))
-                temp_file.replace(memory_file)
+                existing_contents = {e.get("content", "") for e in proj_data.get("entries", [])}
+                if content not in existing_contents:
+                    proj_data.setdefault("entries", []).append(new_entry)
+                    proj_data["last_updated"] = time.time()
 
-                # Embed for vector search (best-effort)
-                try:
-                    from claude_engram.hooks.scorer_server import embed_via_server
-                    emb = embed_via_server(content)
-                    if emb:
-                        emb_file = memory_file.parent / "embeddings.json"
-                        emb_data = {}
-                        if emb_file.exists():
-                            emb_data = json.loads(emb_file.read_text())
-                        emb_data[entry_id] = emb
-                        emb_tmp = emb_file.with_suffix(".json.tmp")
-                        emb_tmp.write_text(json.dumps(emb_data))
-                        emb_tmp.replace(emb_file)
-                except Exception:
-                    pass  # Scorer server not running
+                    pdir.mkdir(parents=True, exist_ok=True)
+                    temp_file = mem_file.with_suffix(".json.tmp")
+                    temp_file.write_text(json.dumps(proj_data, indent=2))
+                    temp_file.replace(mem_file)
+
+                    # Embed to pending file
+                    try:
+                        from claude_engram.hooks.scorer_server import embed_via_server
+                        emb = embed_via_server(content)
+                        if emb:
+                            pending_file = pdir / "embeddings_pending.json"
+                            pending = {}
+                            if pending_file.exists():
+                                pending = json.loads(pending_file.read_text())
+                            pending[entry_id] = emb
+                            emb_tmp = pending_file.with_suffix(".json.tmp")
+                            emb_tmp.write_text(json.dumps(pending))
+                            emb_tmp.replace(pending_file)
+                    except Exception:
+                        pass
+            else:
+                # Legacy fallback: single memory.json
+                memory_file = get_memory_file()
+                data = {}
+                if memory_file.exists():
+                    data = json.loads(memory_file.read_text())
+
+                projects = data.get("projects", {})
+                if norm_dir not in projects:
+                    projects[norm_dir] = {
+                        "project_path": norm_dir,
+                        "project_name": Path(project_dir).name,
+                        "entries": [],
+                        "recent_searches": [],
+                        "last_updated": time.time(),
+                    }
+
+                existing_contents = {e.get("content", "") for e in projects[norm_dir].get("entries", [])}
+                if content not in existing_contents:
+                    projects[norm_dir]["entries"].append(new_entry)
+                    projects[norm_dir]["last_updated"] = time.time()
+
+                    data["projects"] = projects
+                    data["version"] = data.get("version", 2)
+                    if "global" not in data:
+                        data["global"] = []
+
+                    temp_file = memory_file.with_suffix(".json.tmp")
+                    temp_file.write_text(json.dumps(data, indent=2))
+                    temp_file.replace(memory_file)
+
+                    # Embed to legacy global embeddings
+                    try:
+                        from claude_engram.hooks.scorer_server import embed_via_server
+                        emb = embed_via_server(content)
+                        if emb:
+                            emb_file = memory_file.parent / "embeddings.json"
+                            emb_data = {}
+                            if emb_file.exists():
+                                emb_data = json.loads(emb_file.read_text())
+                            emb_data[entry_id] = emb
+                            emb_tmp = emb_file.with_suffix(".json.tmp")
+                            emb_tmp.write_text(json.dumps(emb_data))
+                            emb_tmp.replace(emb_file)
+                    except Exception:
+                        pass
 
             # Reset error counter since we logged it
             state = load_state()

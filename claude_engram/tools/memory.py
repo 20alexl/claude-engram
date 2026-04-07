@@ -130,10 +130,20 @@ class MemoryStore:
     def __init__(self, storage_dir: str = "~/.claude_engram"):
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+
+        # v5: Per-project storage layout
+        self._manifest_file = self.storage_dir / "manifest.json"
+        self._global_file = self.storage_dir / "global.json"
+        self._projects_dir = self.storage_dir / "projects"
+        self._manifest: dict = {"version": 3, "projects": {}}
+        self._dirty_projects: set[str] = set()  # norm_paths that need saving
+        self._manifest_dirty: bool = False
+
+        # Legacy paths (for migration detection)
         self.memory_file = self.storage_dir / "memory.json"
         self.archive_file = self.storage_dir / "archive.json"
 
-        # In-memory cache
+        # In-memory cache (lazy-loaded per project)
         self._projects: dict[str, ProjectMemory] = {}
         self._global_entries: list[MemoryEntry] = []
         self._load_error: str | None = None  # Track if memory file was corrupted
@@ -144,63 +154,245 @@ class MemoryStore:
         self._archive_loaded: bool = False
         self.archive_after_days: int = int(os.environ.get("CLAUDE_ENGRAM_ARCHIVE_DAYS", "14"))
 
-        # v4: Vector embeddings for semantic search
-        self._embeddings_file = self.storage_dir / "embeddings.json"
+        # v4: Vector embeddings for semantic search (now per-project)
+        self._embeddings_file = self.storage_dir / "embeddings.json"  # legacy
         self._embeddings: dict[str, list[float]] = {}  # memory_id -> 384-dim vector
         self._embeddings_loaded: bool = False
+        self._np = None  # numpy module, loaded lazily
+        self._try_numpy()
 
         # Load existing memory
         self._load()
 
-    def _load(self):
-        """Load memory from disk with v1 -> v2 migration support."""
-        if self.memory_file.exists():
+    def _try_numpy(self):
+        """Try to import numpy for binary embeddings. Optional."""
+        try:
+            import numpy as np
+            self._np = np
+        except ImportError:
+            self._np = None
+
+    def _project_dir(self, norm_path: str) -> Path:
+        """Get or create the per-project directory from manifest."""
+        manifest_projects = self._manifest.get("projects", {})
+        if norm_path in manifest_projects:
+            hash_id = manifest_projects[norm_path]["hash"]
+        else:
+            hash_id = hashlib.md5(norm_path.encode()).hexdigest()[:8]
+            manifest_projects[norm_path] = {
+                "hash": hash_id,
+                "name": Path(norm_path).name,
+            }
+            self._manifest["projects"] = manifest_projects
+            self._manifest_dirty = True
+
+        proj_dir = self._projects_dir / hash_id
+        proj_dir.mkdir(parents=True, exist_ok=True)
+        return proj_dir
+
+    def _load_project(self, norm_path: str) -> ProjectMemory:
+        """Load a single project from its per-project directory."""
+        pdir = self._project_dir(norm_path)
+        mem_file = pdir / "memory.json"
+        if mem_file.exists():
             try:
-                data = json.loads(self.memory_file.read_text())
-                version = data.get("version", 1)
+                proj_data = json.loads(mem_file.read_text())
+                proj_data["project_path"] = norm_path
+                proj = ProjectMemory(**proj_data)
+                # Merge pending embeddings on load
+                self._merge_pending_embeddings(norm_path)
+                return proj
+            except Exception:
+                pass
+        return ProjectMemory(
+            project_path=norm_path,
+            project_name=Path(norm_path).name,
+        )
 
-                needs_save = False
-                for path, proj_data in data.get("projects", {}).items():
-                    # Migrate entries if needed
-                    if version == 1:
-                        proj_data = self._migrate_project_v1_to_v2(proj_data)
+    def _merge_pending_embeddings(self, norm_path: str):
+        """Merge pending embeddings into the main embeddings for a project."""
+        pdir = self._project_dir(norm_path)
+        pending_file = pdir / "embeddings_pending.json"
+        if not pending_file.exists():
+            return
+        try:
+            pending = json.loads(pending_file.read_text())
+            if not pending:
+                return
 
-                    # Normalize path to prevent duplicates (d:/ vs D:/, \ vs /)
-                    norm_path = self._normalize_path(path)
-                    if norm_path != path:
-                        needs_save = True  # Path changed, need to re-save
+            if self._np is not None:
+                # Binary path: merge into .npy
+                npy_file = pdir / "embeddings.npy"
+                index_file = pdir / "embeddings_index.json"
 
-                    if norm_path in self._projects:
-                        # Merge entries from duplicate path into existing project
-                        existing = self._projects[norm_path]
-                        new_proj = ProjectMemory(**proj_data)
-                        existing_ids = {e.id for e in existing.entries}
-                        for entry in new_proj.entries:
-                            if entry.id not in existing_ids:
-                                existing.entries.append(entry)
-                        needs_save = True
+                ids = []
+                matrix = None
+                if npy_file.exists() and index_file.exists():
+                    idx_data = json.loads(index_file.read_text())
+                    ids = idx_data.get("ids", [])
+                    # Load without mmap to avoid Windows file locks
+                    matrix = self._np.load(str(npy_file))
+
+                existing_set = set(ids)
+                new_ids = []
+                new_vecs = []
+                for mid, vec in pending.items():
+                    if mid not in existing_set:
+                        new_ids.append(mid)
+                        new_vecs.append(vec)
+
+                if new_ids:
+                    new_arr = self._np.array(new_vecs, dtype=self._np.float32)
+                    if matrix is not None and len(matrix) > 0:
+                        matrix = self._np.vstack([matrix, new_arr])
                     else:
-                        proj_data["project_path"] = norm_path
-                        self._projects[norm_path] = ProjectMemory(**proj_data)
+                        matrix = new_arr
+                    ids.extend(new_ids)
+                    # Write to temp then replace (atomic)
+                    # np.save auto-appends .npy, so use stem without extension
+                    tmp_npy = pdir / "embeddings_tmp"
+                    self._np.save(str(tmp_npy), matrix)  # creates embeddings_tmp.npy
+                    (pdir / "embeddings_tmp.npy").replace(npy_file)
+                    temp = index_file.with_suffix(".json.tmp")
+                    temp.write_text(json.dumps({"ids": ids}))
+                    temp.replace(index_file)
+            else:
+                # JSON fallback path: merge into embeddings.json in project dir
+                emb_file = pdir / "embeddings.json"
+                existing = {}
+                if emb_file.exists():
+                    existing = json.loads(emb_file.read_text())
+                existing.update(pending)
+                temp = emb_file.with_suffix(".json.tmp")
+                temp.write_text(json.dumps(existing))
+                temp.replace(emb_file)
 
-                for entry_data in data.get("global", []):
-                    if version == 1:
-                        entry_data = self._migrate_entry_v1_to_v2(entry_data)
-                    self._global_entries.append(MemoryEntry(**entry_data))
+            # Clear pending
+            pending_file.unlink(missing_ok=True)
+        except Exception:
+            pass
 
-                # Save migrated data (version upgrade or path normalization)
-                if version == 1 or needs_save:
-                    self._save()
+    def _load(self):
+        """Load manifest and global entries. Projects are lazy-loaded."""
+        # Check for legacy memory.json that needs migration
+        if self.memory_file.exists() and not self._manifest_file.exists():
+            self._migrate_to_v3()
+            return
 
+        # Load manifest
+        if self._manifest_file.exists():
+            try:
+                self._manifest = json.loads(self._manifest_file.read_text())
             except Exception as e:
-                # Memory file is corrupted - log it and start fresh
-                self._load_error = f"Memory file corrupted, starting fresh: {e}"
-                # Try to backup corrupted file
+                self._load_error = f"Manifest corrupted, starting fresh: {e}"
+                self._manifest = {"version": 3, "projects": {}}
+
+        # Load global entries
+        if self._global_file.exists():
+            try:
+                global_data = json.loads(self._global_file.read_text())
+                for entry_data in global_data.get("entries", []):
+                    self._global_entries.append(MemoryEntry(**entry_data))
+            except Exception:
+                pass
+
+    def _migrate_to_v3(self):
+        """Migrate old single-file memory.json to per-project layout."""
+        try:
+            data = json.loads(self.memory_file.read_text())
+            version = data.get("version", 1)
+
+            self._projects_dir.mkdir(parents=True, exist_ok=True)
+
+            for path, proj_data in data.get("projects", {}).items():
+                if version == 1:
+                    proj_data = self._migrate_project_v1_to_v2(proj_data)
+
+                norm_path = self._normalize_path(path)
+                proj_data["project_path"] = norm_path
+
+                if norm_path in self._projects:
+                    existing = self._projects[norm_path]
+                    new_proj = ProjectMemory(**proj_data)
+                    existing_ids = {e.id for e in existing.entries}
+                    for entry in new_proj.entries:
+                        if entry.id not in existing_ids:
+                            existing.entries.append(entry)
+                else:
+                    self._projects[norm_path] = ProjectMemory(**proj_data)
+                    self._dirty_projects.add(norm_path)
+
+                # Register in manifest
+                hash_id = hashlib.md5(norm_path.encode()).hexdigest()[:8]
+                self._manifest["projects"][norm_path] = {
+                    "hash": hash_id,
+                    "name": Path(norm_path).name,
+                }
+
+            for entry_data in data.get("global", []):
+                if version == 1:
+                    entry_data = self._migrate_entry_v1_to_v2(entry_data)
+                self._global_entries.append(MemoryEntry(**entry_data))
+
+            # Migrate legacy embeddings.json into per-project files
+            legacy_emb_file = self.storage_dir / "embeddings.json"
+            legacy_embeddings = {}
+            if legacy_emb_file.exists():
                 try:
-                    backup_path = self.memory_file.with_suffix(".json.corrupted")
-                    self.memory_file.replace(backup_path)  # .replace() works on Windows
+                    legacy_embeddings = json.loads(legacy_emb_file.read_text())
                 except Exception:
                     pass
+
+            # Save each project to its own directory
+            for norm_path, proj in self._projects.items():
+                pdir = self._project_dir(norm_path)
+                proj_data = proj.model_dump()
+                proj_data.pop("project_path", None)
+                temp = (pdir / "memory.json").with_suffix(".json.tmp")
+                temp.write_text(json.dumps(proj_data, indent=2))
+                temp.replace(pdir / "memory.json")
+
+                # Migrate embeddings for this project's entries
+                proj_emb_ids = []
+                proj_emb_vecs = []
+                for entry in proj.entries:
+                    if entry.id in legacy_embeddings:
+                        proj_emb_ids.append(entry.id)
+                        proj_emb_vecs.append(legacy_embeddings[entry.id])
+
+                if proj_emb_ids:
+                    self._save_project_embeddings(norm_path, proj_emb_ids, proj_emb_vecs)
+
+            self._dirty_projects.clear()
+
+            # Save global
+            self._save_global()
+
+            # Save manifest
+            self._manifest_dirty = True
+            self._save_manifest()
+
+            # Backup old file
+            backup_path = self.memory_file.with_suffix(".json.v2backup")
+            try:
+                self.memory_file.replace(backup_path)
+            except Exception:
+                pass
+
+            # Remove legacy embeddings file (backed up data is now per-project)
+            if legacy_emb_file.exists():
+                try:
+                    legacy_emb_file.replace(legacy_emb_file.with_suffix(".json.v2backup"))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            self._load_error = f"Migration failed: {e}"
+            try:
+                backup_path = self.memory_file.with_suffix(".json.corrupted")
+                self.memory_file.replace(backup_path)
+            except Exception:
+                pass
 
     def _migrate_entry_v1_to_v2(self, entry_data: dict) -> dict:
         """Migrate a v1 entry to v2 format."""
@@ -294,20 +486,22 @@ class MemoryStore:
 
         return list(files)
 
-    def _generate_entry_id(self, content: str) -> str:
-        """Generate a unique ID for a memory entry based on content."""
-        # Use content-only hash for deterministic IDs; add counter suffix on collision
+    def _generate_entry_id(self, content: str, project_path: str = "") -> str:
+        """Generate a unique ID for a memory entry based on content.
+        Only checks the target project for collisions (not all projects)."""
         base_id = hashlib.md5(content.encode()).hexdigest()[:12]
-        # Check for collision across all projects
-        all_ids = set()
-        for proj in self._projects.values():
-            all_ids.update(e.id for e in proj.entries)
-        all_ids.update(e.id for e in self._global_entries)
-        if base_id not in all_ids:
+        # Check for collision within the target project only
+        check_ids = set()
+        if project_path:
+            norm = self._normalize_path(project_path)
+            proj = self._projects.get(norm)
+            if proj:
+                check_ids.update(e.id for e in proj.entries)
+        check_ids.update(e.id for e in self._global_entries)
+        if base_id not in check_ids:
             return base_id
-        # Collision: append counter
         counter = 1
-        while f"{base_id}_{counter}" in all_ids:
+        while f"{base_id}_{counter}" in check_ids:
             counter += 1
         return f"{base_id}_{counter}"
 
@@ -349,29 +543,70 @@ class MemoryStore:
             if entry.id not in proj.tag_memory_index[t]:
                 proj.tag_memory_index[t].append(entry.id)
 
-    def _save(self) -> bool:
-        """
-        Save memory to disk with version marker.
-
-        Returns:
-            True if save succeeded, False otherwise
-        """
-        data = {
-            "version": 2,
-            "projects": {
-                path: proj.model_dump()
-                for path, proj in self._projects.items()
-            },
-            "global": [e.model_dump() for e in self._global_entries]
-        }
+    def _save_manifest(self):
+        """Save manifest to disk (atomic)."""
+        if not self._manifest_dirty:
+            return
         try:
-            # Write to temp file first, then rename (atomic operation)
-            temp_file = self.memory_file.with_suffix(".json.tmp")
-            temp_file.write_text(json.dumps(data, indent=2))
-            temp_file.replace(self.memory_file)  # .replace() works on both Windows and Linux
+            temp = self._manifest_file.with_suffix(".json.tmp")
+            temp.write_text(json.dumps(self._manifest, indent=2))
+            temp.replace(self._manifest_file)
+            self._manifest_dirty = False
+        except Exception as e:
+            self._save_error = f"Failed to save manifest: {e}"
+
+    def _save_global(self):
+        """Save global entries to disk (atomic)."""
+        data = {"entries": [e.model_dump() for e in self._global_entries]}
+        try:
+            temp = self._global_file.with_suffix(".json.tmp")
+            temp.write_text(json.dumps(data, indent=2))
+            temp.replace(self._global_file)
+        except Exception as e:
+            self._save_error = f"Failed to save global: {e}"
+
+    def _save_project(self, norm_path: str) -> bool:
+        """Save a single project to its per-project directory."""
+        proj = self._projects.get(norm_path)
+        if not proj:
+            return False
+        try:
+            pdir = self._project_dir(norm_path)
+            proj_data = proj.model_dump()
+            proj_data.pop("project_path", None)
+            temp = (pdir / "memory.json").with_suffix(".json.tmp")
+            temp.write_text(json.dumps(proj_data, indent=2))
+            temp.replace(pdir / "memory.json")
             return True
         except Exception as e:
-            # Log the error but don't crash - memory operations should be resilient
+            self._save_error = f"Failed to save project {norm_path}: {e}"
+            return False
+
+    def _save(self) -> bool:
+        """
+        Save dirty projects and manifest to disk.
+
+        Returns:
+            True if all saves succeeded, False otherwise
+        """
+        ok = True
+        try:
+            # Save only dirty projects (or all loaded projects if dirty set is empty
+            # — backward compat for callers that don't track dirty)
+            projects_to_save = self._dirty_projects if self._dirty_projects else set(self._projects.keys())
+            for norm_path in projects_to_save:
+                if not self._save_project(norm_path):
+                    ok = False
+            self._dirty_projects.clear()
+
+            # Save global entries
+            self._save_global()
+
+            # Save manifest if changed
+            self._save_manifest()
+
+            return ok
+        except Exception as e:
             self._save_error = f"Failed to save memory: {e}"
             return False
 
@@ -384,8 +619,14 @@ class MemoryStore:
         return normalized
 
     def get_project(self, project_path: str) -> Optional[ProjectMemory]:
-        """Get memory for a project, if it exists."""
+        """Get memory for a project, lazy-loading from disk if needed."""
         project_path = self._normalize_path(project_path)
+        if project_path not in self._projects:
+            # Check manifest for this project
+            if project_path in self._manifest.get("projects", {}):
+                self._projects[project_path] = self._load_project(project_path)
+            else:
+                return None
         return self._projects.get(project_path)
 
     def remember_project(
@@ -398,11 +639,17 @@ class MemoryStore:
         """Create or update project memory."""
         project_path = self._normalize_path(project_path)
         if project_path not in self._projects:
-            project_name = Path(project_path).name
-            self._projects[project_path] = ProjectMemory(
-                project_path=project_path,
-                project_name=project_name,
-            )
+            # Try lazy-load first
+            if project_path in self._manifest.get("projects", {}):
+                self._projects[project_path] = self._load_project(project_path)
+            else:
+                project_name = Path(project_path).name
+                self._projects[project_path] = ProjectMemory(
+                    project_path=project_path,
+                    project_name=project_name,
+                )
+                # Create manifest entry and project dir
+                self._project_dir(project_path)
 
         proj = self._projects[project_path]
 
@@ -414,6 +661,7 @@ class MemoryStore:
             proj.framework = framework
 
         proj.last_updated = time.time()
+        self._dirty_projects.add(project_path)
         self._save()
 
         return proj
@@ -465,7 +713,7 @@ class MemoryStore:
         auto_files = self._extract_file_refs(content)
 
         entry = MemoryEntry(
-            id=self._generate_entry_id(content),
+            id=self._generate_entry_id(content, project_path=project_path),
             content=content,
             category=category,
             source=source,
@@ -482,7 +730,7 @@ class MemoryStore:
         # Auto-embed for vector search (non-blocking, best-effort)
         if auto_embed:
             try:
-                self.embed_memory(entry.id, entry.content)
+                self.embed_memory(entry.id, entry.content, project_path=project_path)
             except Exception:
                 pass  # Embedding is optional — scorer server may not be running
 
@@ -594,18 +842,25 @@ class MemoryStore:
         return result
 
     def forget_project(self, project_path: str):
-        """Clear memory for a project, including embeddings."""
+        """Clear memory for a project, including embeddings and project directory."""
         norm = self._normalize_path(project_path)
         if norm in self._projects:
-            # Remove embeddings for this project's entries
-            proj = self._projects[norm]
-            self._load_embeddings()
-            for entry in proj.entries:
-                self._embeddings.pop(entry.id, None)
-            if proj.entries:
-                self._save_embeddings()
             del self._projects[norm]
-            self._save()
+        self._dirty_projects.discard(norm)
+
+        # Remove project directory
+        if norm in self._manifest.get("projects", {}):
+            hash_id = self._manifest["projects"][norm]["hash"]
+            proj_dir = self._projects_dir / hash_id
+            if proj_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(str(proj_dir))
+                except Exception:
+                    pass
+            del self._manifest["projects"][norm]
+            self._manifest_dirty = True
+            self._save_manifest()
 
     def clear_all(self):
         """Clear all memory (use with caution)."""
@@ -614,15 +869,29 @@ class MemoryStore:
         self._save()
 
     def get_stats(self) -> dict:
-        """Get memory statistics."""
-        total_entries = sum(len(p.entries) for p in self._projects.values())
-        total_entries += len(self._global_entries)
+        """Get memory statistics. Uses manifest to count projects without loading all."""
+        # Count entries from loaded projects
+        loaded_entries = sum(len(p.entries) for p in self._projects.values())
+        # Count entries from unloaded projects by reading their files
+        manifest_projects = self._manifest.get("projects", {})
+        unloaded_entries = 0
+        for norm_path, info in manifest_projects.items():
+            if norm_path not in self._projects:
+                pdir = self._projects_dir / info["hash"]
+                mem_file = pdir / "memory.json"
+                if mem_file.exists():
+                    try:
+                        pdata = json.loads(mem_file.read_text())
+                        unloaded_entries += len(pdata.get("entries", []))
+                    except Exception:
+                        pass
+        total_entries = loaded_entries + unloaded_entries + len(self._global_entries)
 
         stats = {
-            "projects_tracked": len(self._projects),
+            "projects_tracked": len(manifest_projects),
             "total_entries": total_entries,
             "global_entries": len(self._global_entries),
-            "storage_path": str(self.memory_file),
+            "storage_path": str(self.storage_dir),
         }
 
         # Report any errors
@@ -640,13 +909,14 @@ class MemoryStore:
         """
         health = {
             "healthy": not (self._load_error or self._save_error),
-            "storage_path": str(self.memory_file),
-            "storage_exists": self.memory_file.exists(),
+            "storage_path": str(self.storage_dir),
+            "manifest_exists": self._manifest_file.exists(),
+            "projects_dir_exists": self._projects_dir.exists(),
+            "storage_version": self._manifest.get("version", "unknown"),
         }
 
         if self._load_error:
             health["load_error"] = self._load_error
-            health["backup_created"] = self.memory_file.with_suffix(".json.corrupted").exists()
 
         if self._save_error:
             health["save_error"] = self._save_error
@@ -1347,7 +1617,7 @@ class MemoryStore:
             return (False, f"Similar rule already exists (id={duplicate.id})")
 
         entry = MemoryEntry(
-            id=self._generate_entry_id(full_content),
+            id=self._generate_entry_id(full_content, project_path=project_path),
             content=full_content,
             category="rule",
             source="add_rule",
@@ -1874,10 +2144,67 @@ class MemoryStore:
     # v4: Vector Embeddings for Semantic Search
     # =========================================================================
 
+    def _save_project_embeddings(self, norm_path: str, ids: list[str], vecs: list):
+        """Save embeddings for a project (numpy binary or JSON fallback)."""
+        pdir = self._project_dir(norm_path)
+        if self._np is not None and vecs:
+            matrix = self._np.array(vecs, dtype=self._np.float32)
+            self._np.save(str(pdir / "embeddings.npy"), matrix)
+            temp = (pdir / "embeddings_index.json").with_suffix(".json.tmp")
+            temp.write_text(json.dumps({"ids": ids}))
+            temp.replace(pdir / "embeddings_index.json")
+        elif vecs:
+            emb_dict = {mid: vec for mid, vec in zip(ids, vecs)}
+            temp = (pdir / "embeddings.json").with_suffix(".json.tmp")
+            temp.write_text(json.dumps(emb_dict))
+            temp.replace(pdir / "embeddings.json")
+
+    def _load_project_embeddings(self, norm_path: str) -> tuple[list[str], any]:
+        """
+        Load embeddings for a project. Returns (ids, matrix_or_dict).
+        matrix_or_dict is np.ndarray if numpy available, else dict[str, list[float]].
+        Returns ([], None) if no embeddings exist.
+        """
+        pdir = self._project_dir(norm_path)
+
+        if self._np is not None:
+            npy_file = pdir / "embeddings.npy"
+            index_file = pdir / "embeddings_index.json"
+            if npy_file.exists() and index_file.exists():
+                try:
+                    idx_data = json.loads(index_file.read_text())
+                    ids = idx_data.get("ids", [])
+                    matrix = self._np.load(str(npy_file), mmap_mode='r')
+                    return ids, matrix
+                except Exception:
+                    pass
+
+        # JSON fallback
+        emb_file = pdir / "embeddings.json"
+        if emb_file.exists():
+            try:
+                emb_dict = json.loads(emb_file.read_text())
+                return list(emb_dict.keys()), emb_dict
+            except Exception:
+                pass
+
+        return [], None
+
+    def _project_has_embeddings(self, norm_path: str) -> bool:
+        """Quick check if a project has any embeddings files (no data loaded)."""
+        if norm_path not in self._manifest.get("projects", {}):
+            return False
+        hash_id = self._manifest["projects"][norm_path]["hash"]
+        pdir = self._projects_dir / hash_id
+        if self._np is not None:
+            return (pdir / "embeddings.npy").exists() and (pdir / "embeddings_index.json").exists()
+        return (pdir / "embeddings.json").exists()
+
     def _load_embeddings(self):
-        """Lazy-load embedding vectors from disk."""
+        """Lazy-load embedding vectors from disk (legacy compat + per-project)."""
         if self._embeddings_loaded:
             return
+        # Load from legacy global file if it exists (pre-v3 compat for in-memory cache)
         if self._embeddings_file.exists():
             try:
                 self._embeddings = json.loads(self._embeddings_file.read_text())
@@ -1886,7 +2213,8 @@ class MemoryStore:
         self._embeddings_loaded = True
 
     def _save_embeddings(self):
-        """Save embedding vectors to disk (atomic)."""
+        """Save embedding vectors to disk (atomic). Legacy compat — saves per-project now."""
+        # For backward compat, save to the global file too
         try:
             temp = self._embeddings_file.with_suffix(".json.tmp")
             temp.write_text(json.dumps(self._embeddings))
@@ -1907,6 +2235,7 @@ class MemoryStore:
         query: str,
         entries: list[MemoryEntry],
         limit: int = 10,
+        project_path: str = "",
     ) -> list[tuple[MemoryEntry, float]]:
         """
         Rerank entries by embedding similarity to query.
@@ -1914,43 +2243,98 @@ class MemoryStore:
         Takes initial results from keyword/scored search and reranks them
         using cosine similarity between query embedding and each entry's
         stored embedding. Entries without embeddings keep their original rank.
+        Uses vectorized numpy when available.
         """
         query_emb = self._get_embedding(query)
         if not query_emb:
-            # Can't rerank without embeddings — return original order with placeholder scores
             return [(e, 1.0 - i * 0.01) for i, e in enumerate(entries[:limit])]
 
-        self._load_embeddings()
+        # Try per-project embeddings first
+        emb_dict = {}
+        emb_matrix = None
+        emb_ids = []
+        if project_path:
+            norm = self._normalize_path(project_path)
+            if self._project_has_embeddings(norm):
+                emb_ids, emb_data = self._load_project_embeddings(norm)
+                if self._np is not None and hasattr(emb_data, 'shape'):
+                    emb_matrix = emb_data
+                elif emb_ids:
+                    emb_dict = emb_data if isinstance(emb_data, dict) else {}
+
+        # Vectorized path: batch all entry lookups against numpy matrix
+        if self._np is not None and emb_matrix is not None and len(emb_ids) > 0:
+            id_to_row = {mid: i for i, mid in enumerate(emb_ids)}
+            query_arr = self._np.array(query_emb, dtype=self._np.float32)
+
+            scored = []
+            unscored = []
+            for entry in entries:
+                if entry.id in id_to_row:
+                    row = id_to_row[entry.id]
+                    sim = float(self._np.dot(emb_matrix[row], query_arr))
+                    scored.append((entry, sim))
+                else:
+                    unscored.append(entry)
+
+            scored.sort(key=lambda x: x[1], reverse=True)
+            result = scored[:limit]
+            remaining = limit - len(result)
+            if remaining > 0 and unscored:
+                result.extend([(e, 0.0) for e in unscored[:remaining]])
+            return result
+
+        # JSON fallback
+        if not emb_dict:
+            self._load_embeddings()
+            emb_dict = self._embeddings
 
         scored = []
         unscored = []
-
         for entry in entries:
-            if entry.id in self._embeddings:
-                stored = self._embeddings[entry.id]
+            if entry.id in emb_dict:
+                stored = emb_dict[entry.id]
                 sim = sum(a * b for a, b in zip(query_emb, stored))
                 scored.append((entry, sim))
             else:
                 unscored.append(entry)
 
-        # Sort scored by similarity, append unscored at the end
         scored.sort(key=lambda x: x[1], reverse=True)
         result = scored[:limit]
-
-        # Fill remaining slots with unscored entries
         remaining = limit - len(result)
         if remaining > 0 and unscored:
             result.extend([(e, 0.0) for e in unscored[:remaining]])
-
         return result
 
-    def embed_memory(self, memory_id: str, content: str):
-        """Generate and store embedding for a memory entry."""
+    def embed_memory(self, memory_id: str, content: str, project_path: str = ""):
+        """Generate and store embedding for a memory entry.
+        Writes to pending file for fast hook-time writes."""
         emb = self._get_embedding(content)
-        if emb:
-            self._load_embeddings()
-            self._embeddings[memory_id] = emb
-            self._save_embeddings()
+        if not emb:
+            return
+
+        # If we know the project, write to its pending file (fast path)
+        if project_path:
+            norm = self._normalize_path(project_path)
+            if norm in self._manifest.get("projects", {}):
+                pdir = self._project_dir(norm)
+                pending_file = pdir / "embeddings_pending.json"
+                try:
+                    pending = {}
+                    if pending_file.exists():
+                        pending = json.loads(pending_file.read_text())
+                    pending[memory_id] = emb
+                    temp = pending_file.with_suffix(".json.tmp")
+                    temp.write_text(json.dumps(pending))
+                    temp.replace(pending_file)
+                    return
+                except Exception:
+                    pass
+
+        # Fallback: write to legacy global embeddings
+        self._load_embeddings()
+        self._embeddings[memory_id] = emb
+        self._save_embeddings()
 
     def vector_search(
         self,
@@ -1962,13 +2346,15 @@ class MemoryStore:
         Pure vector search using AllMiniLM embeddings.
 
         Encodes query, computes cosine similarity against stored embeddings.
+        Uses vectorized numpy dot product when available.
         Returns list of (entry, similarity) sorted descending.
         """
-        self._load_embeddings()
-        if not self._embeddings:
+        norm = self._normalize_path(project_path)
+
+        # Early out: no embeddings for this project
+        if not self._project_has_embeddings(norm):
             return []
 
-        # Encode query
         query_emb = self._get_embedding(query)
         if not query_emb:
             return []
@@ -1977,12 +2363,34 @@ class MemoryStore:
         if not proj:
             return []
 
-        # Compute cosine similarity (embeddings are normalized, so dot product)
+        ids, data = self._load_project_embeddings(norm)
+        if not ids:
+            return []
+
+        entry_map = {e.id: e for e in proj.entries}
+
+        # Vectorized path (numpy)
+        if self._np is not None and hasattr(data, 'shape'):
+            query_arr = self._np.array(query_emb, dtype=self._np.float32)
+            sims = self._np.dot(data, query_arr)
+            # Get top-k indices
+            if len(sims) > limit:
+                top_idx = self._np.argpartition(sims, -limit)[-limit:]
+                top_idx = top_idx[self._np.argsort(sims[top_idx])[::-1]]
+            else:
+                top_idx = self._np.argsort(sims)[::-1]
+            results = []
+            for i in top_idx:
+                mid = ids[i]
+                if mid in entry_map:
+                    results.append((entry_map[mid], float(sims[i])))
+            return results
+
+        # JSON fallback path
         results = []
         for entry in proj.entries:
-            if entry.id in self._embeddings:
-                stored_emb = self._embeddings[entry.id]
-                # Dot product of normalized vectors = cosine similarity
+            if entry.id in data:
+                stored_emb = data[entry.id]
                 sim = sum(a * b for a, b in zip(query_emb, stored_emb))
                 results.append((entry, sim))
 
@@ -2022,10 +2430,12 @@ class MemoryStore:
         scored_results = self.score_and_rank(project_path, context, limit=limit * 2)
         scored_ids = [e.id for e, _ in scored_results]
 
-        # Strategy 3: Vector search (if embeddings available)
+        # Strategy 3: Vector search (skip if no embeddings for this project)
         vector_ids = []
-        vector_results = self.vector_search(project_path, query, limit=limit * 2)
-        vector_ids = [e.id for e, _ in vector_results]
+        norm = self._normalize_path(project_path)
+        if self._project_has_embeddings(norm):
+            vector_results = self.vector_search(project_path, query, limit=limit * 2)
+            vector_ids = [e.id for e, _ in vector_results]
 
         # Reciprocal Rank Fusion (RRF) with k=60
         # Keyword and scored search are primary (they work well for exact matches).
@@ -2053,7 +2463,7 @@ class MemoryStore:
 
         # Rerank top candidates by embedding similarity to query
         if candidates and query:
-            return self._rerank(query, candidates, limit)
+            return self._rerank(query, candidates, limit, project_path=project_path)
 
         return [(entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map]
 
@@ -2061,23 +2471,37 @@ class MemoryStore:
         """
         Generate embeddings for all memories that don't have one yet.
         Called explicitly or during cleanup. Returns count of new embeddings.
+        Saves per-project binary/JSON embeddings.
         """
         proj = self.get_project(project_path)
         if not proj:
             return 0
 
-        self._load_embeddings()
-        count = 0
+        norm = self._normalize_path(project_path)
 
+        # Load existing embeddings for this project
+        existing_ids, existing_data = self._load_project_embeddings(norm)
+        existing_set = set(existing_ids)
+
+        all_ids = list(existing_ids)
+        all_vecs = []
+        # Reconstruct existing vectors
+        if self._np is not None and hasattr(existing_data, 'shape') and len(existing_data) > 0:
+            all_vecs = [existing_data[i].tolist() for i in range(len(existing_data))]
+        elif isinstance(existing_data, dict):
+            all_vecs = [existing_data[mid] for mid in existing_ids]
+
+        count = 0
         for entry in proj.entries:
-            if entry.id not in self._embeddings:
+            if entry.id not in existing_set:
                 emb = self._get_embedding(entry.content)
                 if emb:
-                    self._embeddings[entry.id] = emb
+                    all_ids.append(entry.id)
+                    all_vecs.append(emb)
                     count += 1
 
         if count > 0:
-            self._save_embeddings()
+            self._save_project_embeddings(norm, all_ids, all_vecs)
 
         return count
 
@@ -2278,13 +2702,47 @@ class HotMemoryReader:
     """
     Lightweight, read-only reader for hook-time memory injection.
 
-    Reads only memory.json (hot tier), never archive.
+    v5: Reads per-project files via manifest. Falls back to legacy memory.json.
     Works on raw dicts (no Pydantic parsing) for speed.
     Designed to be instantiated per hook call — no caching.
     """
 
     def __init__(self, storage_dir: str = "~/.claude_engram"):
-        self.memory_file = Path(storage_dir).expanduser() / "memory.json"
+        self._storage = Path(storage_dir).expanduser()
+        self._manifest_file = self._storage / "manifest.json"
+        self._projects_dir = self._storage / "projects"
+        # Legacy fallback
+        self.memory_file = self._storage / "memory.json"
+        self._manifest = None
+
+    def _load_manifest(self) -> dict:
+        """Load manifest (cached per instance)."""
+        if self._manifest is not None:
+            return self._manifest
+        if self._manifest_file.exists():
+            try:
+                self._manifest = json.loads(self._manifest_file.read_text())
+                return self._manifest
+            except Exception:
+                pass
+        self._manifest = {}
+        return self._manifest
+
+    def _load_project_entries(self, norm_path: str) -> list[dict]:
+        """Load entries for a single project from its per-project file."""
+        manifest = self._load_manifest()
+        projects = manifest.get("projects", {})
+        if norm_path not in projects:
+            return []
+        hash_id = projects[norm_path]["hash"]
+        mem_file = self._projects_dir / hash_id / "memory.json"
+        if mem_file.exists():
+            try:
+                data = json.loads(mem_file.read_text())
+                return data.get("entries", [])
+            except Exception:
+                pass
+        return []
 
     def get_scored_memories(
         self,
@@ -2303,56 +2761,67 @@ class HotMemoryReader:
         Returns:
             List of raw entry dicts sorted by score descending.
         """
-        if not self.memory_file.exists():
-            return []
-
-        try:
-            data = json.loads(self.memory_file.read_text())
-        except Exception:
-            return []
-
-        # Find project — check exact path, then walk up parent paths
-        # This handles the workspace case: memories stored under e:/workspace
-        # are found when the hook resolves e:/workspace/claude_engram as the project
         normalized = str(Path(project_path).resolve()).replace("\\", "/")
         if len(normalized) >= 2 and normalized[1] == ":":
             normalized = normalized[0].lower() + normalized[1:]
 
-        projects = data.get("projects", {})
+        manifest = self._load_manifest()
 
-        # Collect entries from this project AND all ancestor projects
-        # (e.g., workspace-level memories apply to sub-projects too)
-        all_entries = []
-        check_path = normalized
-        while check_path:
-            if check_path in projects:
-                all_entries.extend(projects[check_path].get("entries", []))
-            # Move up one directory
-            parent = str(Path(check_path).parent).replace("\\", "/")
-            if parent == check_path:
-                break  # Hit root
-            check_path = parent
-
-        # Also try name-based fallback for the primary project
-        if not all_entries:
-            project_name = Path(project_path).name
-            for path, p in projects.items():
-                if Path(path).name == project_name:
-                    all_entries.extend(p.get("entries", []))
+        # v5 path: use manifest + per-project files
+        if manifest.get("projects"):
+            all_entries = []
+            # Walk this path and ancestors for inheritance
+            check_path = normalized
+            while check_path:
+                entries = self._load_project_entries(check_path)
+                all_entries.extend(entries)
+                parent = str(Path(check_path).parent).replace("\\", "/")
+                if parent == check_path:
                     break
+                check_path = parent
+
+            # Name-based fallback
+            if not all_entries:
+                project_name = Path(project_path).name
+                for path, info in manifest.get("projects", {}).items():
+                    if Path(path).name == project_name:
+                        all_entries.extend(self._load_project_entries(path))
+                        break
+        else:
+            # Legacy fallback: read old memory.json
+            if not self.memory_file.exists():
+                return []
+            try:
+                data = json.loads(self.memory_file.read_text())
+            except Exception:
+                return []
+
+            projects = data.get("projects", {})
+            all_entries = []
+            check_path = normalized
+            while check_path:
+                if check_path in projects:
+                    all_entries.extend(projects[check_path].get("entries", []))
+                parent = str(Path(check_path).parent).replace("\\", "/")
+                if parent == check_path:
+                    break
+                check_path = parent
+
+            if not all_entries:
+                project_name = Path(project_path).name
+                for path, p in projects.items():
+                    if Path(path).name == project_name:
+                        all_entries.extend(p.get("entries", []))
+                        break
 
         if not all_entries:
-            return []
-
-        entries = all_entries
-        if not entries:
             return []
 
         # Score each entry
         scored = []
-        for entry in entries:
+        for entry in all_entries:
             score = self._score_entry(entry, context)
-            if score > 0.1:  # Skip completely irrelevant
+            if score > 0.1:
                 scored.append((entry, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
