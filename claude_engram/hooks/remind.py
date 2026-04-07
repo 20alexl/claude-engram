@@ -2207,6 +2207,12 @@ def main():
                 data = json_module.loads(stdin_data)
                 prompt_text = data.get("prompt", "")
 
+            # Resolve project from recently edited files (not just cwd)
+            state = load_state()
+            recent_files = state.get("files_edited_this_session", []) or state.get("last_session_files", [])
+            if recent_files:
+                project_dir = get_project_dir(recent_files[-1])
+
             # Auto-capture decisions from user prompts
             if prompt_text and len(prompt_text) > 20:
                 _auto_capture_from_prompt(project_dir, prompt_text)
