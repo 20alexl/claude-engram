@@ -1660,6 +1660,22 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         temp_file = memory_file.with_suffix(".json.tmp")
         temp_file.write_text(json.dumps(data, indent=2))
         temp_file.replace(memory_file)
+
+        # Embed for vector search (best-effort, non-blocking)
+        try:
+            from claude_engram.hooks.scorer_server import embed_via_server
+            emb = embed_via_server(content)
+            if emb:
+                emb_file = memory_file.parent / "embeddings.json"
+                emb_data = {}
+                if emb_file.exists():
+                    emb_data = json.loads(emb_file.read_text())
+                emb_data[entry_id] = emb
+                emb_tmp = emb_file.with_suffix(".json.tmp")
+                emb_tmp.write_text(json.dumps(emb_data))
+                emb_tmp.replace(emb_file)
+        except Exception:
+            pass  # Scorer server not running — embedding will happen on next batch embed
     except Exception:
         pass  # Silent failure — auto-capture must never break the hook
 
@@ -1793,6 +1809,22 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 temp_file = memory_file.with_suffix(".json.tmp")
                 temp_file.write_text(json.dumps(data, indent=2))
                 temp_file.replace(memory_file)
+
+                # Embed for vector search (best-effort)
+                try:
+                    from claude_engram.hooks.scorer_server import embed_via_server
+                    emb = embed_via_server(content)
+                    if emb:
+                        emb_file = memory_file.parent / "embeddings.json"
+                        emb_data = {}
+                        if emb_file.exists():
+                            emb_data = json.loads(emb_file.read_text())
+                        emb_data[entry_id] = emb
+                        emb_tmp = emb_file.with_suffix(".json.tmp")
+                        emb_tmp.write_text(json.dumps(emb_data))
+                        emb_tmp.replace(emb_file)
+                except Exception:
+                    pass  # Scorer server not running
 
             # Reset error counter since we logged it
             state = load_state()
