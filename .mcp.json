@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "claude-engram": {
-      "command": "E:\\workspace\\mini_claude\\venv\\Scripts\\python.exe",
-      "args": ["-m", "claude_engram.server"],
-      "env": {
-        "CLAUDE_ENGRAM_MODEL": "gemma3:4b"
-      }
+      "command": "E:\\workspace\\claude-engram\\scripts\\run_server.bat",
+      "args": []
     }
   }
 }
