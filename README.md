@@ -8,12 +8,12 @@ Tested against the same benchmarks as [MemPalace](https://github.com/milla-jovov
 
 | Benchmark | Claude Engram | MemPalace | |
 |---|---|---|---|
+| **LongMemEval** Recall@5 (500 questions) | **0.966** | 0.966 | Tied |
+| **LongMemEval** Recall@10 | **0.982** | 0.982 | Tied |
+| **LongMemEval** NDCG@10 | **0.889** | 0.889 | Tied |
 | **ConvoMem** (250 items, 5 categories) | **0.960** | 0.929 | We win |
 | **LoCoMo** (1,986 multi-hop questions) | **0.649** | 0.603 | We win |
-| **LongMemEval** Recall@10 (50 questions) | **0.980** | 0.982 | Tie |
-| **LongMemEval** Recall@5 | 0.920 | 0.966 | |
-| **LongMemEval** NDCG@10 | 0.872 | 0.889 | |
-| **Speed** | **42ms/query** | ~600ms/query | **14x faster** |
+| **Speed** | **43ms/query** | ~600ms/query | **14x faster** |
 | **Dependencies** | AllMiniLM (optional) | ChromaDB | |
 
 Reproduce: `python tests/bench_longmemeval.py`, `bench_locomo.py`, `bench_convomem.py`
