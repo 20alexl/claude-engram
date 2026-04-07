@@ -494,8 +494,9 @@ def main():
     print("=" * 60)
     print("Claude Engram Installer")
     print("=" * 60)
-    print("\nClaude Engram gives Claude Code persistent memory and")
-    print("self-awareness tools to help avoid repeating mistakes.")
+    print("\nPersistent memory for AI coding assistants.")
+    print("Auto-tracks mistakes, decisions, and context. Retrieves")
+    print("the right memory at the right time using hybrid search.")
 
     total_steps = 7
     script_dir = Path(__file__).parent.resolve()
@@ -614,34 +615,41 @@ def main():
     print(mcp_json)
 
     print("\n" + "-" * 60)
-    print("AFTER SETUP")
-    print("-" * 60)
-    print("\n1. Open your project in VSCode")
-    print("2. Start Claude Code")
-    print("3. Approve the claude-engram MCP server when prompted")
-    print("4. Claude should use: session_start(project_path=\"/your/project\")")
-
-    print("\n" + "-" * 60)
-    print("TOOLS AVAILABLE (v2 - combined)")
+    print("WHAT'S AUTOMATIC (hooks — no invocation needed)")
     print("-" * 60)
     print("""
-  Essential:
-    claude_engram_status, session_start, session_end, pre_edit_check
-
-  Combined (use 'operation' parameter):
-    memory (remember/recall/forget/search/cleanup/add_rule/...)
-    work (log_mistake/log_decision)
-    scope (declare/check/expand/status/clear)
-    loop (record_edit/record_test/check/status/reset)
-    context (checkpoint_save/checkpoint_restore/handoff_create/...)
-    convention (add/get/check/remove)
-    output (validate_code/validate_result)
-
-  Standalone:
-    scout_search, scout_analyze, file_summarize, deps_map
-    impact_analyze, code_quality_check, code_pattern_check
-    audit_batch, find_similar_issues
+  Session restore          SessionStart hook
+  Edit tracking            PostToolUse Edit/Write
+  Loop warnings            PreToolUse Edit/Write (3+ edits to same file)
+  Scored memory injection  PreToolUse Edit/Write (top 3 relevant memories)
+  Test tracking            PostToolUse Bash
+  Error auto-logging       PostToolUseFailure (any tool)
+  Decision capture         UserPromptSubmit (semantic + regex scoring)
+  Checkpoint on compact    PreCompact
+  Context re-injection     PostCompact (rules + mistakes + decisions)
+  Session handoff          Stop
 """)
+
+    print("-" * 60)
+    print("MCP TOOLS (use when helpful)")
+    print("-" * 60)
+    print("""
+  memory   remember, search, add_rule, modify, delete, archive, restore,
+           archive_search, archive_status, hybrid_search, embed_all, ...
+  work     log_mistake, log_decision
+  context  checkpoint_save, handoff_create, verify_completion
+  scope    declare, check, expand, status, clear
+
+  Also: scout_search, scout_analyze, impact_analyze, file_summarize,
+        deps_map, code_quality_check, code_pattern_check
+""")
+
+    print("-" * 60)
+    print("AFTER SETUP")
+    print("-" * 60)
+    print("\n1. Open your project in Claude Code (CLI, desktop, or IDE)")
+    print("2. Approve the claude-engram MCP server when prompted")
+    print("3. Hooks fire automatically — no manual setup per session")
 
     return 0
 
