@@ -1408,6 +1408,137 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
     return ""
 
 
+# Trigger words that the decision regex looks for — used for typo correction
+_DECISION_TRIGGER_WORDS = {
+    "switch", "use", "using", "adopt", "prefer", "replace", "migrate", "swap",
+    "change", "convert", "upgrade", "downgrade", "rewrite", "refactor",
+    "remove", "drop", "import", "implement", "build", "choose", "pick",
+    "stick", "keep", "stop", "avoid", "never", "always", "should",
+    "please", "going", "forward", "instead", "rather", "lets", "let's",
+    "don't", "dont", "doing", "importing",
+}
+
+
+def _fix_typo(word: str) -> str:
+    """
+    If a word is within edit distance 1-2 of a trigger word, return the trigger.
+    Checks: adjacent swap, single char delete/insert/replace, and combos for short words.
+    Returns the original word if no close match found.
+    """
+    if word in _DECISION_TRIGGER_WORDS:
+        return word
+
+    # Adjacent character swaps (most common typo: "swtich" -> "switch")
+    for i in range(len(word) - 1):
+        swapped = word[:i] + word[i + 1] + word[i] + word[i + 2:]
+        if swapped in _DECISION_TRIGGER_WORDS:
+            return swapped
+
+    # Single character removed from word (word is shorter: "plase" -> check "please")
+    # Try inserting each letter a-z at each position to see if it makes a trigger
+    for trigger in _DECISION_TRIGGER_WORDS:
+        if len(trigger) == len(word) + 1:
+            # Check if word is trigger with one char removed
+            for i in range(len(trigger)):
+                if trigger[:i] + trigger[i + 1:] == word:
+                    return trigger
+
+    # Extra character in word (word is longer: "useing" -> check "using")
+    for i in range(len(word)):
+        shorter = word[:i] + word[i + 1:]
+        if shorter in _DECISION_TRIGGER_WORDS:
+            return shorter
+
+    # Single character substitution ("avod" -> "avoid" won't work, but "replce" -> ?)
+    for trigger in _DECISION_TRIGGER_WORDS:
+        if len(trigger) == len(word):
+            diffs = sum(1 for a, b in zip(word, trigger) if a != b)
+            if diffs == 1:
+                return trigger
+
+    # Edit distance 2 — only for words that aren't common English words
+    # (prevents "using"->"going", "the"->"use", "strict"->"stick")
+    _COMMON_WORDS = {
+        "the", "a", "an", "is", "was", "are", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "shall", "can", "need", "dare", "ought",
+        "used", "using", "to", "of", "in", "for", "on", "with", "at", "by",
+        "from", "up", "about", "into", "through", "during", "before", "after",
+        "above", "below", "between", "out", "off", "over", "under", "again",
+        "further", "then", "once", "here", "there", "when", "where", "why",
+        "how", "all", "each", "every", "both", "few", "more", "most", "other",
+        "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+        "than", "too", "very", "just", "because", "but", "and", "or", "if",
+        "while", "that", "this", "these", "those", "i", "you", "he", "she",
+        "it", "we", "they", "me", "him", "her", "us", "them", "my", "your",
+        "his", "its", "our", "their", "what", "which", "who", "whom",
+        "going", "get", "got", "make", "take", "come", "go", "see", "know",
+        "think", "say", "said", "like", "look", "find", "give", "tell",
+        "work", "call", "try", "ask", "turn", "start", "show", "hear",
+        "play", "run", "move", "live", "old", "new", "good", "bad", "big",
+        "small", "long", "short", "high", "low", "right", "left", "sure",
+        "still", "also", "back", "well", "way", "even", "want", "first",
+        "last", "next", "now", "then", "end", "set", "put", "point", "help",
+        "hand", "home", "any", "best", "open", "much", "real", "form",
+        "part", "since", "until", "along", "never", "always", "stick",
+        "strict", "script", "fast", "hard", "soft",
+    }
+    if word not in _COMMON_WORDS:
+        for trigger in _DECISION_TRIGGER_WORDS:
+            if abs(len(trigger) - len(word)) <= 2 and len(word) >= 3:
+                if len(trigger) + len(word) <= 16:
+                    d = _edit_distance(word, trigger)
+                    if d <= 2:
+                        return trigger
+
+    return word
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance. Only called for short strings."""
+    if len(a) < len(b):
+        return _edit_distance(b, a)
+    if len(b) == 0:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr = [i + 1]
+        for j, cb in enumerate(b):
+            curr.append(min(
+                prev[j + 1] + 1,
+                curr[j] + 1,
+                prev[j] + (0 if ca == cb else 1),
+            ))
+        prev = curr
+    return prev[-1]
+
+
+def _normalize_typos(text: str) -> str:
+    """Correct trigger-word typos in text for better regex matching."""
+    words = text.split()
+    corrected = []
+    for w in words:
+        # Preserve punctuation
+        prefix = ""
+        suffix = ""
+        core = w
+        while core and not core[0].isalnum():
+            prefix += core[0]
+            core = core[1:]
+        while core and not core[-1].isalnum():
+            suffix = core[-1] + suffix
+            core = core[:-1]
+        if core:
+            fixed = _fix_typo(core.lower())
+            # Preserve original case if no fix
+            if fixed != core.lower():
+                core = fixed
+            else:
+                core = core.lower()
+        corrected.append(prefix + core + suffix)
+    return " ".join(corrected)
+
+
 def _score_decision_intent(text: str) -> tuple[float, str]:
     """
     Score whether a sentence expresses a decision. No LLM needed.
@@ -1418,10 +1549,12 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
     - Contrast signals (instead of, rather than, not X but Y, over)
     - Negation constraints (don't, stop, avoid, never)
 
+    Applies lightweight typo correction on trigger words before matching.
+
     Returns (score 0.0-1.0, extracted_decision_text).
     Score >= 0.5 = capture as decision.
     """
-    text_lower = text.lower().strip()
+    text_lower = _normalize_typos(text.lower().strip())
     score = 0.0
     best_match = ""
 
