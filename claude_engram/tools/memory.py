@@ -1224,11 +1224,11 @@ class MemoryStore:
                     "reason": f"Broken memory: {reason}",
                 })
 
-        # Find duplicates
+        # Find duplicates — Jaccard word similarity first (fast)
+        removed_ids = {r["entry_id"] for r in report["removed"]}
         seen_content = {}
         for entry in proj.entries:
-            # Skip entries already marked for removal
-            if any(r["entry_id"] == entry.id for r in report["removed"]):
+            if entry.id in removed_ids:
                 continue
             dup = self._is_duplicate(entry.content, list(seen_content.values()), threshold=0.85)
             if dup:
@@ -1239,6 +1239,45 @@ class MemoryStore:
                 })
             else:
                 seen_content[entry.id] = entry
+
+        # Semantic dedup — AllMiniLM catches near-duplicates Jaccard misses
+        # (e.g., same error with slightly different wording)
+        try:
+            from claude_engram.hooks.scorer_server import embed_batch_via_server
+            dup_ids = {d["entry_id"] for d in report["duplicates_found"]}
+            candidates = [e for e in proj.entries
+                          if e.id not in removed_ids and e.id not in dup_ids]
+            if len(candidates) >= 2:
+                texts = [e.content for e in candidates]
+                embeddings = embed_batch_via_server(texts)
+                valid_embs = [(i, emb) for i, emb in enumerate(embeddings) if emb and len(emb) > 0]
+
+                if len(valid_embs) >= 2:
+                    import numpy as np
+                    indices = [i for i, _ in valid_embs]
+                    matrix = np.array([emb for _, emb in valid_embs], dtype=np.float32)
+                    sims = np.dot(matrix, matrix.T)
+
+                    semantic_keep = set(range(len(indices)))
+                    for a in range(len(sims)):
+                        if a not in semantic_keep:
+                            continue
+                        for b in range(a + 1, len(sims)):
+                            if b not in semantic_keep:
+                                continue
+                            if sims[a][b] > 0.85:
+                                # Remove the newer one (keep the original)
+                                orig_idx = indices[a]
+                                dupe_idx = indices[b]
+                                report["duplicates_found"].append({
+                                    "entry_id": candidates[dupe_idx].id,
+                                    "duplicate_of": candidates[orig_idx].id,
+                                    "content_preview": candidates[dupe_idx].content[:50] + "...",
+                                    "method": "semantic",
+                                })
+                                semantic_keep.discard(b)
+        except Exception:
+            pass  # AllMiniLM not available — skip semantic dedup
 
         # Archive old inactive memories (before decay, so they're preserved not deleted)
         if apply_decay:
@@ -2832,11 +2871,12 @@ class HotMemoryReader:
         if ctx_file:
             ctx_name = Path(ctx_file).name
             filtered = []
+            file_relevant = []
+            rules = []
             for entry, score in scored:
                 category = entry.get("category", "")
-                # Rules always pass
                 if category == "rule":
-                    filtered.append(entry)
+                    rules.append(entry)
                     continue
                 # Direct file relevance only
                 related = entry.get("related_files", [])
@@ -2845,9 +2885,16 @@ class HotMemoryReader:
                 has_content_match = ctx_name in content
 
                 if has_file_match or has_content_match:
-                    filtered.append(entry)
+                    file_relevant.append(entry)
 
-            return filtered[:limit]
+            # Prioritize file-relevant memories, then add rules to fill
+            # Cap rules at 2 to avoid flooding every edit with 5 rules
+            result = file_relevant[:limit]
+            remaining = limit - len(result)
+            if remaining > 0:
+                result.extend(rules[:min(remaining, 2)])
+
+            return result
 
         return [e for e, _ in scored[:limit]]
 

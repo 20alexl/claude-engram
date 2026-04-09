@@ -1199,17 +1199,10 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         _append_memory_summary(lines, project_memory, project_dir)
 
     else:
-        # Session is active — only show rules. Mistakes are file-specific
-        # and handled by PreToolUse Edit injection (with relevance filtering).
-        # Dumping generic mistakes on every prompt is noise, not signal.
-        rules = get_project_rules(project_memory)
-        if rules:
-            lines.append(f"Rules ({len(rules)}):")
-            for r in rules[:5]:
-                lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
-            lines.append("")
-        else:
-            return ""  # Nothing useful to inject — stay silent
+        # Session is active — stay silent. Rules were shown at SessionStart.
+        # Mistakes are file-specific (handled by PreToolUse Edit injection).
+        # Don't inject anything on every prompt — it's noise.
+        return ""
 
     lines.append("</engram-reminder>")
     return "\n".join(lines)
