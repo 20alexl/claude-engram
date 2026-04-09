@@ -103,8 +103,17 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
 
         request = json.loads(data.decode("utf-8").strip())
 
-        if "embed" in request:
-            # Embedding request: return raw vector
+        if "embed_batch" in request:
+            # Batch embedding: encode all texts in one model call
+            texts = request["embed_batch"]
+            if texts:
+                embs = model.encode(texts, normalize_embeddings=True, batch_size=64)
+                response = json.dumps({"embeddings": embs.tolist()}) + "\n"
+            else:
+                response = json.dumps({"embeddings": []}) + "\n"
+            conn.sendall(response.encode("utf-8"))
+        elif "embed" in request:
+            # Single embedding request: return raw vector
             text = request["embed"]
             emb = model.encode([text], normalize_embeddings=True)
             response = json.dumps({"embedding": emb[0].tolist()}) + "\n"
@@ -313,10 +322,39 @@ def embed_via_server(text: str) -> list[float]:
 
 def embed_batch_via_server(texts: list[str]) -> list[list[float]]:
     """
-    Get embeddings for multiple texts. One TCP call per text.
-    Returns list of 384-dim vectors. Empty list for failures.
+    Get embeddings for multiple texts in a single TCP call.
+
+    The server encodes all texts in one model.encode() call with batch_size=64,
+    which is much faster than individual calls (1 roundtrip vs N roundtrips).
+    Returns list of 384-dim vectors. Empty list entries for failures.
     """
-    return [embed_via_server(t) for t in texts]
+    if not texts:
+        return []
+    if not PORT_FILE.exists():
+        return [[] for _ in texts]
+
+    try:
+        port = int(PORT_FILE.read_text().strip())
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(30.0)  # Batch can take longer
+        sock.connect(("127.0.0.1", port))
+
+        request = json.dumps({"embed_batch": [t[:500] for t in texts]}) + "\n"
+        sock.sendall(request.encode("utf-8"))
+
+        # Batch responses can be large (~3KB * N texts)
+        data = b""
+        while b"\n" not in data:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+
+        sock.close()
+        result = json.loads(data.decode("utf-8").strip())
+        return result.get("embeddings", [[] for _ in texts])
+    except Exception:
+        return [[] for _ in texts]
 
 
 if __name__ == "__main__":

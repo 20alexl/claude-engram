@@ -182,6 +182,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 exclude_strings=arguments.get("exclude_strings", True),
             )
 
+        case "session_mine":
+            return await handlers.handle_session_mine(
+                operation=arguments.get("operation", ""),
+                args=arguments,
+            )
+
         case _:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

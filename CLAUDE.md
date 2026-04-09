@@ -151,12 +151,35 @@ Handled automatically:
 2. **PostCompact** hook re-injects rules, mistakes, and recent decisions.
 3. No manual action needed. If you want deeper restore, call `session_start`.
 
+## Session Mining
+
+Automatically mines Claude Code session JSONL logs for intelligence that hooks can't capture.
+
+**Automatic (no invocation):**
+- **Background indexing**: SessionEnd spawns miner that indexes the session, extracts decisions/mistakes/approaches, builds search embeddings
+- **Smart session start**: Shows last session context (files edited, activity, errors)
+- **Pattern injection**: Recurring struggles and errors shown at session start
+- **Predictive context**: Before edits, shows related files and likely errors from history
+- **Bootstrap**: First session on a new project auto-detects existing history and mines it
+
+**MCP tool (`session_mine`):**
+- `search(query)` — semantic search across all past conversations
+- `decisions(query)` — find when/why a decision was made, with context
+- `replay(file_path)` — find discussions about a specific file
+- `predict(file_path)` — predict what context you'll need for an edit
+- `cross_project` — patterns across all your projects
+- `overview` — project stats (sessions, messages, top files, errors)
+- `reindex(mode=bootstrap)` — rebuild index from all session history
+
 ## Technical Notes
 
 - Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`)
-- Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy}, checkpoints/)
+- Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/)
 - Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
+- Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding
+- Session mining: background subprocess, fire-and-forget, no hook timeout impact
 - Keep-alive: Set `CLAUDE_ENGRAM_KEEP_ALIVE=5m` to keep Ollama model loaded
 - Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
 - All file writes use atomic temp-then-replace pattern.
 - Hook installation merges into existing `~/.claude/settings.json` without destroying other hooks.
+- Skill: `/engram` — quick reference installed to `~/.claude/commands/`

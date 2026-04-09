@@ -418,4 +418,43 @@ TOOL_DEFINITIONS = [
             "required": ["issue_pattern", "project_path"],
         },
     ),
+
+    # =========================================================================
+    # SESSION MINING (search history, find decisions, detect patterns)
+    # =========================================================================
+
+    Tool(
+        name="session_mine",
+        description="""Mine session history. Operations:
+- search: Search across past conversations (query, project_path, limit, method=hybrid|semantic|keyword)
+- decisions: Find when/why a decision was made (query, project_path)
+- replay: Find discussions about a file (file_path, project_path)
+- struggles: Files/areas with repeated difficulty (project_path)
+- errors: Recurring error patterns across sessions (project_path)
+- correlations: Files always edited together (project_path)
+- timeline: Project development timeline (project_path)
+- summaries: Auto-generated session summaries (project_path)
+- overview: High-level project stats (project_path)
+- status: Mining index coverage (project_path)
+- reindex: Trigger background re-indexing (project_path, mode=post_session|bootstrap|full)
+- predict: Predict context needed for a file edit (file_path, project_path)
+- cross_project: Patterns across all projects (no project_path needed)""",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["search", "decisions", "replay", "struggles", "errors", "correlations", "timeline", "summaries", "overview", "status", "reindex", "predict", "cross_project"],
+                    "description": "Operation to perform"
+                },
+                "project_path": {"type": "string", "description": "Project directory"},
+                "query": {"type": "string", "description": "For search/decisions: search query"},
+                "file_path": {"type": "string", "description": "For replay: file to find discussions about"},
+                "limit": {"type": "integer", "description": "Max results (default 10)"},
+                "method": {"type": "string", "enum": ["hybrid", "semantic", "keyword"], "description": "For search: search method"},
+                "mode": {"type": "string", "enum": ["post_session", "bootstrap", "full"], "description": "For reindex: mining mode"},
+            },
+            "required": ["operation"],
+        },
+    ),
 ]

@@ -884,10 +884,8 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     edits = loop_status.get("edit_counts", {})
     edit_count = edits.get(file_path, 0) or edits.get(file_name, 0)
 
-    if edit_count >= 3:
-        results["loop_warnings"].append(f"Edited {edit_count} times - try different approach")
-    elif edit_count >= 2:
-        results["loop_warnings"].append(f"Edited {edit_count} times - ensure this is different")
+    if edit_count >= 5:
+        results["loop_warnings"].append(f"{edit_count} edits without passing tests")
 
     # Check scope guard
     scope_status = get_scope_status()
@@ -924,46 +922,11 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
             except Exception:
                 pass
 
-        # 2. Check recent git commits for this file
-        try:
-            import subprocess
-            git_result = subprocess.run(
-                ['git', '-C', str(file_obj.parent), 'log', '--oneline', '-n', '3', '--', file_name],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if git_result.returncode == 0 and git_result.stdout:
-                commits = git_result.stdout.strip().split('\n')[:2]
-                if commits:
-                    results["suggestions"].append(f"Recent commits: {'; '.join(c[:50] for c in commits)}")
-        except Exception:
-            pass
+        # Git commit history removed — not useful context before an edit.
 
-        # 3. Check for common patterns that need attention
-        if file_obj.exists() and file_obj.is_file():
-            try:
-                content = file_obj.read_text()
-                # Check for error handling patterns
-                if 'except:' in content or 'except :' in content:
-                    results["suggestions"].append("Bare except clauses found - consider specific exceptions")
-                # Check for print debugging
-                if content.count('print(') > 5:
-                    results["suggestions"].append("Multiple print() statements - consider using logging")
-                # Check file size
-                lines = content.count('\n')
-                if lines > 500:
-                    results["suggestions"].append(f"Large file ({lines} lines) - consider refactoring")
-            except Exception:
-                pass
-
-        # 4. Context-aware suggestions
-        if "test" in file_name.lower():
-            results["suggestions"].append("Run tests after editing to verify changes")
-        if "handler" in file_name.lower() or "server" in file_name.lower():
-            results["suggestions"].append("Restart server to apply changes")
-        if edit_count >= 2:
-            results["suggestions"].append("Consider reviewing logs/errors before editing again")
+        # Code style suggestions removed — they were generic linting noise
+        # (bare except, print count, file size, "run tests", "restart server")
+        # that wasted tokens without providing actionable context.
 
         # 5. NEW: Contextual memory injection
         contextual_memories = get_contextual_memories(project_dir, file_path)
@@ -1236,20 +1199,17 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         _append_memory_summary(lines, project_memory, project_dir)
 
     else:
-        # Session is active - just show rules and mistakes, nothing else
+        # Session is active — only show rules. Mistakes are file-specific
+        # and handled by PreToolUse Edit injection (with relevance filtering).
+        # Dumping generic mistakes on every prompt is noise, not signal.
         rules = get_project_rules(project_memory)
         if rules:
             lines.append(f"Rules ({len(rules)}):")
-            for r in rules[:3]:
+            for r in rules[:5]:
                 lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
             lines.append("")
-
-        mistakes = get_past_mistakes(project_memory)
-        if mistakes:
-            lines.append(f"Past mistakes ({len(mistakes)}):")
-            for m in mistakes[:3]:
-                lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
-            lines.append("")
+        else:
+            return ""  # Nothing useful to inject — stay silent
 
     lines.append("</engram-reminder>")
     return "\n".join(lines)
@@ -1323,11 +1283,12 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
             lines.append("")
             has_content = True
 
-    # Loop detection - informational only, no blocking
+    # Loop detection - only warn if tests are failing (real spiral)
     is_loop, loop_count = check_loop_detected(file_path)
-    if is_loop:
-        lines.append(f"LOOP WARNING: Same file edited {loop_count} times")
-        lines.append("  Consider stepping back and trying a different approach.")
+    if is_loop and loop_count >= 5:
+        # check_loop_detected returns True only if tests are failing or no test data
+        # and count >= 3. We raise to 5 to reduce false positives on iterative work.
+        lines.append(f"LOOP WARNING: {loop_count} edits without passing tests")
         lines.append("")
         has_content = True
 
@@ -2260,6 +2221,19 @@ def main():
                     if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
                         record_search_success()
 
+                # Reset loop detector on git commit (edit cycle completed)
+                if command and "git commit" in command:
+                    try:
+                        loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
+                        if loop_file.exists():
+                            ld = json.loads(loop_file.read_text())
+                            ld["file_edit_counts"] = {}
+                            ld["edit_counts"] = {}
+                            ld["total_edits"] = 0
+                            loop_file.write_text(json.dumps(ld, indent=2))
+                    except Exception:
+                        pass
+
                 # This handler only fires for successful commands (exit 0).
                 # Don't manufacture fake errors from output content.
                 result = reminder_for_bash(project_dir, command, "0", output=response)
@@ -2546,6 +2520,90 @@ def main():
             if handoff:
                 lines.append(f"HANDOFF: {_truncate(handoff.get('summary', '?'), 100)}")
 
+            # Session mining: show last session context (read-only, no building)
+            try:
+                from claude_engram.mining.session_index import get_or_create_index
+                from pathlib import Path as _Path
+                import hashlib as _hashlib
+
+                # Resolve project hash dir (same logic as MemoryStore)
+                _norm = str(_Path(project_dir).resolve()).replace("\\", "/")
+                if len(_norm) >= 2 and _norm[1] == ":":
+                    _norm = _norm[0].lower() + _norm[1:]
+                _storage = _Path("~/.claude_engram").expanduser()
+                _manifest_path = _storage / "manifest.json"
+                _hash_dir = None
+                if _manifest_path.exists():
+                    _manifest = json_module.loads(_manifest_path.read_text())
+                    _proj_info = _manifest.get("projects", {}).get(_norm)
+                    if _proj_info:
+                        _hash_dir = _storage / "projects" / _proj_info["hash"]
+
+                if _hash_dir and (_hash_dir / "session_index.json").exists():
+                    index = get_or_create_index(_hash_dir)
+                else:
+                    index = None
+
+                    # Bootstrap: no index yet, but session JSONLs may exist
+                    if _hash_dir:
+                        try:
+                            from claude_engram.mining.jsonl_reader import resolve_jsonl_dir
+                            _jsonl_dir = resolve_jsonl_dir(project_dir)
+                            if _jsonl_dir and any(_jsonl_dir.glob("*.jsonl")):
+                                from claude_engram.mining.background import start_mining_background, is_mining_running
+                                if not is_mining_running():
+                                    start_mining_background(project_dir, mode="bootstrap")
+                                    lines.append("Session mining: bootstrapping from history (background)...")
+                        except Exception:
+                            pass
+
+                if index and index.get_session_count() > 0:
+                    summary = index.get_latest_session_summary()
+                    if summary and summary.get("file_count", 0) > 0:
+                        age = summary.get("age_str", "")
+                        branch = summary.get("branch", "")
+                        header = f"Last session"
+                        if age:
+                            header += f" ({age}"
+                            if branch:
+                                header += f", branch: {branch}"
+                            header += ")"
+                        lines.append(header + ":")
+                        files = summary.get("files_edited", [])
+                        if files:
+                            lines.append(f"  Worked on: {', '.join(files[:8])}")
+                            if summary["file_count"] > 8:
+                                lines.append(f"  ...and {summary['file_count'] - 8} more files")
+                        errs = summary.get("error_count", 0)
+                        msgs = summary.get("user_message_count", 0)
+                        if errs or msgs:
+                            parts = []
+                            if msgs:
+                                parts.append(f"{msgs} prompts")
+                            if errs:
+                                parts.append(f"{errs} errors")
+                            lines.append(f"  Activity: {', '.join(parts)}")
+
+                    # Auto-inject patterns if available
+                    patterns_path = _hash_dir / "patterns.json"
+                    if patterns_path.exists():
+                        try:
+                            pdata = json_module.loads(patterns_path.read_text())
+                            struggles = pdata.get("struggles", [])[:3]
+                            recurring = pdata.get("recurring_errors", [])[:3]
+                            if struggles:
+                                lines.append("Recurring struggles:")
+                                for s in struggles:
+                                    lines.append(f"  - {s['file_path']} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)")
+                            if recurring:
+                                lines.append("Recurring errors:")
+                                for e in recurring:
+                                    lines.append(f"  - {e['error_type']} ({e['session_count']} sessions)")
+                        except Exception:
+                            pass
+            except Exception:
+                pass  # Mining not available or no sessions — skip silently
+
             hook_output = {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
@@ -2664,9 +2722,12 @@ def main():
             if counts.get("total", 0) > 0:
                 lines.append(f"Memories: {counts['total']} total ({counts.get('mistake', 0)} mistakes, {counts.get('rule', 0)} rules)")
 
-            # SessionEnd has no hookSpecificOutput in Claude Code's schema.
-            # Just do the side effects (mark_session_ended above).
-            pass
+            # Spawn background session miner (fire-and-forget, ~50ms)
+            try:
+                from claude_engram.mining.background import start_mining_background
+                start_mining_background(project_dir, mode="post_session")
+            except Exception:
+                pass  # Mining not available — skip silently
         except Exception:
             # Even if summary fails, make sure session state is saved
             try:
@@ -2690,6 +2751,17 @@ def main():
             if file_path:
                 project_dir = get_project_dir(file_path)
                 result = reminder_for_edit(project_dir, file_path)
+
+                # Add predictive context from session mining (reads JSON, fast)
+                try:
+                    from claude_engram.mining.predictive import predict_for_file, format_prediction
+                    pred = predict_for_file(file_path, project_dir)
+                    pred_text = format_prediction(pred)
+                    if pred_text:
+                        result = (result or "") + "\n" + pred_text
+                except Exception:
+                    pass
+
                 if result:
                     hook_output = {
                         "hookSpecificOutput": {

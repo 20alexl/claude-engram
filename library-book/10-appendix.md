@@ -125,6 +125,24 @@ All operations require `operation` and `project_path`.
 | `audit_batch` | `file_paths`, `min_severity?` | Audit multiple files |
 | `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns |
 
+### `session_mine` Tool
+
+| Operation | Parameters | Description |
+|-----------|-----------|-------------|
+| `search` | `query`, `project_path`, `limit?`, `method?` | Semantic search across past conversations |
+| `decisions` | `query`, `project_path` | Find when/why a decision was made, with context |
+| `replay` | `file_path`, `project_path`, `limit?` | Find discussions about a specific file |
+| `struggles` | `project_path` | Files/areas with repeated difficulty |
+| `errors` | `project_path` | Recurring error patterns across sessions |
+| `correlations` | `project_path` | Files frequently edited together |
+| `timeline` | `project_path` | Project development timeline |
+| `summaries` | `project_path` | Auto-generated session summaries |
+| `overview` | `project_path` | High-level project stats |
+| `status` | `project_path` | Mining index coverage |
+| `reindex` | `project_path`, `mode?` | Trigger background re-indexing (post_session, bootstrap, full) |
+| `predict` | `file_path`, `project_path` | Predict context needed for a file edit |
+| `cross_project` | — | Patterns across all projects |
+
 ---
 
 ## Configuration Reference
@@ -195,7 +213,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │       ├── archive.json     # This project's cold tier
 │       ├── embeddings.npy   # Binary AllMiniLM vectors (numpy, optional)
 │       ├── embeddings_index.json  # ID-to-row mapping for embeddings.npy
-│       └── embeddings_pending.json # Hook embedding writes (merged on load)
+│       ├── embeddings_pending.json # Hook embedding writes (merged on load)
+│       ├── session_index.json     # Session metadata + offset cursors
+│       ├── session_embeddings.npy # Conversation chunk embeddings for search
+│       ├── session_embeddings_index.json # Chunk-to-session mapping
+│       ├── patterns.json          # Detected patterns (struggles, errors, correlations)
+│       └── extractions/           # Per-session extracted intelligence
+│           └── <session_id>.json  # Decisions, mistakes, approaches, corrections
 ├── conventions.json         # Project coding conventions
 ├── hook_state.json          # Hook tracking state (counters, files edited)
 ├── loop_detector.json       # Per-file edit counts
@@ -213,6 +237,25 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.4.0 — 2026-04-08
+
+- **Session mining platform** — automatically mines Claude Code session JSONL logs for intelligence
+  - JSONL parser with streaming reader, path resolution, content extractors
+  - Incremental session index with byte-offset cursors (8ms read, 1.5s full build for 330MB)
+  - Background miner subprocess (fire-and-forget from SessionEnd hook)
+  - Structural + semantic extractors: decisions, mistakes, approaches, user corrections
+  - Cross-session semantic search: 7310 chunks indexed, 112ms query time
+  - Pattern detection: struggle files, recurring errors, edit correlations
+  - Project timeline, auto session summaries, project overview
+  - Predictive context: related files + likely errors auto-injected before edits
+  - Cross-project learning: aggregate patterns across all projects
+  - Retroactive bootstrap: auto-mines existing session history on first use
+- **Batch embedding protocol** — `embed_batch` in scorer server, 22x faster than individual calls
+- **`session_mine` MCP tool** — 13 operations (search, decisions, replay, predict, cross_project, etc.)
+- **`/engram` skill** — slash command installed to `~/.claude/commands/`
+- **Smart session start** — shows last session context + recurring patterns
+- **Obsidian vault compatibility** verified (25/25 benchmark with PARA + CLAUDE.md structure)
 
 ### v0.3.0 — 2026-04-07
 

@@ -2137,6 +2137,218 @@ class Handlers:
     # Helper Methods
     # -------------------------------------------------------------------------
 
+    async def handle_session_mine(self, operation: str, args: dict) -> list[TextContent]:
+        """Route session mining operations."""
+        import json as json_mod
+        from dataclasses import asdict
+
+        project_path = args.get("project_path", "")
+
+        if operation == "search":
+            from claude_engram.mining.search import search_sessions
+            results = search_sessions(
+                project_path,
+                query=args.get("query", ""),
+                limit=args.get("limit", 10),
+                method=args.get("method", "hybrid"),
+            )
+            if not results:
+                return [TextContent(type="text", text="No results found. Run reindex(mode=bootstrap) to build search index.")]
+            lines = [f"Found {len(results)} results:"]
+            for r in results:
+                lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
+                lines.append(f"    Session: {r.session_id[:12]} | {r.timestamp[:19]} | {r.msg_type}")
+                if r.related_files:
+                    lines.append(f"    Files: {', '.join(r.related_files[:5])}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "decisions":
+            from claude_engram.mining.search import find_decision
+            results = find_decision(
+                project_path,
+                query=args.get("query", ""),
+            )
+            if not results:
+                return [TextContent(type="text", text="No matching decisions found.")]
+            lines = [f"Found {len(results)} decision(s):"]
+            for r in results:
+                lines.append(f"\n[{r.score:.2f}] {r.chunk_text[:200]}")
+                lines.append(f"  Session: {r.session_id[:12]} | {r.timestamp[:19]}")
+                if r.surrounding:
+                    lines.append("  Context:")
+                    for ctx in r.surrounding:
+                        lines.append(f"    {ctx}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "replay":
+            from claude_engram.mining.search import find_file_discussions
+            results = find_file_discussions(
+                project_path,
+                file_path=args.get("file_path", ""),
+                limit=args.get("limit", 10),
+            )
+            if not results:
+                return [TextContent(type="text", text="No discussions found for this file.")]
+            lines = [f"Found {len(results)} discussion(s):"]
+            for r in results:
+                lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
+                lines.append(f"    {r.timestamp[:19]} | {r.msg_type}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "struggles":
+            from claude_engram.mining.patterns import detect_struggles
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            struggles = detect_struggles(index.sessions, project_root=project_path)
+            if not struggles:
+                return [TextContent(type="text", text="No struggle patterns detected.")]
+            lines = ["Struggle areas:"]
+            for s in struggles[:10]:
+                lines.append(f"  {s.file_path}: {s.description}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "errors":
+            from claude_engram.mining.patterns import detect_recurring_errors
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            errors = detect_recurring_errors(index.sessions, project_path, str(self.memory.storage_dir))
+            if not errors:
+                return [TextContent(type="text", text="No recurring error patterns.")]
+            lines = ["Recurring errors:"]
+            for e in errors:
+                lines.append(f"  {e.error_type}: {e.session_count} sessions")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "correlations":
+            from claude_engram.mining.patterns import detect_edit_correlations
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            corrs = detect_edit_correlations(index.sessions)
+            if not corrs:
+                return [TextContent(type="text", text="No edit correlations found (need 2+ sessions).")]
+            lines = ["Files often edited together:"]
+            for c in corrs[:15]:
+                lines.append(f"  {c.file_a} ↔ {c.file_b} ({c.strength:.0%} correlation, {c.co_occurrence} sessions)")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "timeline":
+            from claude_engram.mining.timeline import build_timeline
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            events = build_timeline(index, project_path, str(self.memory.storage_dir))
+            if not events:
+                return [TextContent(type="text", text="No timeline events.")]
+            lines = ["Project timeline:"]
+            for e in events[-20:]:  # Most recent 20
+                lines.append(f"  [{e.timestamp[:10]}] {e.event_type}: {e.description[:120]}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "summaries":
+            from claude_engram.mining.timeline import generate_session_summaries
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            summaries = generate_session_summaries(index, project_path, str(self.memory.storage_dir))
+            lines = [f"{len(summaries)} sessions:"]
+            for s in summaries[:10]:
+                files_str = ", ".join(s.files_edited[:5])
+                acts = " | ".join(s.key_activities) if s.key_activities else ""
+                lines.append(f"  [{s.date}] {s.duration_str} — {files_str}")
+                if acts:
+                    lines.append(f"    {acts}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "overview":
+            from claude_engram.mining.timeline import get_project_overview
+            from claude_engram.mining.session_index import resolve_project_index
+            index = resolve_project_index(project_path)
+            if not index:
+                return [TextContent(type="text", text="No session data found.")]
+            ov = get_project_overview(index, project_path)
+            lines = [
+                f"Sessions: {ov.total_sessions} | Messages: {ov.total_messages}",
+                f"Active days: {ov.active_days} | Errors: {ov.total_errors}",
+                f"Period: {ov.first_session[:10]} → {ov.last_session[:10]}",
+            ]
+            if ov.top_files:
+                lines.append("Top files:")
+                for name, count in ov.top_files[:10]:
+                    lines.append(f"  {name}: {count} sessions")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "status":
+            from claude_engram.mining.session_index import resolve_project_index
+            from claude_engram.mining.background import get_mining_status
+            index = resolve_project_index(project_path)
+            status = get_mining_status()
+            lines = []
+            if index:
+                lines.append(f"Indexed: {index.get_session_count()} sessions, {index.get_total_messages()} messages")
+            else:
+                lines.append("No index built yet.")
+            lines.append(f"Miner: {status.get('status', 'unknown')}")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "reindex":
+            from claude_engram.mining.background import start_mining_background
+            mode = args.get("mode", "full")
+            started = start_mining_background(project_path, mode=mode)
+            if started:
+                return [TextContent(type="text", text=f"Background mining started (mode={mode}). Check status with session_mine(operation='status').")]
+            else:
+                return [TextContent(type="text", text="Mining already running. Check status with session_mine(operation='status').")]
+
+        elif operation == "predict":
+            from claude_engram.mining.predictive import predict_for_file, format_prediction
+            pred = predict_for_file(
+                file_path=args.get("file_path", ""),
+                project_path=project_path,
+            )
+            formatted = format_prediction(pred)
+            if not formatted:
+                return [TextContent(type="text", text=f"No predictions for {pred.target_file} yet (patterns build up over sessions).")]
+            lines = [f"Predictions for {pred.target_file}:"]
+            lines.append(formatted)
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "cross_project":
+            from claude_engram.mining.cross_project import analyze_cross_project
+            report = analyze_cross_project(str(self.memory.storage_dir))
+            lines = [
+                f"Cross-project analysis: {report.total_projects} projects, {report.total_sessions} sessions",
+            ]
+            if report.insights:
+                lines.append("\nInsights:")
+                for ins in report.insights[:10]:
+                    lines.append(f"  [{ins.insight_type}] {ins.description}")
+                    if ins.projects_affected:
+                        lines.append(f"    Projects: {', '.join(ins.projects_affected)}")
+            if report.tool_usage:
+                top_tools = list(report.tool_usage.items())[:5]
+                lines.append(f"\nTop tools: {', '.join(f'{t}:{c}' for t, c in top_tools)}")
+            if not report.insights:
+                lines.append("\nNo cross-project patterns yet (need 2+ projects with session indexes).")
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        else:
+            return self._needs_clarification(
+                f"Unknown session_mine operation: {operation}",
+                "Use: search, decisions, replay, struggles, errors, correlations, timeline, summaries, overview, status, reindex, predict, cross_project"
+            )
+
+    # -------------------------------------------------------------------------
+    # INTERNAL HELPERS
+    # -------------------------------------------------------------------------
+
     def _needs_clarification(self, reasoning: str, question: str) -> list[TextContent]:
         """Return a standard clarification response."""
         response = MiniClaudeResponse(

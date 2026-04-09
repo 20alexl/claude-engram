@@ -24,20 +24,31 @@
 | Persistent scorer server | Stable | v0.2.0 |
 | Multi-project workspace support | Stable | v0.2.0 |
 | Merge-safe hook installation | Stable | v0.2.0 |
+| Per-project storage (manifest + hash dirs) | Stable | v0.3.0 |
+| Binary numpy embeddings (mmap) | Stable | v0.3.0 |
+| Typo normalization in decision capture | Stable | v0.3.0 |
+| Session mining (JSONL parsing + extraction) | Stable | v0.4.0 |
+| Cross-session semantic search | Stable | v0.4.0 |
+| Batch embedding protocol (22x faster) | Stable | v0.4.0 |
+| Pattern detection (struggles, recurring errors) | Stable | v0.4.0 |
+| Predictive context before edits | Stable | v0.4.0 |
+| Cross-project learning | Stable | v0.4.0 |
+| Retroactive bootstrap (mine existing history) | Stable | v0.4.0 |
+| `/engram` skill (slash command) | Stable | v0.4.0 |
 
 ## What's Next
 
-- [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Currently tested via inline scripts.
-- [ ] **Split `remind.py`** — At ~2100 lines, it works but is hard to maintain. Split into `hooks/prompt.py`, `hooks/edit.py`, `hooks/bash.py`, etc.
-- [ ] **Auto-capture from Bash output** — Targeted capture of useful command output (git status, dependency lists) without being noisy.
-- [ ] **Conversation-aware memory** — Use the `Stop` hook's `last_assistant_message` to extract what Claude was working on and auto-summarize.
+- [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Currently tested via benchmarks and inline scripts.
+- [ ] **Split `remind.py`** — At ~2800 lines, it works but is hard to maintain. Split into `hooks/prompt.py`, `hooks/edit.py`, `hooks/bash.py`, etc.
+- [ ] **Ollama-powered session summaries** — Use local LLM to generate human-readable session summaries instead of metadata-only.
+- [ ] **Obsidian export** — Export session insights, decisions, and project timelines as Obsidian-compatible markdown with wikilinks.
 
 ## What's Aspirational
 
 - **Team memory sync** — Share rules and mistakes across team members via git-tracked memory files. Not clear yet how to scope this without leaking personal context.
 - **Memory visualization** — A simple web UI showing memory clusters, scoring, and archive status. Would help debug injection behavior.
 - **Smarter archiving** — LLM-powered archive decisions: "should this memory be archived or is it still relevant?" Currently uses simple age + access heuristics.
-- **Cross-project learning** — When you fix a bug pattern in one project, suggest checking for the same pattern in others. Requires careful scoping to avoid noise.
+- **Knowledge graph** — Lightweight graph connecting files, concepts, decisions, and errors. Queryable for "what's related to X?"
 
 ## What Was Deliberately Left Out
 
