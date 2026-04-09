@@ -498,7 +498,7 @@ def main():
     print("Auto-tracks mistakes, decisions, and context. Retrieves")
     print("the right memory at the right time using hybrid search.")
 
-    total_steps = 7
+    total_steps = 8
     script_dir = Path(__file__).parent.resolve()
 
     # Step 1: Check virtual environment
@@ -590,6 +590,28 @@ def main():
         print_warning(f"Could not build intent cache: {e}")
         print("  Regex-based intent scoring will be used as fallback")
 
+    # Step 8: Install skill (slash command)
+    print_step(8, total_steps, "Installing /engram skill...")
+    try:
+        import shutil
+        skill_dir = Path.home() / ".claude" / "skills" / "engram"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_src = script_dir / "claude_engram" / "skill" / "engram" / "SKILL.md"
+        skill_dst = skill_dir / "SKILL.md"
+        if skill_src.exists():
+            shutil.copy2(str(skill_src), str(skill_dst))
+            print_success(f"Skill installed: /engram (at {skill_dst})")
+        else:
+            print_warning("Skill source not found, skipping")
+
+        # Clean up old commands/ location if it exists
+        old_cmd = Path.home() / ".claude" / "commands" / "engram.md"
+        if old_cmd.exists():
+            old_cmd.unlink()
+            print(f"  Removed old {old_cmd}")
+    except Exception as e:
+        print_warning(f"Could not install skill: {e}")
+
     # Summary
     print("\n" + "=" * 60)
     print("Installation complete!")
@@ -634,14 +656,14 @@ def main():
     print("MCP TOOLS (use when helpful)")
     print("-" * 60)
     print("""
-  memory   remember, search, add_rule, modify, delete, archive, restore,
-           archive_search, archive_status, hybrid_search, embed_all, ...
-  work     log_mistake, log_decision
-  context  checkpoint_save, handoff_create, verify_completion
-  scope    declare, check, expand, status, clear
+  memory        remember, search, add_rule, hybrid_search, archive, ...
+  work          log_mistake, log_decision
+  session_mine  search, decisions, replay, struggles, errors, overview, ...
+  context       checkpoint_save, handoff_create, verify_completion
+  scope         declare, check, expand, status, clear
 
-  Also: scout_search, scout_analyze, impact_analyze, file_summarize,
-        deps_map, code_quality_check, code_pattern_check
+  Also: scout_search, impact_analyze, file_summarize, deps_map
+  Skill: /engram — quick reference for all tools
 """)
 
     print("-" * 60)

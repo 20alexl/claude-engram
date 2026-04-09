@@ -24,7 +24,15 @@ Claude Code
     │   └── scout_search, impact_analyze, code_quality_check, ...
     │
     ├── Scorer Server (scorer_server.py)      ← Persistent AllMiniLM process
-    │   └── TCP localhost, ~90MB RAM, ~5-25ms per score
+    │   └── TCP localhost, ~90MB RAM, ~5-25ms per score, batch embedding
+    │
+    ├── Session Mining (mining/)              ← Background intelligence from session logs
+    │   ├── JSONL parser, session index, incremental cursors
+    │   ├── Structural + semantic extractors (decisions, mistakes, approaches)
+    │   ├── Cross-session search (AllMiniLM embeddings, 112ms query)
+    │   ├── Pattern detection (struggles, recurring errors, edit correlations)
+    │   ├── Predictive context (related files, likely errors before edits)
+    │   └── Cross-project learning (aggregate insights across all projects)
     │
     └── Ollama (local LLM)                    ← Semantic search, code analysis
         └── gemma3:12b (configurable)

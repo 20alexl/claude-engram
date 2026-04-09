@@ -6,8 +6,8 @@ This is the Library Book — a layered guide to understanding, using, and contri
 
 | Status | Value |
 |--------|-------|
-| **Last Updated** | 2026-04-07 |
-| **Version** | 0.3.0 |
+| **Last Updated** | 2026-04-08 |
+| **Version** | 0.4.0 |
 | **Maintainer** | [@20alexl](https://github.com/20alexl) |
 | **License** | MIT |
 

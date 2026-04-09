@@ -2819,12 +2819,43 @@ class HotMemoryReader:
 
         # Score each entry
         scored = []
+        ctx_file = context.get("file_path", "")
         for entry in all_entries:
             score = self._score_entry(entry, context)
             if score > 0.1:
                 scored.append((entry, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
+
+        # Filter: only inject memories that are relevant to this file.
+        # Rules always pass (they apply everywhere).
+        # Other memories must have file match, tag match, or filename in content.
+        if ctx_file:
+            ctx_name = Path(ctx_file).name
+            filtered = []
+            for entry, score in scored:
+                category = entry.get("category", "")
+                # Rules always pass
+                if category == "rule":
+                    filtered.append(entry)
+                    continue
+                # Check for actual file relevance (not just recency/relevance score)
+                related = entry.get("related_files", [])
+                content = entry.get("content", "")
+                has_file_match = any(Path(rf).name == ctx_name for rf in related)
+                has_content_match = ctx_name in content
+                entry_tags = set(entry.get("tags", []))
+                ctx_tags = set()
+                for pattern, tag in _HOOK_TAG_PATTERNS.items():
+                    if re.search(pattern, ctx_file, re.IGNORECASE):
+                        ctx_tags.add(tag)
+                has_tag_match = bool(ctx_tags & entry_tags)
+
+                if has_file_match or has_content_match or has_tag_match:
+                    filtered.append(entry)
+
+            return filtered[:limit]
+
         return [e for e, _ in scored[:limit]]
 
     @staticmethod
