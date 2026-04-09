@@ -1999,6 +1999,21 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             if how_to_avoid:
                 content += f" - Fix: {how_to_avoid}"
 
+            # Extract entities: files, classes, functions from traceback
+            related_files = []
+            tags = ["mistake", "bugfix"]
+            file_match = re.search(r'File ["\']([^"\']+\.py)["\']', output)
+            if file_match:
+                related_files.append(file_match.group(1))
+            # Extract class/object names from AttributeError
+            obj_match = re.search(r"'(\w+)' object has no attribute", output)
+            if obj_match:
+                tags.append(obj_match.group(1).lower())
+            # Extract function names
+            func_match = re.search(r'in (\w+)\n', output)
+            if func_match and func_match.group(1) not in ('__init__', '<module>'):
+                tags.append(func_match.group(1))
+
             norm_dir = _normalize_path(project_dir)
             entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
             manifest = _get_manifest()
@@ -2012,8 +2027,8 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 "created_at": time.time(),
                 "last_accessed": time.time(),
                 "access_count": 1,
-                "tags": ["mistake", "bugfix"],
-                "related_files": [],
+                "tags": tags,
+                "related_files": related_files,
             }
 
             # v5 path: per-project files
