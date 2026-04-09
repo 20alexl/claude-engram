@@ -438,13 +438,14 @@ TOOL_DEFINITIONS = [
 - status: Mining index coverage (project_path)
 - reindex: Trigger background re-indexing (project_path, mode=post_session|bootstrap|full)
 - predict: Predict context needed for a file edit (file_path, project_path)
-- cross_project: Patterns across all projects (no project_path needed)""",
+- cross_project: Patterns across all projects (no project_path needed)
+- reflect: LLM-powered analysis of mistakes, patterns, and decisions (project_path)""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["search", "decisions", "replay", "struggles", "errors", "correlations", "timeline", "summaries", "overview", "status", "reindex", "predict", "cross_project"],
+                    "enum": ["search", "decisions", "replay", "struggles", "errors", "correlations", "timeline", "summaries", "overview", "status", "reindex", "predict", "cross_project", "reflect"],
                     "description": "Operation to perform"
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
@@ -453,6 +454,8 @@ TOOL_DEFINITIONS = [
                 "limit": {"type": "integer", "description": "Max results (default 10)"},
                 "method": {"type": "string", "enum": ["hybrid", "semantic", "keyword"], "description": "For search: search method"},
                 "mode": {"type": "string", "enum": ["post_session", "bootstrap", "full"], "description": "For reindex: mining mode"},
+                "since": {"type": "string", "description": "For search: filter after date (YYYY-MM-DD)"},
+                "until": {"type": "string", "description": "For search: filter before date (YYYY-MM-DD)"},
             },
             "required": ["operation"],
         },

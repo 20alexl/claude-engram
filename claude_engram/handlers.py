@@ -2140,6 +2140,8 @@ class Handlers:
                 query=args.get("query", ""),
                 limit=args.get("limit", 10),
                 method=args.get("method", "hybrid"),
+                since=args.get("since", ""),
+                until=args.get("until", ""),
             )
             if not results:
                 return [TextContent(type="text", text="No results found. Run reindex(mode=bootstrap) to build search index.")]
@@ -2307,6 +2309,19 @@ class Handlers:
                 return [TextContent(type="text", text=f"No predictions for {pred.target_file} yet (patterns build up over sessions).")]
             lines = [f"Predictions for {pred.target_file}:"]
             lines.append(formatted)
+            return [TextContent(type="text", text="\n".join(lines))]
+
+        elif operation == "reflect":
+            from claude_engram.mining.reflect import reflect_all
+            insights = reflect_all(project_path, str(self.memory.storage_dir))
+            if not insights:
+                return [TextContent(type="text", text="No insights generated. Needs Ollama running + 3+ recurring mistakes or patterns.")]
+            lines = [f"Reflected on {len(insights)} patterns:"]
+            for ins in insights:
+                lines.append(f"\n[{ins.insight_type}] (confidence: {ins.confidence:.0%})")
+                lines.append(f"  {ins.content}")
+                if ins.related_files:
+                    lines.append(f"  Files: {', '.join(ins.related_files[:5])}")
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "cross_project":

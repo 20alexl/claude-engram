@@ -222,6 +222,8 @@ def search_sessions(
     query: str,
     limit: int = 10,
     method: str = "hybrid",
+    since: str = "",
+    until: str = "",
     engram_storage_dir: str = "~/.claude_engram",
 ) -> list[SearchResult]:
     """
@@ -231,6 +233,8 @@ def search_sessions(
         query: Search query (typo-tolerant with semantic method)
         limit: Max results
         method: "semantic" | "keyword" | "hybrid"
+        since: ISO date string to filter results after (e.g. "2026-04-01")
+        until: ISO date string to filter results before
 
     Returns list of SearchResult sorted by relevance.
     """
@@ -258,6 +262,24 @@ def search_sessions(
     if not chunks:
         return []
 
+    # Temporal filtering — filter chunks by date range before scoring
+    if since or until:
+        filtered_chunks = []
+        filtered_indices = []
+        for i, chunk in enumerate(chunks):
+            ts = chunk.get("timestamp", "")[:10]  # YYYY-MM-DD
+            if since and ts < since:
+                continue
+            if until and ts > until:
+                continue
+            filtered_chunks.append(chunk)
+            filtered_indices.append(i)
+        chunks = filtered_chunks
+        if not chunks:
+            return []
+    else:
+        filtered_indices = list(range(len(chunks)))
+
     # Keyword scoring
     keyword_scores = [0.0] * len(chunks)
     if method in ("keyword", "hybrid"):
@@ -282,8 +304,12 @@ def search_sessions(
             if query_emb and emb_path.exists():
                 matrix = np.load(str(emb_path), mmap_mode="r")
                 query_arr = np.array(query_emb, dtype=np.float32)
-                # Cosine similarity (vectors are normalized)
-                sims = np.dot(matrix, query_arr)
+                # Use filtered indices if temporal filter was applied
+                if filtered_indices and len(filtered_indices) < len(matrix):
+                    sub_matrix = matrix[filtered_indices]
+                    sims = np.dot(sub_matrix, query_arr)
+                else:
+                    sims = np.dot(matrix, query_arr)
                 semantic_scores = sims.tolist()
         except Exception:
             pass
