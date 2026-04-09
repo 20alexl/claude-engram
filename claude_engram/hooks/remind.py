@@ -1294,16 +1294,12 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
 
     # ENFORCE: Session must be active
     if not session_active:
-        state["edits_without_session"] = state.get("edits_without_session", 0) + 1
-        edits = state["edits_without_session"]
-        save_state(state)
+        # Auto-start silently — SessionStart hook handles this,
+        # but if it didn't fire, just start without nagging.
+        mark_session_started(project_dir)
 
-        lines.append(f"No session active (edit #{edits}). Run:")
-        lines.append(f'  session_start(project_path="{project_dir}")')
-        has_content = True
-    else:
-        # Track this edit
-        record_file_edit(file_path)
+    # Track this edit
+    record_file_edit(file_path)
 
     # Auto-recording happens silently post-edit - no need to announce it
 
@@ -1445,21 +1441,19 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
 
     # Check if command failed
     if exit_code and exit_code != "0":
-        state = load_state()
-        state["errors_without_log"] = state.get("errors_without_log", 0) + 1
-        errors = state["errors_without_log"]
-        save_state(state)
+        # Resolve sub-project from file paths in output
+        error_project = project_dir
+        if output:
+            file_match = re.search(r'File ["\']([^"\']+\.py)["\']', output)
+            if file_match:
+                error_project = get_project_dir(file_match.group(1))
 
-        # NEW: Auto-detect and auto-log common mistakes
-        auto_logged = _auto_log_detected_mistake(project_dir, command, output)
+        # Auto-detect and auto-log common mistakes (not test failures)
+        auto_logged = _auto_log_detected_mistake(error_project, command, output)
 
-        lines.append("<engram-error-reminder>")
         if auto_logged:
-            lines.append(f"Auto-logged: {auto_logged}")
-        else:
-            lines.append("Log with work(log_mistake) to get warned next time")
-        lines.append("</engram-error-reminder>")
-        has_content = True
+            lines.append(f"<engram-error-tracked>{auto_logged}</engram-error-tracked>")
+            has_content = True
 
     if has_content:
         return "\n".join(lines)
@@ -1994,12 +1988,10 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             mistake_type = f"Attribute error: {error_msg}"
             how_to_avoid = "Check object type and available attributes"
 
-    # Pattern 5: Test failures (require pytest/unittest markers in output)
-    elif "AssertionError" in output or re.search(r"\d+ failed,?\s*\d+\s*(passed|error)", output) or "FAILURES\n" in output:
-        match = re.search(r"(\d+) failed", output)
-        count = match.group(1) if match else "some"
-        mistake_type = f"Test failure: {count} tests failed"
-        how_to_avoid = "Review test output and fix the failing assertions"
+    # Pattern 5: Test failures — DON'T auto-log.
+    # Running tests and finding failures is expected behavior, not a mistake.
+    # Only actual errors (import, syntax, type, attribute) are worth tracking.
+    # elif "FAILURES" in output: pass  # Intentionally not logged
 
     # Pattern 6: Permission errors
     elif "PermissionError" in output or "Permission denied" in output:
@@ -2338,6 +2330,12 @@ def main():
 
                     if tool_name == "Bash":
                         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+
+                        # Try to resolve sub-project from file paths in error output
+                        if error_msg:
+                            file_match = re.search(r'File ["\']([^"\']+\.py)["\']', error_msg)
+                            if file_match:
+                                project_dir = get_project_dir(file_match.group(1))
 
                         # Auto-log mistake from error output
                         if error_msg:
