@@ -273,11 +273,161 @@ def reflect_all(
     project_path: str,
     engram_storage_dir: str = "~/.claude_engram",
 ) -> list[Insight]:
-    """Run all reflect operations and return combined insights."""
+    """
+    Run all reflect operations in a single LLM call.
+
+    Gathers all data (mistakes, patterns, decisions), builds one comprehensive
+    prompt, makes one Ollama call. ~4-6s instead of 12-16s with separate calls.
+    """
+    storage = Path(engram_storage_dir).expanduser()
+    manifest_path = storage / "manifest.json"
+    if not manifest_path.exists():
+        return []
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    norm_path = _normalize_path(project_path)
+
+    # Collect all data
+    all_mistakes = []
+    all_decisions = []
+    patterns_data = None
+
+    current = norm_path
+    while True:
+        if current in manifest.get("projects", {}):
+            hash_dir = storage / "projects" / manifest["projects"][current]["hash"]
+            mem_file = hash_dir / "memory.json"
+            if mem_file.exists():
+                data = json.loads(mem_file.read_text(encoding="utf-8"))
+                for e in data.get("entries", []):
+                    if e.get("category") == "mistake":
+                        all_mistakes.append(e)
+                    elif e.get("category") == "decision":
+                        all_decisions.append(e)
+            patterns_file = hash_dir / "patterns.json"
+            if patterns_file.exists() and not patterns_data:
+                patterns_data = json.loads(patterns_file.read_text(encoding="utf-8"))
+        parent = str(Path(current).parent).replace("\\", "/")
+        if parent == current:
+            break
+        current = parent
+
+    if len(all_mistakes) < 3 and not patterns_data and len(all_decisions) < 3:
+        return []
+
+    llm = _get_llm()
+    if not llm:
+        return []
+
+    # Build one comprehensive prompt
+    import re
+    sections = []
+
+    # Group mistakes by error type
+    error_groups: dict[str, list[str]] = {}
+    for m in all_mistakes:
+        content = m.get("content", "")
+        match = re.match(r"MISTAKE:\s*(\w+\s*error|\w+Error)", content, re.I)
+        key = match.group(1) if match else "other"
+        error_groups.setdefault(key, []).append(content[:100])
+
+    recurring = {k: v for k, v in error_groups.items() if len(v) >= 3}
+    if recurring:
+        sections.append("RECURRING ERRORS:")
+        for error_type, items in list(recurring.items())[:5]:
+            sections.append(f"  {error_type} ({len(items)} times):")
+            for item in items[:3]:
+                sections.append(f"    - {item}")
+
+    if patterns_data:
+        struggles = patterns_data.get("struggles", [])[:5]
+        if struggles:
+            sections.append("\nSTRUGGLE FILES:")
+            for s in struggles:
+                sections.append(f"  - {s['file_path']}: {s['sessions_affected']} sessions, {s['errors_nearby']} errors")
+
+        correlations = patterns_data.get("correlations", [])[:5]
+        if correlations:
+            sections.append("\nFILES ALWAYS EDITED TOGETHER:")
+            for c in correlations:
+                sections.append(f"  - {c['file_a']} <-> {c['file_b']}: {c['strength']:.0%}")
+
+    if all_decisions:
+        sections.append("\nKEY DECISIONS:")
+        for d in all_decisions[:10]:
+            sections.append(f"  - {d.get('content', '')[:120]}")
+
+    if not sections:
+        return []
+
+    prompt = f"""Analyze this project's history and provide insights:
+
+{chr(10).join(sections)}
+
+For each category present, give 1-2 sentences of analysis:
+1. ROOT CAUSES: Why do errors recur? What's the underlying issue?
+2. ARCHITECTURE: What do struggle files and correlations suggest?
+3. DECISIONS: Any contradictions or patterns to revisit?
+
+Be specific and actionable. Output ONLY the analysis, no preamble."""
+
+    result = llm.generate(prompt=prompt, temperature=0.1, timeout=30)
+    if not result.get("success") or not result.get("response"):
+        # Fall back to individual calls if single prompt fails
+        insights = []
+        insights.extend(reflect_on_mistakes(project_path, engram_storage_dir))
+        insights.extend(reflect_on_patterns(project_path, engram_storage_dir))
+        insights.extend(reflect_on_decisions(project_path, engram_storage_dir))
+        return insights
+
+    # Parse response into insights by splitting on section headers
+    response = result["response"].strip()
     insights = []
-    insights.extend(reflect_on_mistakes(project_path, engram_storage_dir))
-    insights.extend(reflect_on_patterns(project_path, engram_storage_dir))
-    insights.extend(reflect_on_decisions(project_path, engram_storage_dir))
+
+    # Split response into sections by numbered headers or keywords
+    import re as _re
+    sections = _re.split(
+        r'\n\s*(?=\d+\.\s*\*?\*?(?:ROOT|ARCHITECTURE|DECISION))',
+        response,
+        flags=_re.IGNORECASE,
+    )
+
+    for section in sections:
+        section = section.strip()
+        if len(section) < 20:
+            continue
+
+        lower = section.lower()
+        if "root cause" in lower or "error" in lower[:50]:
+            insights.append(Insight(
+                content=section[:500],
+                insight_type="root_cause",
+                source_memories=[m.get("id", "") for m in all_mistakes[:10]],
+                confidence=min(len(all_mistakes) / 10, 1.0),
+            ))
+        elif "architecture" in lower or "struggle" in lower[:50] or "correlation" in lower[:50]:
+            insights.append(Insight(
+                content=section[:500],
+                insight_type="pattern",
+                related_files=[s["file_path"] for s in (patterns_data or {}).get("struggles", [])[:5]],
+                confidence=0.7,
+            ))
+        elif "decision" in lower or "contradict" in lower[:50]:
+            insights.append(Insight(
+                content=section[:500],
+                insight_type="recommendation",
+                source_memories=[d.get("id", "") for d in all_decisions[:10]],
+                confidence=0.6,
+            ))
+
+    # If parsing found nothing, store the whole response as one insight
+    if not insights and len(response) > 20:
+        insights.append(Insight(
+            content=response[:500],
+            insight_type="root_cause",
+            confidence=0.5,
+        ))
+
     return insights
 
 
