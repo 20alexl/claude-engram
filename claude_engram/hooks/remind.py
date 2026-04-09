@@ -713,11 +713,6 @@ def _append_memory_summary(lines: list, project_memory: dict, project_dir: str):
             parts.append(_pluralize(n, cat))
     lines.append(f"Memory: {', '.join(parts)}")
 
-    # Management hints when memory count is high
-    if total > 20:
-        lines.append(f"  Tip: memory(recent) to review | memory(delete, memory_id='...') to clean up")
-    if total > 40:
-        lines.append(f"  Consider: memory(cleanup, dry_run=true) to find stale/duplicate memories")
     lines.append("")
 
 
@@ -2405,7 +2400,7 @@ def main():
                 "task_description": f"Auto-saved before {trigger} compaction",
                 "current_step": "Context was compacted",
                 "completed_steps": [],
-                "pending_steps": ["Restore context with session_start"],
+                "pending_steps": [],
                 "files_involved": files_edited[:10],
                 "key_decisions": [],
                 "blockers": [],
@@ -2413,7 +2408,7 @@ def main():
                 "metadata": {"project_path": project_dir, "trigger": trigger},
                 "handoff_summary": f"Context compacted ({trigger}). {len(files_edited)} files were being edited.",
                 "handoff_context_needed": [],
-                "handoff_warnings": ["Context was compacted - call session_start to restore memories"],
+                "handoff_warnings": [],
             }
 
             # Save as latest checkpoint
@@ -2444,15 +2439,13 @@ def main():
             mistakes = get_past_mistakes(project_memory)
 
             lines = []
-            lines.append("MINI CLAUDE: Context was compacted. Call session_start to restore full context.")
+            lines.append("Context compacted. Rules and key context re-injected.")
             if rules:
                 lines.append(f"Rules ({len(rules)}):")
-                for r in rules[:3]:
+                for r in rules[:5]:
                     lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
             if mistakes:
-                lines.append(f"Past mistakes ({len(mistakes)}):")
-                for m in mistakes[:3]:
-                    lines.append(f"  [{m['id']}] {_truncate(m['content'], 80)}")
+                lines.append(f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)")
 
             # PostCompact has no hookSpecificOutput in Claude Code's schema.
             # Print as plain stdout — Claude Code shows this as hook output.
@@ -2495,11 +2488,7 @@ def main():
                 for r in rules[:5]:
                     lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
             if mistakes:
-                lines.append(f"Past mistakes ({len(mistakes)}):")
-                for m in mistakes[:5]:
-                    lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
-
-            _append_memory_summary(lines, project_memory, project_dir)
+                lines.append(f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)")
 
             # Check for checkpoint/handoff to restore
             checkpoint = get_checkpoint_data()
