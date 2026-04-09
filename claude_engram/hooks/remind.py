@@ -2375,8 +2375,7 @@ def main():
                     state["errors_without_log"] = state.get("errors_without_log", 0) + 1
                     save_state(state)
 
-                    if not lines:
-                        lines.append(f"{tool_name} failed. Log with work(log_mistake) to track.")
+                    # No nag — if auto-log didn't capture it, it wasn't worth tracking
 
                     result = "\n".join(lines)
                     hook_output = {

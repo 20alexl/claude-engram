@@ -2544,10 +2544,11 @@ class MemoryStore:
             "original_count": len(proj.entries),
         }
 
-        # Group memories by tag
+        # Group memories by tag for LLM consolidation.
+        # Rules: never touched. Mistakes: use cleanup/archive instead (consolidation
+        # destroys specific actionable errors by summarizing them into vague blobs).
         tag_groups = {}
         for entry in proj.entries:
-            # Skip rules and mistakes - don't consolidate these
             if entry.category in ("rule", "mistake"):
                 continue
 
@@ -2561,10 +2562,6 @@ class MemoryStore:
         # Find groups with 3+ entries that could benefit from consolidation
         for t, entries in tag_groups.items():
             if len(entries) < 3:
-                continue
-
-            # Skip if already a cluster
-            if any(e.cluster_id for e in entries):
                 continue
 
             group_info = {
@@ -2654,7 +2651,7 @@ Output ONLY the consolidated memory text (no explanation):"""
         # Calculate max relevance from group
         max_relevance = max(e.relevance for e in entries)
 
-        # Create new consolidated entry
+        # Create new consolidated entry (always discovery — mistakes don't consolidate)
         new_entry = MemoryEntry(
             id=self._generate_entry_id(consolidated_content),
             content=f"[Consolidated from {len(entries)} memories] {consolidated_content}",
