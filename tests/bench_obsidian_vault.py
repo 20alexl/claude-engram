@@ -449,15 +449,15 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
 
         results.append((
             f"HotMemoryReader found {len(scored)} memories",
-            len(scored) >= 2,
+            len(scored) >= 1,  # Rules always pass, others need file match
             "",
         ))
 
-        # Should include rules and mistakes (they get bonuses)
+        # Rules should always show (they pass the injection filter)
         categories = [e.get("category", "") for e in scored]
         results.append((
-            "Rules/mistakes present in hot injection",
-            "rule" in categories or "mistake" in categories,
+            "Rules present in hot injection",
+            "rule" in categories,
             f"categories: {categories}",
         ))
 
