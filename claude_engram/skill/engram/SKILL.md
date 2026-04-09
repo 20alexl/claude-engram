@@ -35,6 +35,8 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(correlations, project_path="...")` — files always edited together
 - `session_mine(overview, project_path="...")` — project stats
 - `session_mine(cross_project)` — patterns across all projects
+- `session_mine(reflect, project_path="...")` — LLM root cause analysis of recurring errors, patterns, decisions
+- `session_mine(search, query="...", since="2026-04-01")` — temporal filtering
 - `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history
 
 ## Memory Categories
