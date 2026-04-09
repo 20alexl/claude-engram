@@ -2827,9 +2827,11 @@ class HotMemoryReader:
 
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        # Filter: only inject memories that are relevant to this file.
+        # Filter: only inject memories with DIRECT file relevance.
         # Rules always pass (they apply everywhere).
-        # Other memories must have file match, tag match, or filename in content.
+        # Other memories must reference this file or mention it by name.
+        # Tag matching removed — too loose (e.g., "api" tag on handlers.py
+        # pulls in unrelated errors from other projects).
         if ctx_file:
             ctx_name = Path(ctx_file).name
             filtered = []
@@ -2839,19 +2841,13 @@ class HotMemoryReader:
                 if category == "rule":
                     filtered.append(entry)
                     continue
-                # Check for actual file relevance (not just recency/relevance score)
+                # Direct file relevance only
                 related = entry.get("related_files", [])
                 content = entry.get("content", "")
                 has_file_match = any(Path(rf).name == ctx_name for rf in related)
                 has_content_match = ctx_name in content
-                entry_tags = set(entry.get("tags", []))
-                ctx_tags = set()
-                for pattern, tag in _HOOK_TAG_PATTERNS.items():
-                    if re.search(pattern, ctx_file, re.IGNORECASE):
-                        ctx_tags.add(tag)
-                has_tag_match = bool(ctx_tags & entry_tags)
 
-                if has_file_match or has_content_match or has_tag_match:
+                if has_file_match or has_content_match:
                     filtered.append(entry)
 
             return filtered[:limit]

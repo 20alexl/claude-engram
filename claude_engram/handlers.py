@@ -101,13 +101,7 @@ class Handlers:
         # Normalize path for comparison
         normalized = project_path.rstrip("/")
 
-        if normalized not in self._active_sessions:
-            return (
-                f"REMINDER: You haven't called session_start for this project yet. "
-                f"Call session_start(project_path='{project_path}') first to load "
-                f"memories and conventions. You've made {self._tool_call_count} tool "
-                f"calls without starting a session."
-            )
+        # Sessions auto-start via hooks — no need to nag about manual session_start
 
     # -------------------------------------------------------------------------
     # Status
@@ -120,12 +114,7 @@ class Handlers:
         queue_stats = self.llm.get_queue_stats()
 
         if health["healthy"]:
-            # Build suggestions - always nudge to use session_start first
-            suggestions = [
-                "**IMPORTANT**: Call session_start first to load project context!",
-                "Use impact_analyze before editing shared files",
-                "Use memory_remember to store what you learn",
-            ]
+            suggestions = []
 
             # Add queue info if there's been queueing
             queue_info = []
