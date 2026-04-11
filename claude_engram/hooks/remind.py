@@ -828,11 +828,8 @@ def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
             # No test data = assume potential loop
             return (True, count)
 
-    # Check total edits across all files
-    total_edits = loop_status.get("total_edits", 0)
-    if total_edits >= 10:  # Lots of edits without resolution
-        return (True, total_edits)
-
+    # Loop detection is per-file only. Editing many different files
+    # during a refactor is normal, not a loop.
     return (False, 0)
 
 

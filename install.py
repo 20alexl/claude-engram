@@ -163,13 +163,13 @@ def get_hooks_config():
     if is_windows():
         hook_launcher = script_dir / "scripts" / "run_hook.bat"
         hook_cmd = str(hook_launcher)
-        # Windows uses 2>NUL for stderr redirection
-        stderr_redirect = "2>NUL"
     else:
         hook_launcher = script_dir / "scripts" / "run_hook.sh"
         hook_cmd = str(hook_launcher)
-        # Unix uses 2>/dev/null for stderr redirection
-        stderr_redirect = "2>/dev/null"
+
+    # Always use /dev/null — Claude Code runs hooks through bash even on Windows
+    # (2>NUL creates a literal file named "NUL" in bash on Windows)
+    stderr_redirect = "2>/dev/null"
 
     return {
         "hooks": {
