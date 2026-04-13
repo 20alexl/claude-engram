@@ -1023,12 +1023,18 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
     else:
         loop_data = {"edit_counts": {}, "test_results": []}
 
-    # Add test result
+    # Link test result to recently-edited files
+    state = load_state()
+    recent_files = state.get("files_edited_this_session", [])[-5:]
+    recent_file_names = [Path(f).name for f in recent_files]
+
+    # Add test result with file context
     test_results = loop_data.get("test_results", [])
     test_results.append({
         "timestamp": time.time(),
         "passed": passed,
         "error_message": error_message[:200] if error_message else "",
+        "files_since_last_test": recent_file_names,
     })
     # Keep last 20 results
     loop_data["test_results"] = test_results[-20:]
@@ -1408,6 +1414,21 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
         # AUTO-RECORD the test result (no manual call needed)
         error_snippet = output[:200] if output and not passed else ""
         result = _auto_record_test(passed, error_snippet)
+
+        # On test failure, link to recently-edited files in the mistake
+        if not passed and error_snippet:
+            recent = load_state().get("files_edited_this_session", [])[-5:]
+            if recent:
+                # Extract file from traceback if present
+                file_match = re.search(r'File ["\']([^"\']+\.py)["\']', output or "")
+                error_project = project_dir
+                if file_match:
+                    error_project = get_project_dir(file_match.group(1))
+                    recent = [file_match.group(1)] + [f for f in recent if f != file_match.group(1)]
+
+                _auto_log_detected_mistake_with_files(
+                    error_project, command, error_snippet, recent[:5]
+                )
 
         # Show confirmation (not reminder)
         status_emoji = "PASS" if passed else "FAIL"
@@ -1911,6 +1932,37 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                 pass
     except Exception:
         pass  # Silent failure — auto-capture must never break the hook
+
+
+def _auto_log_detected_mistake_with_files(
+    project_dir: str, command: str, output: str, related_files: list[str]
+) -> str:
+    """Log a detected mistake with explicit related_files (from test failure linking)."""
+    result = _auto_log_detected_mistake(project_dir, command, output)
+    if result and related_files:
+        # Patch the just-written entry with related_files
+        try:
+            norm_dir = _normalize_path(project_dir)
+            manifest = _get_manifest()
+            if manifest.get("projects") and norm_dir in manifest["projects"]:
+                pdir = get_project_memory_dir(project_dir)
+                mem_file = pdir / "memory.json"
+                if mem_file.exists():
+                    data = json.loads(mem_file.read_text())
+                    entries = data.get("entries", [])
+                    if entries:
+                        # Patch the most recent entry (just added)
+                        last = entries[-1]
+                        existing = set(last.get("related_files", []))
+                        existing.update(related_files)
+                        last["related_files"] = sorted(existing)[:10]
+                        data["entries"] = entries
+                        temp = mem_file.with_suffix(".json.tmp")
+                        temp.write_text(json.dumps(data, indent=2))
+                        temp.replace(mem_file)
+        except Exception:
+            pass
+    return result
 
 
 def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> str:
