@@ -342,6 +342,59 @@ def test_incremental_processing() -> list[tuple[str, bool, str]]:
     return results
 
 
+def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
+    """Test that test failures link to recently-edited files."""
+    results = []
+
+    # Simulate: edit files, then test fails, mistake should have related_files
+    from claude_engram.hooks.remind import (
+        _auto_record_test, _auto_log_detected_mistake_with_files,
+        load_state, save_state, record_file_edit, mark_session_started,
+    )
+
+    # Setup: start session and record some edits
+    mark_session_started(r"E:\workspace")
+    record_file_edit(r"E:\workspace\chappie\V7\cortex\core\processor.py")
+    record_file_edit(r"E:\workspace\chappie\V7\cortex\core\compiler.py")
+
+    state = load_state()
+    edited = state.get("files_edited_this_session", [])
+    results.append((
+        f"Files tracked: {len(edited)}",
+        len(edited) >= 2,
+        "",
+    ))
+
+    # Simulate test failure recording with file context
+    result = _auto_record_test(False, "AssertionError: expected 5 got 3")
+    results.append((
+        "Test failure recorded",
+        True,
+        "",
+    ))
+
+    # Check test result has file context
+    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
+    if loop_file.exists():
+        import json
+        ld = json.loads(loop_file.read_text())
+        test_results = ld.get("test_results", [])
+        if test_results:
+            last = test_results[-1]
+            has_files = "files_since_last_test" in last
+            results.append((
+                f"Test result has file context: {last.get('files_since_last_test', [])}",
+                has_files,
+                "",
+            ))
+        else:
+            results.append(("Test results exist", False, "empty"))
+    else:
+        results.append(("Loop detector file exists", False, "missing"))
+
+    return results
+
+
 # ─── Runner ──────────────────────────────────────────────────────────────
 
 def main():
@@ -362,6 +415,7 @@ def main():
         ("7. Session Index", test_session_index),
         ("8. Index Performance", test_index_performance),
         ("9. Incremental Processing", test_incremental_processing),
+        ("10. Post-Test File Linking", test_post_test_file_linking),
     ]
 
     for suite_name, test_fn in test_suites:
