@@ -726,17 +726,22 @@ class Handlers:
         lines.append("SESSION END SUMMARY")
         lines.append("=" * 50)
 
-        # AUTO-CAPTURE from habit_tracker (no manual input needed)
-        habit_stats = self.habit_tracker.get_session_stats()
-        tools_used = self.habit_tracker._session_tools_used
-        files_edited = self.habit_tracker._session_files_edited
+        # Session stats from hook state (reliable — hooks always fire)
+        from claude_engram.hooks.remind import load_state
+        hook_state = load_state()
+
+        duration_mins = 0
+        last_start = hook_state.get("last_session_start")
+        if last_start:
+            duration_mins = (time.time() - last_start) / 60
+
+        files_edited = hook_state.get("files_edited_this_session", [])
 
         lines.append("")
         lines.append("Session Stats:")
-        lines.append(f"  Duration: {habit_stats.get('session_duration_minutes', 0):.1f} minutes")
-        lines.append(f"  Tools used: {habit_stats.get('total_tools_used', 0)}")
-        lines.append(f"  Decisions: {self.habit_tracker._session_decisions_logged}")
-        lines.append(f"  Mistakes: {self.habit_tracker._session_mistakes_logged}")
+        if duration_mins > 0:
+            lines.append(f"  Duration: {duration_mins:.0f} minutes")
+        lines.append(f"  Files edited: {len(files_edited)}")
 
         if files_edited:
             lines.append("")

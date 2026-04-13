@@ -806,11 +806,11 @@ class MemoryStore:
             for e in priorities[:5]
         ]
 
-        # Project-specific memories
+        # Project-specific memories (lazy-load if not yet loaded)
         if project_path:
             project_path = self._normalize_path(project_path)
-        if project_path and project_path in self._projects:
-            proj = self._projects[project_path]
+        proj = self.get_project(project_path) if project_path else None
+        if proj:
 
             entries = proj.entries
             if category:
