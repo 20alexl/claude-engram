@@ -216,7 +216,16 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 from claude_engram.mining.patterns import detect_all_patterns
                 detect_all_patterns(project_path, index, engram_storage_dir)
             except ImportError:
-                pass  # patterns not built yet (Phase 4)
+                pass
+
+        # Phase 5: Auto-cleanup (dedup + broken removal, every session end)
+        if mode in ("post_session", "bootstrap", "full"):
+            try:
+                from claude_engram.tools.memory import MemoryStore
+                store = MemoryStore(storage_dir=engram_storage_dir)
+                store.cleanup_memories(project_path, dry_run=False)
+            except Exception:
+                pass
 
         _write_status({
             "status": "completed",

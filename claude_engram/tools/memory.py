@@ -2598,9 +2598,10 @@ class MemoryStore:
                     tag_groups[t] = []
                 tag_groups[t].append(entry)
 
-        # Find groups with 3+ entries that could benefit from consolidation
+        # Find groups with 10+ entries that could benefit from consolidation.
+        # Lower thresholds merge too aggressively (33 decisions into 1 blob loses nuance).
         for t, entries in tag_groups.items():
-            if len(entries) < 3:
+            if len(entries) < 10:
                 continue
 
             group_info = {
@@ -2701,11 +2702,14 @@ Output ONLY the consolidated memory text (no explanation):"""
             related_files=list(set(f for e in entries for f in e.related_files)),
         )
 
-        # Remove old entries
-        old_ids = {e.id for e in entries}
-        proj.entries = [e for e in proj.entries if e.id not in old_ids]
+        # Keep top 5 highest-relevance entries (preserve specifics).
+        # Only remove the rest — don't destroy all individual memories.
+        keep_entries = sorted(entries, key=lambda e: e.relevance, reverse=True)[:5]
+        keep_ids = {e.id for e in keep_entries}
+        remove_ids = {e.id for e in entries} - keep_ids
+        proj.entries = [e for e in proj.entries if e.id not in remove_ids]
 
-        # Add new entry
+        # Add consolidated summary alongside the kept entries
         proj.entries.append(new_entry)
         self._rebuild_indexes(proj)
         self._save()
