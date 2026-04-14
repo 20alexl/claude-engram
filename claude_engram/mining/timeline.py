@@ -15,8 +15,9 @@ from typing import Optional
 @dataclass
 class TimelineEvent:
     """A single event in the project timeline."""
+
     timestamp: str
-    event_type: str       # "feature" | "fix" | "refactor" | "decision" | "error"
+    event_type: str  # "feature" | "fix" | "refactor" | "decision" | "error"
     description: str
     session_id: str = ""
     related_files: list[str] = field(default_factory=list)
@@ -25,9 +26,10 @@ class TimelineEvent:
 @dataclass
 class SessionSummary:
     """Auto-generated summary for a session."""
+
     session_id: str
-    date: str             # YYYY-MM-DD
-    duration_str: str     # "2.5h"
+    date: str  # YYYY-MM-DD
+    duration_str: str  # "2.5h"
     files_edited: list[str] = field(default_factory=list)
     key_activities: list[str] = field(default_factory=list)
     errors_fixed: int = 0
@@ -37,6 +39,7 @@ class SessionSummary:
 @dataclass
 class ProjectOverview:
     """High-level project stats."""
+
     total_sessions: int = 0
     total_messages: int = 0
     active_days: int = 0
@@ -75,22 +78,26 @@ def build_timeline(
         short_files = [Path(f).name for f in files[:5]]
 
         if files:
-            events.append(TimelineEvent(
-                timestamp=ts,
-                event_type="feature",
-                description=f"Edited {len(files)} files: {', '.join(short_files)}",
-                session_id=sid,
-                related_files=short_files,
-            ))
+            events.append(
+                TimelineEvent(
+                    timestamp=ts,
+                    event_type="feature",
+                    description=f"Edited {len(files)} files: {', '.join(short_files)}",
+                    session_id=sid,
+                    related_files=short_files,
+                )
+            )
 
         error_count = meta.get("error_count", 0)
         if error_count > 0:
-            events.append(TimelineEvent(
-                timestamp=ts,
-                event_type="error",
-                description=f"{error_count} errors encountered",
-                session_id=sid,
-            ))
+            events.append(
+                TimelineEvent(
+                    timestamp=ts,
+                    event_type="error",
+                    description=f"{error_count} errors encountered",
+                    session_id=sid,
+                )
+            )
 
         # Add decisions from extractions
         if extractions_dir:
@@ -99,13 +106,15 @@ def build_timeline(
                 try:
                     ext = json.loads(ext_file.read_text(encoding="utf-8"))
                     for d in ext.get("decisions", []):
-                        events.append(TimelineEvent(
-                            timestamp=d.get("timestamp", ts),
-                            event_type="decision",
-                            description=d.get("content", "")[:200],
-                            session_id=sid,
-                            related_files=d.get("related_files", []),
-                        ))
+                        events.append(
+                            TimelineEvent(
+                                timestamp=d.get("timestamp", ts),
+                                event_type="decision",
+                                description=d.get("content", "")[:200],
+                                session_id=sid,
+                                related_files=d.get("related_files", []),
+                            )
+                        )
                 except Exception:
                     pass
 
@@ -141,6 +150,7 @@ def generate_session_summaries(
         if first_ts and last_ts:
             try:
                 from datetime import datetime, timezone
+
                 start = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
                 end = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
                 hours = (end - start).total_seconds() / 3600
@@ -181,15 +191,17 @@ def generate_session_summaries(
                 except Exception:
                     pass
 
-        summaries.append(SessionSummary(
-            session_id=sid,
-            date=date_str,
-            duration_str=duration_str,
-            files_edited=files,
-            key_activities=activities,
-            errors_fixed=errors_fixed,
-            decisions_made=decisions_made,
-        ))
+        summaries.append(
+            SessionSummary(
+                session_id=sid,
+                date=date_str,
+                duration_str=duration_str,
+                files_edited=files,
+                key_activities=activities,
+                errors_fixed=errors_fixed,
+                decisions_made=decisions_made,
+            )
+        )
 
     summaries.sort(key=lambda s: s.date, reverse=True)
     return summaries
@@ -219,7 +231,11 @@ def get_project_overview(
             name = Path(f).name
             file_counts[name] = file_counts.get(name, 0) + 1
 
-    timestamps = [m.get("first_timestamp", "") for m in sessions.values() if m.get("first_timestamp")]
+    timestamps = [
+        m.get("first_timestamp", "")
+        for m in sessions.values()
+        if m.get("first_timestamp")
+    ]
 
     top_files = sorted(file_counts.items(), key=lambda x: -x[1])[:10]
 

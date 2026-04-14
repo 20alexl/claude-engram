@@ -44,13 +44,13 @@ def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
     return result["data"]
 
 
-
 # NOTE: habit tracker imports REMOVED - habit tools removed as noisy
 
 
 # ============================================================================
 # State Tracking - Track EVERYTHING Claude does and doesn't do
 # ============================================================================
+
 
 def get_state_file() -> Path:
     """Get the hook state file path."""
@@ -234,10 +234,13 @@ def record_file_edit(file_path: str):
 # Search Spiral Detection - Detect when Claude is flailing on searches
 # ============================================================================
 
+
 def record_search_failure(query_hint: str = ""):
     """Record a failed search attempt (empty results or not found)."""
     state = load_state()
-    state["consecutive_search_failures"] = state.get("consecutive_search_failures", 0) + 1
+    state["consecutive_search_failures"] = (
+        state.get("consecutive_search_failures", 0) + 1
+    )
     if query_hint:
         state["last_search_query"] = query_hint
     save_state(state)
@@ -314,7 +317,10 @@ def detect_search_failure_in_output(command: str, output: str) -> bool:
 
     # Check if this was a search-like command (must be the first word)
     import re as _re
-    first_word = _re.split(r'\s+', command_lower.strip())[0] if command_lower.strip() else ""
+
+    first_word = (
+        _re.split(r"\s+", command_lower.strip())[0] if command_lower.strip() else ""
+    )
     search_commands = ["ls", "dir", "find", "locate", "where", "which"]
     is_search = first_word in search_commands
 
@@ -369,6 +375,7 @@ def get_underused_tools() -> list[str]:
 # Project Context Loading
 # ============================================================================
 
+
 def _normalize_path(path: str) -> str:
     """Normalize a path for consistent storage (lowercase drive, forward slashes)."""
     # Resolve to absolute, then use forward slashes for consistency
@@ -381,9 +388,19 @@ def _normalize_path(path: str) -> str:
 
 # Project markers — files that indicate a project root
 _PROJECT_MARKERS = {
-    "pyproject.toml", "package.json", "Cargo.toml", "go.mod", "go.sum",
-    "pom.xml", "build.gradle", "CMakeLists.txt", "Makefile",
-    "setup.py", "setup.cfg", ".git", "CLAUDE.md",
+    "pyproject.toml",
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "go.sum",
+    "pom.xml",
+    "build.gradle",
+    "CMakeLists.txt",
+    "Makefile",
+    "setup.py",
+    "setup.cfg",
+    ".git",
+    "CLAUDE.md",
 }
 
 # Cache: file_path -> resolved project dir (avoids repeated filesystem walks)
@@ -406,7 +423,9 @@ def resolve_project_for_file(file_path: str, workspace_root: str = "") -> str:
     if file_path in _project_dir_cache:
         return _project_dir_cache[file_path]
 
-    workspace = Path(workspace_root).resolve() if workspace_root else Path.cwd().resolve()
+    workspace = (
+        Path(workspace_root).resolve() if workspace_root else Path.cwd().resolve()
+    )
     target = Path(file_path).resolve()
 
     # If the file IS the workspace (not inside a sub-project), just use workspace
@@ -489,6 +508,7 @@ def get_project_memory_dir(project_dir: str) -> Path:
         return storage / "projects" / hash_id
     # Not in manifest yet — compute hash
     import hashlib
+
     hash_id = hashlib.md5(normalized.encode()).hexdigest()[:8]
     return storage / "projects" / hash_id
 
@@ -642,7 +662,9 @@ def get_past_mistakes(project_memory: dict) -> list[dict]:
 
         # Check both MISTAKE: prefix and category="mistake"
         if content.upper().startswith("MISTAKE:"):
-            mistake_text = content[9:] if content.startswith("MISTAKE: ") else content[8:]
+            mistake_text = (
+                content[9:] if content.startswith("MISTAKE: ") else content[8:]
+            )
             mistakes.append({"id": entry_id, "content": mistake_text})
         elif category == "mistake":
             mistakes.append({"id": entry_id, "content": content})
@@ -662,7 +684,9 @@ def get_project_rules(project_memory: dict) -> list[dict]:
     for entry in sorted_entries:
         category = entry.get("category", "")
         if category == "rule":
-            rules.append({"id": entry.get("id", ""), "content": entry.get("content", "")})
+            rules.append(
+                {"id": entry.get("id", ""), "content": entry.get("content", "")}
+            )
 
     return rules
 
@@ -682,7 +706,7 @@ def _truncate(text: str, max_len: int) -> str:
     """Truncate text with ellipsis if too long."""
     if len(text) <= max_len:
         return text
-    return text[:max_len - 3] + "..."
+    return text[: max_len - 3] + "..."
 
 
 def _pluralize(count: int, singular: str) -> str:
@@ -724,7 +748,10 @@ def check_session_active(project_dir: str) -> bool:
     last_start = state.get("last_session_start")
     if last_start and (time.time() - last_start) < 14400:  # 4 hours
         active_project = state.get("active_project", "")
-        if active_project == project_dir or Path(active_project).name == Path(project_dir).name:
+        if (
+            active_project == project_dir
+            or Path(active_project).name == Path(project_dir).name
+        ):
             return True
 
     # Fallback to marker file (in ~/.claude_engram/ for Windows compatibility)
@@ -732,7 +759,10 @@ def check_session_active(project_dir: str) -> bool:
     if marker.exists():
         try:
             active_project = marker.read_text().strip()
-            return active_project == project_dir or Path(active_project).name == Path(project_dir).name
+            return (
+                active_project == project_dir
+                or Path(active_project).name == Path(project_dir).name
+            )
         except Exception:
             pass
     return False
@@ -762,7 +792,9 @@ def get_scope_status() -> dict:
 
 def get_checkpoint_data() -> dict:
     """Load the latest checkpoint data if it exists."""
-    checkpoint_file = Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
+    checkpoint_file = (
+        Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
+    )
     if not checkpoint_file.exists():
         return {}
     try:
@@ -778,13 +810,17 @@ def get_checkpoint_data() -> dict:
 
 def get_handoff_data() -> dict:
     """Load the latest handoff data if it exists."""
-    handoff_file = Path.home() / ".claude_engram" / "checkpoints" / "latest_handoff.json"
+    handoff_file = (
+        Path.home() / ".claude_engram" / "checkpoints" / "latest_handoff.json"
+    )
     if not handoff_file.exists():
         return {}
     try:
         data = json.loads(handoff_file.read_text())
         # Check age - only return if less than 48 hours old
-        age_hours = (time.time() - data.get("created", data.get("created_at", 0))) / 3600
+        age_hours = (
+            time.time() - data.get("created", data.get("created_at", 0))
+        ) / 3600
         if age_hours < 48:
             return data
         return {}
@@ -842,6 +878,7 @@ def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
 # AUTO-INJECTION - Automatically call Claude Engram tools
 # ============================================================================
 
+
 def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     """
     Automatically run pre_edit_check and return results.
@@ -866,7 +903,10 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
 
     # Find mistakes related to this file (exact filename match, not substring)
     import re as _re3
-    file_pattern = _re3.compile(r'(?:^|[\s/\\:])' + _re3.escape(file_name.lower()) + r'(?:[\s:,.]|$)')
+
+    file_pattern = _re3.compile(
+        r"(?:^|[\s/\\:])" + _re3.escape(file_name.lower()) + r"(?:[\s:,.]|$)"
+    )
     for mistake in all_mistakes:
         if file_pattern.search(mistake["content"].lower()):
             results["past_mistakes"].append(mistake["content"])
@@ -889,13 +929,16 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
         is_in_scope = file_path in in_scope or file_name in in_scope
         if not is_in_scope and patterns:
             import fnmatch
+
             is_in_scope = any(
                 fnmatch.fnmatch(file_path, p) or fnmatch.fnmatch(file_name, p)
                 for p in patterns
             )
 
         if not is_in_scope:
-            results["scope_warnings"].append(f"{file_name} NOT in scope for: {task[:50]}")
+            results["scope_warnings"].append(
+                f"{file_name} NOT in scope for: {task[:50]}"
+            )
 
     # Add RICH context - actually useful information
     try:
@@ -906,11 +949,20 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
             try:
                 content = file_obj.read_text()
                 todos = []
-                for line_num, line in enumerate(content.split('\n')[:500], 1):  # First 500 lines
-                    if 'TODO' in line or 'FIXME' in line or 'XXX' in line or 'HACK' in line:
+                for line_num, line in enumerate(
+                    content.split("\n")[:500], 1
+                ):  # First 500 lines
+                    if (
+                        "TODO" in line
+                        or "FIXME" in line
+                        or "XXX" in line
+                        or "HACK" in line
+                    ):
                         todos.append(f"L{line_num}: {line.strip()[:60]}")
                 if todos:
-                    results["suggestions"].append(f"{len(todos)} TODO/FIXME in file: {', '.join(todos[:2])}")
+                    results["suggestions"].append(
+                        f"{len(todos)} TODO/FIXME in file: {', '.join(todos[:2])}"
+                    )
             except Exception:
                 pass
 
@@ -960,7 +1012,7 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
         }
         scored = reader.get_scored_memories(project_dir, context, limit=3)
         return [
-            f"{m['content'][:80]}..." if len(m['content']) > 80 else m['content']
+            f"{m['content'][:80]}..." if len(m["content"]) > 80 else m["content"]
             for m in scored
         ]
     except Exception:
@@ -1030,12 +1082,14 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
 
     # Add test result with file context
     test_results = loop_data.get("test_results", [])
-    test_results.append({
-        "timestamp": time.time(),
-        "passed": passed,
-        "error_message": error_message[:200] if error_message else "",
-        "files_since_last_test": recent_file_names,
-    })
+    test_results.append(
+        {
+            "timestamp": time.time(),
+            "passed": passed,
+            "error_message": error_message[:200] if error_message else "",
+            "files_since_last_test": recent_file_names,
+        }
+    )
     # Keep last 20 results
     loop_data["test_results"] = test_results[-20:]
 
@@ -1059,6 +1113,7 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
 # ============================================================================
 # ENFORCEMENT - Make Claude Engram usage mandatory
 # ============================================================================
+
 
 def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool, str]:
     """
@@ -1149,8 +1204,12 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             if checkpoint:
                 age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
                 lines.append(f"CHECKPOINT ({age_hours:.1f}h ago):")
-                lines.append(f"  Task: {_truncate(checkpoint.get('task_description', 'Unknown'), 80)}")
-                lines.append(f"  Current step: {_truncate(checkpoint.get('current_step', 'Unknown'), 60)}")
+                lines.append(
+                    f"  Task: {_truncate(checkpoint.get('task_description', 'Unknown'), 80)}"
+                )
+                lines.append(
+                    f"  Current step: {_truncate(checkpoint.get('current_step', 'Unknown'), 60)}"
+                )
                 if checkpoint.get("completed_steps"):
                     lines.append(f"  Done: {len(checkpoint['completed_steps'])} steps")
                     for step in checkpoint["completed_steps"][-3:]:
@@ -1160,12 +1219,16 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
                     for step in checkpoint["pending_steps"][:3]:
                         lines.append(f"    - {_truncate(step, 60)}")
                 if checkpoint.get("files_involved"):
-                    lines.append(f"  Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}")
+                    lines.append(
+                        f"  Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}"
+                    )
                 lines.append("")
 
             if handoff:
                 lines.append("HANDOFF MESSAGE:")
-                lines.append(f"  {_truncate(handoff.get('summary', 'No summary'), 100)}")
+                lines.append(
+                    f"  {_truncate(handoff.get('summary', 'No summary'), 100)}"
+                )
                 if handoff.get("next_steps"):
                     lines.append("  Next steps:")
                     for step in handoff["next_steps"][:3]:
@@ -1320,30 +1383,36 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
         issues = []
 
         # Check for long functions
-        func_matches = re.findall(r'def\s+\w+\([^)]*\):[^\n]*\n((?:[ \t]+[^\n]*\n){50,})', content)
+        func_matches = re.findall(
+            r"def\s+\w+\([^)]*\):[^\n]*\n((?:[ \t]+[^\n]*\n){50,})", content
+        )
         if func_matches:
             issues.append("Function(s) >50 lines - break them down")
 
         # Check for vague names (only clearly bad ones, not x/y/z/data which are often legitimate)
-        vague_names = ['temp', 'tmp', 'foo', 'bar', 'stuff', 'thing']
+        vague_names = ["temp", "tmp", "foo", "bar", "stuff", "thing"]
         for name in vague_names:
-            if re.search(rf'\b{name}\b\s*=', content):
+            if re.search(rf"\b{name}\b\s*=", content):
                 issues.append(f"Vague variable name: '{name}'")
                 break
 
         # Check for placeholders
-        placeholders = ['TODO', 'FIXME', 'HACK', 'XXX', 'PLACEHOLDER']
+        placeholders = ["TODO", "FIXME", "HACK", "XXX", "PLACEHOLDER"]
         for p in placeholders:
             if p in content:
                 issues.append(f"Found placeholder: '{p}'")
                 break
 
         # Check for silent failure (CRITICAL) - only match at start of line (not in comments/strings)
-        if re.search(r'^\s*except\s*:\s*pass', content, re.MULTILINE) or re.search(r'^\s*except\s+\w+:\s*pass', content, re.MULTILINE):
+        if re.search(r"^\s*except\s*:\s*pass", content, re.MULTILINE) or re.search(
+            r"^\s*except\s+\w+:\s*pass", content, re.MULTILINE
+        ):
             issues.append("DANGER: Found 'except: pass' - silent failure pattern")
 
         # Check for hardcoded values
-        if re.search(r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', content, re.I):
+        if re.search(
+            r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', content, re.I
+        ):
             issues.append("DANGER: Possible hardcoded secret")
 
         if issues:
@@ -1363,7 +1432,9 @@ def reminder_for_write(project_dir: str, file_path: str = "", content: str = "")
     return ""
 
 
-def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", output: str = "") -> str:
+def reminder_for_bash(
+    project_dir: str, command: str = "", exit_code: str = "", output: str = ""
+) -> str:
     """
     Generate reminder for PostToolUse hook on Bash.
 
@@ -1381,23 +1452,42 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
 
     # Extract just the first command (before &&, ||, ;, or heredoc)
     import re
-    first_cmd = re.split(r'&&|\|\||;|\$\(', command_lower)[0].strip()
+
+    first_cmd = re.split(r"&&|\|\||;|\$\(", command_lower)[0].strip()
 
     # Full suite patterns - must be the start of the first command
-    full_suite_patterns = ['npm test', 'yarn test', 'make test', 'cargo test', 'go test ./...']
-    is_full_suite = any(first_cmd.startswith(p) or first_cmd == p for p in full_suite_patterns)
+    full_suite_patterns = [
+        "npm test",
+        "yarn test",
+        "make test",
+        "cargo test",
+        "go test ./...",
+    ]
+    is_full_suite = any(
+        first_cmd.startswith(p) or first_cmd == p for p in full_suite_patterns
+    )
 
     # Commands that might be full suite OR targeted - check first command only
     if not is_full_suite:
-        test_commands = ['pytest', 'jest', 'mocha', 'python -m unittest', 'python -m pytest']
+        test_commands = [
+            "pytest",
+            "jest",
+            "mocha",
+            "python -m unittest",
+            "python -m pytest",
+        ]
         for cmd in test_commands:
             if first_cmd.startswith(cmd):
                 # If command is just "pytest" or "pytest -v" etc (no path), it's full suite
                 # But "pytest tests/test_foo.py" is targeted
                 parts = first_cmd.split()
                 cmd_parts = cmd.split()
-                remaining = parts[len(cmd_parts):]
-                has_path = any('.py' in arg or '/' in arg or '\\' in arg or '::' in arg for arg in remaining if not arg.startswith('-'))
+                remaining = parts[len(cmd_parts) :]
+                has_path = any(
+                    ".py" in arg or "/" in arg or "\\" in arg or "::" in arg
+                    for arg in remaining
+                    if not arg.startswith("-")
+                )
                 if not has_path:
                     is_full_suite = True
                 break
@@ -1424,7 +1514,9 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
                 error_project = project_dir
                 if file_match:
                     error_project = get_project_dir(file_match.group(1))
-                    recent = [file_match.group(1)] + [f for f in recent if f != file_match.group(1)]
+                    recent = [file_match.group(1)] + [
+                        f for f in recent if f != file_match.group(1)
+                    ]
 
                 _auto_log_detected_mistake_with_files(
                     error_project, command, error_snippet, recent[:5]
@@ -1439,7 +1531,9 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
             else:
                 lines.append(f"{status_emoji} Test tracked: NOW FAILING (were passing)")
         elif first_run:
-            lines.append(f"{status_emoji} Test tracked: {result} (baseline established)")
+            lines.append(
+                f"{status_emoji} Test tracked: {result} (baseline established)"
+            )
         else:
             lines.append(f"{status_emoji} Test tracked: {result}")
         lines.append("</engram-test-tracked>")
@@ -1468,12 +1562,45 @@ def reminder_for_bash(project_dir: str, command: str = "", exit_code: str = "", 
 
 # Trigger words that the decision regex looks for — used for typo correction
 _DECISION_TRIGGER_WORDS = {
-    "switch", "use", "using", "adopt", "prefer", "replace", "migrate", "swap",
-    "change", "convert", "upgrade", "downgrade", "rewrite", "refactor",
-    "remove", "drop", "import", "implement", "build", "choose", "pick",
-    "stick", "keep", "stop", "avoid", "never", "always", "should",
-    "please", "going", "forward", "instead", "rather", "lets", "let's",
-    "don't", "dont", "doing", "importing",
+    "switch",
+    "use",
+    "using",
+    "adopt",
+    "prefer",
+    "replace",
+    "migrate",
+    "swap",
+    "change",
+    "convert",
+    "upgrade",
+    "downgrade",
+    "rewrite",
+    "refactor",
+    "remove",
+    "drop",
+    "import",
+    "implement",
+    "build",
+    "choose",
+    "pick",
+    "stick",
+    "keep",
+    "stop",
+    "avoid",
+    "never",
+    "always",
+    "should",
+    "please",
+    "going",
+    "forward",
+    "instead",
+    "rather",
+    "lets",
+    "let's",
+    "don't",
+    "dont",
+    "doing",
+    "importing",
 }
 
 
@@ -1488,7 +1615,7 @@ def _fix_typo(word: str) -> str:
 
     # Adjacent character swaps (most common typo: "swtich" -> "switch")
     for i in range(len(word) - 1):
-        swapped = word[:i] + word[i + 1] + word[i] + word[i + 2:]
+        swapped = word[:i] + word[i + 1] + word[i] + word[i + 2 :]
         if swapped in _DECISION_TRIGGER_WORDS:
             return swapped
 
@@ -1498,12 +1625,12 @@ def _fix_typo(word: str) -> str:
         if len(trigger) == len(word) + 1:
             # Check if word is trigger with one char removed
             for i in range(len(trigger)):
-                if trigger[:i] + trigger[i + 1:] == word:
+                if trigger[:i] + trigger[i + 1 :] == word:
                     return trigger
 
     # Extra character in word (word is longer: "useing" -> check "using")
     for i in range(len(word)):
-        shorter = word[:i] + word[i + 1:]
+        shorter = word[:i] + word[i + 1 :]
         if shorter in _DECISION_TRIGGER_WORDS:
             return shorter
 
@@ -1517,29 +1644,200 @@ def _fix_typo(word: str) -> str:
     # Edit distance 2 — only for words that aren't common English words
     # (prevents "using"->"going", "the"->"use", "strict"->"stick")
     _COMMON_WORDS = {
-        "the", "a", "an", "is", "was", "are", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "shall", "can", "need", "dare", "ought",
-        "used", "using", "to", "of", "in", "for", "on", "with", "at", "by",
-        "from", "up", "about", "into", "through", "during", "before", "after",
-        "above", "below", "between", "out", "off", "over", "under", "again",
-        "further", "then", "once", "here", "there", "when", "where", "why",
-        "how", "all", "each", "every", "both", "few", "more", "most", "other",
-        "some", "such", "no", "nor", "not", "only", "own", "same", "so",
-        "than", "too", "very", "just", "because", "but", "and", "or", "if",
-        "while", "that", "this", "these", "those", "i", "you", "he", "she",
-        "it", "we", "they", "me", "him", "her", "us", "them", "my", "your",
-        "his", "its", "our", "their", "what", "which", "who", "whom",
-        "going", "get", "got", "make", "take", "come", "go", "see", "know",
-        "think", "say", "said", "like", "look", "find", "give", "tell",
-        "work", "call", "try", "ask", "turn", "start", "show", "hear",
-        "play", "run", "move", "live", "old", "new", "good", "bad", "big",
-        "small", "long", "short", "high", "low", "right", "left", "sure",
-        "still", "also", "back", "well", "way", "even", "want", "first",
-        "last", "next", "now", "then", "end", "set", "put", "point", "help",
-        "hand", "home", "any", "best", "open", "much", "real", "form",
-        "part", "since", "until", "along", "never", "always", "stick",
-        "strict", "script", "fast", "hard", "soft",
+        "the",
+        "a",
+        "an",
+        "is",
+        "was",
+        "are",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "using",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "up",
+        "about",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "out",
+        "off",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "because",
+        "but",
+        "and",
+        "or",
+        "if",
+        "while",
+        "that",
+        "this",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "my",
+        "your",
+        "his",
+        "its",
+        "our",
+        "their",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "going",
+        "get",
+        "got",
+        "make",
+        "take",
+        "come",
+        "go",
+        "see",
+        "know",
+        "think",
+        "say",
+        "said",
+        "like",
+        "look",
+        "find",
+        "give",
+        "tell",
+        "work",
+        "call",
+        "try",
+        "ask",
+        "turn",
+        "start",
+        "show",
+        "hear",
+        "play",
+        "run",
+        "move",
+        "live",
+        "old",
+        "new",
+        "good",
+        "bad",
+        "big",
+        "small",
+        "long",
+        "short",
+        "high",
+        "low",
+        "right",
+        "left",
+        "sure",
+        "still",
+        "also",
+        "back",
+        "well",
+        "way",
+        "even",
+        "want",
+        "first",
+        "last",
+        "next",
+        "now",
+        "then",
+        "end",
+        "set",
+        "put",
+        "point",
+        "help",
+        "hand",
+        "home",
+        "any",
+        "best",
+        "open",
+        "much",
+        "real",
+        "form",
+        "part",
+        "since",
+        "until",
+        "along",
+        "never",
+        "always",
+        "stick",
+        "strict",
+        "script",
+        "fast",
+        "hard",
+        "soft",
     }
     if word not in _COMMON_WORDS:
         for trigger in _DECISION_TRIGGER_WORDS:
@@ -1562,11 +1860,13 @@ def _edit_distance(a: str, b: str) -> int:
     for i, ca in enumerate(a):
         curr = [i + 1]
         for j, cb in enumerate(b):
-            curr.append(min(
-                prev[j + 1] + 1,
-                curr[j] + 1,
-                prev[j] + (0 if ca == cb else 1),
-            ))
+            curr.append(
+                min(
+                    prev[j + 1] + 1,
+                    curr[j] + 1,
+                    prev[j] + (0 if ca == cb else 1),
+                )
+            )
         prev = curr
     return prev[-1]
 
@@ -1619,15 +1919,36 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
     # --- Decision verb presence (0.35 max) ---
     # Strong verbs that almost always indicate a decision
     strong_verbs = [
-        "switch to", "go with", "adopt", "move to", "migrate to",
-        "replace with", "swap to", "change to", "convert to", "upgrade to",
-        "downgrade to", "rewrite in", "refactor to", "get rid of",
+        "switch to",
+        "go with",
+        "adopt",
+        "move to",
+        "migrate to",
+        "replace with",
+        "swap to",
+        "change to",
+        "convert to",
+        "upgrade to",
+        "downgrade to",
+        "rewrite in",
+        "refactor to",
+        "get rid of",
     ]
     # Moderate verbs that need additional context
     moderate_verbs = [
-        "use", "prefer", "choose", "pick", "stick with", "keep using",
-        "implement with", "build with", "import from", "import",
-        "replace", "remove", "drop",
+        "use",
+        "prefer",
+        "choose",
+        "pick",
+        "stick with",
+        "keep using",
+        "implement with",
+        "build with",
+        "import from",
+        "import",
+        "replace",
+        "remove",
+        "drop",
     ]
     verb_score = 0.0
     for verb in strong_verbs:
@@ -1651,7 +1972,10 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
         (r"\bnever\s+", 0.2),
         (r"\bmake\s+sure\s+(to|we)\b", 0.15),
         (r"\bi\s+want\s+(to|you\s+to)\b", 0.2),
-        (r"\bplease\s+(use|switch|change|adopt|go|replace|remove|drop|stop|rewrite)\b", 0.25),
+        (
+            r"\bplease\s+(use|switch|change|adopt|go|replace|remove|drop|stop|rewrite)\b",
+            0.25,
+        ),
         (r"\bgo\s+ahead\s+and\b", 0.2),
         (r"\bjust\s+(use|do|go|switch|replace)\b", 0.2),
     ]
@@ -1734,7 +2058,7 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
     # Fallback: if score is high but no extraction, take first 120 chars
     if score >= 0.5 and not best_match:
         # Take up to first period or newline
-        first_sentence = re.split(r'[.\n]', text_lower)[0].strip()
+        first_sentence = re.split(r"[.\n]", text_lower)[0].strip()
         if len(first_sentence) > 15:
             best_match = first_sentence[:120]
 
@@ -1769,6 +2093,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         # Tier 1: Try semantic scoring (AllMiniLM)
         try:
             from claude_engram.hooks.intent import score_decision_semantic
+
             sem_score, sem_text = score_decision_semantic(prompt)
             if sem_score > best_score:
                 best_score = sem_score
@@ -1777,7 +2102,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
             pass  # sentence-transformers not installed or other error
 
         # Tier 2: Regex fallback (always runs, may upgrade the score)
-        sentences = re.split(r'(?<=[.!])\s+|\n+', prompt)
+        sentences = re.split(r"(?<=[.!])\s+|\n+", prompt)
         sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
         if len(sentences) <= 1:
             sentences = [prompt.strip()]
@@ -1818,27 +2143,31 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                     continue
                 existing_words = set(e.get("content", "").lower().split())
                 if existing_words and new_words:
-                    overlap = len(new_words & existing_words) / len(new_words | existing_words)
+                    overlap = len(new_words & existing_words) / len(
+                        new_words | existing_words
+                    )
                     if overlap > 0.7:
                         return
 
             file_refs = re.findall(
-                r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
-                best_text
+                r"[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
+                best_text,
             )
 
-            proj_data.setdefault("entries", []).append({
-                "id": entry_id,
-                "content": content,
-                "category": "decision",
-                "source": "auto-prompt",
-                "relevance": 6,
-                "created_at": time.time(),
-                "last_accessed": time.time(),
-                "access_count": 1,
-                "tags": ["decision"],
-                "related_files": file_refs[:5],
-            })
+            proj_data.setdefault("entries", []).append(
+                {
+                    "id": entry_id,
+                    "content": content,
+                    "category": "decision",
+                    "source": "auto-prompt",
+                    "relevance": 6,
+                    "created_at": time.time(),
+                    "last_accessed": time.time(),
+                    "access_count": 1,
+                    "tags": ["decision"],
+                    "related_files": file_refs[:5],
+                }
+            )
             proj_data["last_updated"] = time.time()
 
             pdir.mkdir(parents=True, exist_ok=True)
@@ -1849,6 +2178,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
             # Embed to pending file (fast, no full load)
             try:
                 from claude_engram.hooks.scorer_server import embed_via_server
+
                 emb = embed_via_server(content)
                 if emb:
                     pending_file = pdir / "embeddings_pending.json"
@@ -1883,27 +2213,31 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                     continue
                 existing_words = set(e.get("content", "").lower().split())
                 if existing_words and new_words:
-                    overlap = len(new_words & existing_words) / len(new_words | existing_words)
+                    overlap = len(new_words & existing_words) / len(
+                        new_words | existing_words
+                    )
                     if overlap > 0.7:
                         return
 
             file_refs = re.findall(
-                r'[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)',
-                best_text
+                r"[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
+                best_text,
             )
 
-            projects[norm_dir].setdefault("entries", []).append({
-                "id": entry_id,
-                "content": content,
-                "category": "decision",
-                "source": "auto-prompt",
-                "relevance": 6,
-                "created_at": time.time(),
-                "last_accessed": time.time(),
-                "access_count": 1,
-                "tags": ["decision"],
-                "related_files": file_refs[:5],
-            })
+            projects[norm_dir].setdefault("entries", []).append(
+                {
+                    "id": entry_id,
+                    "content": content,
+                    "category": "decision",
+                    "source": "auto-prompt",
+                    "relevance": 6,
+                    "created_at": time.time(),
+                    "last_accessed": time.time(),
+                    "access_count": 1,
+                    "tags": ["decision"],
+                    "related_files": file_refs[:5],
+                }
+            )
             projects[norm_dir]["last_updated"] = time.time()
 
             data["projects"] = projects
@@ -1918,6 +2252,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
             # Embed to legacy global embeddings
             try:
                 from claude_engram.hooks.scorer_server import embed_via_server
+
                 emb = embed_via_server(content)
                 if emb:
                     emb_file = memory_file.parent / "embeddings.json"
@@ -1984,6 +2319,7 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
     # Pattern 1: Import/Module errors
     import re
+
     if "ModuleNotFoundError" in output or "ImportError" in output:
         # Try "No module named 'X'" first
         match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
@@ -1993,11 +2329,16 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             how_to_avoid = f"Install missing module: pip install {module}"
         else:
             # Try "cannot import name 'X' from 'Y'"
-            match2 = re.search(r"cannot import name ['\"]([^'\"]+)['\"] from ['\"]([^'\"]+)['\"]", output)
+            match2 = re.search(
+                r"cannot import name ['\"]([^'\"]+)['\"] from ['\"]([^'\"]+)['\"]",
+                output,
+            )
             if match2:
                 name, module = match2.group(1), match2.group(2)
                 mistake_type = f"Import error: cannot import '{name}' from '{module}'"
-                how_to_avoid = f"Check that '{name}' exists in {module}, or update the package"
+                how_to_avoid = (
+                    f"Check that '{name}' exists in {module}, or update the package"
+                )
             # If neither regex matched, skip - don't log "unknown"
 
     # Pattern 2: Syntax errors
@@ -2044,6 +2385,7 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
         try:
             # Write directly to per-project file (fast, no full MemoryStore load)
             import hashlib
+
             content = f"MISTAKE: {mistake_type}"
             if how_to_avoid:
                 content += f" - Fix: {how_to_avoid}"
@@ -2059,8 +2401,8 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             if obj_match:
                 tags.append(obj_match.group(1).lower())
             # Extract function names
-            func_match = re.search(r'in (\w+)\n', output)
-            if func_match and func_match.group(1) not in ('__init__', '<module>'):
+            func_match = re.search(r"in (\w+)\n", output)
+            if func_match and func_match.group(1) not in ("__init__", "<module>"):
                 tags.append(func_match.group(1))
 
             norm_dir = _normalize_path(project_dir)
@@ -2088,7 +2430,9 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 if mem_file.exists():
                     proj_data = json.loads(mem_file.read_text())
 
-                existing_contents = {e.get("content", "") for e in proj_data.get("entries", [])}
+                existing_contents = {
+                    e.get("content", "") for e in proj_data.get("entries", [])
+                }
                 if content not in existing_contents:
                     proj_data.setdefault("entries", []).append(new_entry)
                     proj_data["last_updated"] = time.time()
@@ -2101,6 +2445,7 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                     # Embed to pending file
                     try:
                         from claude_engram.hooks.scorer_server import embed_via_server
+
                         emb = embed_via_server(content)
                         if emb:
                             pending_file = pdir / "embeddings_pending.json"
@@ -2130,7 +2475,9 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                         "last_updated": time.time(),
                     }
 
-                existing_contents = {e.get("content", "") for e in projects[norm_dir].get("entries", [])}
+                existing_contents = {
+                    e.get("content", "") for e in projects[norm_dir].get("entries", [])
+                }
                 if content not in existing_contents:
                     projects[norm_dir]["entries"].append(new_entry)
                     projects[norm_dir]["last_updated"] = time.time()
@@ -2147,6 +2494,7 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                     # Embed to legacy global embeddings
                     try:
                         from claude_engram.hooks.scorer_server import embed_via_server
+
                         emb = embed_via_server(content)
                         if emb:
                             emb_file = memory_file.parent / "embeddings.json"
@@ -2182,9 +2530,13 @@ def reminder_for_error(project_dir: str, error_message: str = "") -> str:
     lines = ["<engram-error-reminder>"]
     if errors >= 3:
         lines.append(f"{errors} errors without logging. Consider:")
-        lines.append("  work(operation='log_mistake', description='...', how_to_avoid='...')")
+        lines.append(
+            "  work(operation='log_mistake', description='...', how_to_avoid='...')"
+        )
     else:
-        lines.append("Log recurring errors with work(log_mistake) to get warned next time")
+        lines.append(
+            "Log recurring errors with work(log_mistake) to get warned next time"
+        )
     lines.append("</engram-error-reminder>")
     return "\n".join(lines)
 
@@ -2192,6 +2544,7 @@ def reminder_for_error(project_dir: str, error_message: str = "") -> str:
 # ============================================================================
 # Main Entry Point
 # ============================================================================
+
 
 def main():
     hook_type = sys.argv[1] if len(sys.argv) > 1 else "prompt"
@@ -2240,6 +2593,7 @@ def main():
         # NOTE: This only fires for SUCCESSFUL commands. Failed commands (exit != 0) don't trigger
         # PostToolUse hooks. See: https://github.com/anthropics/claude-code/issues/6371
         import json as json_module
+
         try:
             # Cross-platform stdin reading with timeout
             stdin_data = _read_stdin_with_timeout(0.5)
@@ -2261,14 +2615,21 @@ def main():
                 else:
                     # Check if first word is a search command (success resets spiral)
                     import re as _re2
-                    first_word = _re2.split(r'\s+', command.lower().strip())[0] if command else ""
+
+                    first_word = (
+                        _re2.split(r"\s+", command.lower().strip())[0]
+                        if command
+                        else ""
+                    )
                     if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
                         record_search_success()
 
                 # Reset loop detector on git commit (edit cycle completed)
                 if command and "git commit" in command:
                     try:
-                        loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
+                        loop_file = (
+                            Path.home() / ".claude_engram" / "loop_detector.json"
+                        )
                         if loop_file.exists():
                             ld = json.loads(loop_file.read_text())
                             ld["file_edit_counts"] = {}
@@ -2285,14 +2646,18 @@ def main():
                 # Add search spiral suggestion if in spiral
                 spiral_suggestion = get_search_spiral_suggestion(project_dir)
                 if spiral_suggestion:
-                    result = (result + "\n" + spiral_suggestion) if result else spiral_suggestion
+                    result = (
+                        (result + "\n" + spiral_suggestion)
+                        if result
+                        else spiral_suggestion
+                    )
 
                 if result:
                     # Output JSON format for PostToolUse to add context to Claude
                     hook_output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PostToolUse",
-                            "additionalContext": result
+                            "additionalContext": result,
                         }
                     }
                     print(json_module.dumps(hook_output))
@@ -2302,6 +2667,7 @@ def main():
     elif hook_type == "post_edit_json":
         # PostToolUse hook for Edit/Write - auto-record edit and show confirmation
         import json as json_module
+
         try:
             # Cross-platform stdin reading with timeout
             stdin_data = _read_stdin_with_timeout(0.5)
@@ -2334,7 +2700,9 @@ def main():
                     if loop_file.exists():
                         try:
                             loop_data = json_module.loads(loop_file.read_text())
-                            edit_count = loop_data.get("edit_counts", {}).get(file_path, 1)
+                            edit_count = loop_data.get("edit_counts", {}).get(
+                                file_path, 1
+                            )
                         except Exception:
                             pass
 
@@ -2346,7 +2714,7 @@ def main():
                     hook_output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PostToolUse",
-                            "additionalContext": result
+                            "additionalContext": result,
                         }
                     }
                     print(json_module.dumps(hook_output))
@@ -2359,6 +2727,7 @@ def main():
     # ==================================================================
     elif hook_type in ("tool_failure_json", "bash_failure_json"):
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
@@ -2381,45 +2750,76 @@ def main():
                     lines = []
 
                     if tool_name == "Bash":
-                        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+                        command = (
+                            tool_input.get("command", "")
+                            if isinstance(tool_input, dict)
+                            else ""
+                        )
 
                         # Try to resolve sub-project from file paths in error output
                         if error_msg:
-                            file_match = re.search(r'File ["\']([^"\']+\.py)["\']', error_msg)
+                            file_match = re.search(
+                                r'File ["\']([^"\']+\.py)["\']', error_msg
+                            )
                             if file_match:
                                 project_dir = get_project_dir(file_match.group(1))
 
                         # Auto-log mistake from error output
                         if error_msg:
-                            logged = _auto_log_detected_mistake(project_dir, command, error_msg)
+                            logged = _auto_log_detected_mistake(
+                                project_dir, command, error_msg
+                            )
                             if logged:
                                 lines.append(f"Auto-logged: {logged}")
 
                         # Auto-record failed test
                         if command:
-                            first_cmd = re.split(r'&&|\|\||;', command.lower().strip())[0].strip()
-                            test_commands = ['pytest', 'jest', 'mocha', 'npm test', 'yarn test',
-                                             'make test', 'cargo test', 'go test', 'python -m pytest',
-                                             'python -m unittest']
+                            first_cmd = re.split(r"&&|\|\||;", command.lower().strip())[
+                                0
+                            ].strip()
+                            test_commands = [
+                                "pytest",
+                                "jest",
+                                "mocha",
+                                "npm test",
+                                "yarn test",
+                                "make test",
+                                "cargo test",
+                                "go test",
+                                "python -m pytest",
+                                "python -m unittest",
+                            ]
                             if any(first_cmd.startswith(c) for c in test_commands):
                                 _auto_record_test(False, error_msg[:200])
                                 lines.append("FAIL Test tracked")
 
                     elif tool_name in ("Edit", "Write"):
-                        file_path = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
+                        file_path = (
+                            tool_input.get("file_path", "")
+                            if isinstance(tool_input, dict)
+                            else ""
+                        )
                         if file_path and error_msg:
                             file_name = Path(file_path).name
                             # Auto-log edit failure with file context
                             _auto_log_detected_mistake(
-                                project_dir, f"edit {file_name}",
-                                f"Edit failed on {file_name}: {error_msg[:200]}"
+                                project_dir,
+                                f"edit {file_name}",
+                                f"Edit failed on {file_name}: {error_msg[:200]}",
                             )
                             lines.append(f"Edit failure on {file_name} tracked")
 
                     elif tool_name == "Read" and error_msg:
                         # Track file-not-found patterns
-                        file_path = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
-                        if "not found" in error_msg.lower() or "no such file" in error_msg.lower():
+                        file_path = (
+                            tool_input.get("file_path", "")
+                            if isinstance(tool_input, dict)
+                            else ""
+                        )
+                        if (
+                            "not found" in error_msg.lower()
+                            or "no such file" in error_msg.lower()
+                        ):
                             record_search_failure(file_path[:50])
 
                     # Track error counter
@@ -2433,7 +2833,7 @@ def main():
                     hook_output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PostToolUseFailure",
-                            "additionalContext": f"<engram-error>{result}</engram-error>"
+                            "additionalContext": f"<engram-error>{result}</engram-error>",
                         }
                     }
                     print(json_module.dumps(hook_output))
@@ -2445,6 +2845,7 @@ def main():
     # ==================================================================
     elif hook_type == "pre_compact_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             trigger = "auto"
@@ -2490,6 +2891,7 @@ def main():
     # ==================================================================
     elif hook_type == "post_compact_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             summary = ""
@@ -2509,7 +2911,9 @@ def main():
                 for r in rules[:5]:
                     lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
             if mistakes:
-                lines.append(f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)")
+                lines.append(
+                    f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
+                )
 
             # PostCompact has no hookSpecificOutput in Claude Code's schema.
             # Print as plain stdout — Claude Code shows this as hook output.
@@ -2522,6 +2926,7 @@ def main():
     # ==================================================================
     elif hook_type == "session_start_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             source = "startup"
@@ -2535,6 +2940,7 @@ def main():
             # Start persistent scorer server in background (if sentence-transformers available)
             try:
                 from claude_engram.hooks.scorer_server import start_server_background
+
                 start_server_background()  # Non-blocking, returns immediately if already running
             except Exception:
                 pass  # sentence-transformers not installed — regex fallback will be used
@@ -2552,14 +2958,18 @@ def main():
                 for r in rules[:5]:
                     lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
             if mistakes:
-                lines.append(f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)")
+                lines.append(
+                    f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
+                )
 
             # Check for checkpoint/handoff to restore
             checkpoint = get_checkpoint_data()
             handoff = get_handoff_data()
             if checkpoint:
                 age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
-                lines.append(f"CHECKPOINT ({age_hours:.1f}h ago): {_truncate(checkpoint.get('task_description', '?'), 80)}")
+                lines.append(
+                    f"CHECKPOINT ({age_hours:.1f}h ago): {_truncate(checkpoint.get('task_description', '?'), 80)}"
+                )
             if handoff:
                 lines.append(f"HANDOFF: {_truncate(handoff.get('summary', '?'), 100)}")
 
@@ -2590,13 +3000,24 @@ def main():
                     # Bootstrap: no index yet, but session JSONLs may exist
                     if _hash_dir:
                         try:
-                            from claude_engram.mining.jsonl_reader import resolve_jsonl_dir
+                            from claude_engram.mining.jsonl_reader import (
+                                resolve_jsonl_dir,
+                            )
+
                             _jsonl_dir = resolve_jsonl_dir(project_dir)
                             if _jsonl_dir and any(_jsonl_dir.glob("*.jsonl")):
-                                from claude_engram.mining.background import start_mining_background, is_mining_running
+                                from claude_engram.mining.background import (
+                                    start_mining_background,
+                                    is_mining_running,
+                                )
+
                                 if not is_mining_running():
-                                    start_mining_background(project_dir, mode="bootstrap")
-                                    lines.append("Session mining: bootstrapping from history (background)...")
+                                    start_mining_background(
+                                        project_dir, mode="bootstrap"
+                                    )
+                                    lines.append(
+                                        "Session mining: bootstrapping from history (background)..."
+                                    )
                         except Exception:
                             pass
 
@@ -2616,7 +3037,9 @@ def main():
                         if files:
                             lines.append(f"  Worked on: {', '.join(files[:8])}")
                             if summary["file_count"] > 8:
-                                lines.append(f"  ...and {summary['file_count'] - 8} more files")
+                                lines.append(
+                                    f"  ...and {summary['file_count'] - 8} more files"
+                                )
                         errs = summary.get("error_count", 0)
                         msgs = summary.get("user_message_count", 0)
                         if errs or msgs:
@@ -2637,11 +3060,15 @@ def main():
                             if struggles:
                                 lines.append("Recurring struggles:")
                                 for s in struggles:
-                                    lines.append(f"  - {s['file_path']} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)")
+                                    lines.append(
+                                        f"  - {s['file_path']} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
+                                    )
                             if recurring:
                                 lines.append("Recurring errors:")
                                 for e in recurring:
-                                    lines.append(f"  - {e['error_type']} ({e['session_count']} sessions)")
+                                    lines.append(
+                                        f"  - {e['error_type']} ({e['session_count']} sessions)"
+                                    )
                         except Exception:
                             pass
             except Exception:
@@ -2650,7 +3077,7 @@ def main():
             hook_output = {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
-                    "additionalContext": "\n".join(lines)
+                    "additionalContext": "\n".join(lines),
                 }
             }
             print(json_module.dumps(hook_output))
@@ -2662,6 +3089,7 @@ def main():
     # ==================================================================
     elif hook_type == "prompt_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             prompt_text = ""
@@ -2671,7 +3099,9 @@ def main():
 
             # Resolve project from recently edited files (not just cwd)
             state = load_state()
-            recent_files = state.get("files_edited_this_session", []) or state.get("last_session_files", [])
+            recent_files = state.get("files_edited_this_session", []) or state.get(
+                "last_session_files", []
+            )
             if recent_files:
                 project_dir = get_project_dir(recent_files[-1])
 
@@ -2684,7 +3114,7 @@ def main():
                 hook_output = {
                     "hookSpecificOutput": {
                         "hookEventName": "UserPromptSubmit",
-                        "additionalContext": result
+                        "additionalContext": result,
                     }
                 }
                 print(json_module.dumps(hook_output))
@@ -2697,6 +3127,7 @@ def main():
     # ==================================================================
     elif hook_type == "stop_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
@@ -2719,7 +3150,9 @@ def main():
                         "context_needed": [],
                         "warnings": [],
                         "project_path": project_dir,
-                        "last_message_preview": last_message[:300] if last_message else "",
+                        "last_message_preview": (
+                            last_message[:300] if last_message else ""
+                        ),
                         "files_in_progress": files_edited[:10],
                     }
 
@@ -2739,6 +3172,7 @@ def main():
     # ==================================================================
     elif hook_type == "session_end_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             reason = "other"
@@ -2763,11 +3197,14 @@ def main():
             project_memory = load_project_memory(project_dir)
             counts = get_memory_counts(project_memory)
             if counts.get("total", 0) > 0:
-                lines.append(f"Memories: {counts['total']} total ({counts.get('mistake', 0)} mistakes, {counts.get('rule', 0)} rules)")
+                lines.append(
+                    f"Memories: {counts['total']} total ({counts.get('mistake', 0)} mistakes, {counts.get('rule', 0)} rules)"
+                )
 
             # Spawn background session miner (fire-and-forget, ~50ms)
             try:
                 from claude_engram.mining.background import start_mining_background
+
                 start_mining_background(project_dir, mode="post_session")
             except Exception:
                 pass  # Mining not available — skip silently
@@ -2783,6 +3220,7 @@ def main():
     # ==================================================================
     elif hook_type == "pre_edit_json":
         import json as json_module
+
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             file_path = ""
@@ -2797,7 +3235,11 @@ def main():
 
                 # Add predictive context from session mining (reads JSON, fast)
                 try:
-                    from claude_engram.mining.predictive import predict_for_file, format_prediction
+                    from claude_engram.mining.predictive import (
+                        predict_for_file,
+                        format_prediction,
+                    )
+
                     pred = predict_for_file(file_path, project_dir)
                     pred_text = format_prediction(pred)
                     if pred_text:
@@ -2809,7 +3251,7 @@ def main():
                     hook_output = {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
-                            "additionalContext": result
+                            "additionalContext": result,
                         }
                     }
                     print(json_module.dumps(hook_output))

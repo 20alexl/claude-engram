@@ -28,20 +28,21 @@ from claude_engram.mining.jsonl_reader import (
 
 # ─── Data structures ─────────────────────────────────────────────────────
 
+
 @dataclass
 class Decision:
-    content: str          # Concise: "Use numpy instead of ChromaDB for embeddings"
-    reasoning: str = ""   # Why: "ChromaDB adds 200MB dependency"
+    content: str  # Concise: "Use numpy instead of ChromaDB for embeddings"
+    reasoning: str = ""  # Why: "ChromaDB adds 200MB dependency"
     timestamp: str = ""
-    source: str = ""      # "structural" | "semantic" | "regex"
+    source: str = ""  # "structural" | "semantic" | "regex"
     related_files: list[str] = field(default_factory=list)
     confidence: float = 0.0
 
 
 @dataclass
 class Mistake:
-    description: str      # What went wrong
-    fix: str = ""         # How it was fixed
+    description: str  # What went wrong
+    fix: str = ""  # How it was fixed
     timestamp: str = ""
     related_files: list[str] = field(default_factory=list)
     error_type: str = ""  # "AttributeError", "test_failure", etc.
@@ -49,18 +50,18 @@ class Mistake:
 
 @dataclass
 class Approach:
-    tried: str            # What was attempted
-    result: str           # "failed" | "worked"
-    switched_to: str = "" # What replaced it
+    tried: str  # What was attempted
+    result: str  # "failed" | "worked"
+    switched_to: str = ""  # What replaced it
     timestamp: str = ""
     related_files: list[str] = field(default_factory=list)
 
 
 @dataclass
 class Correction:
-    user_said: str        # The correction text
-    preference: str       # Extracted preference
-    context: str = ""     # What assistant said before (to understand what was corrected)
+    user_said: str  # The correction text
+    preference: str  # Extracted preference
+    context: str = ""  # What assistant said before (to understand what was corrected)
     timestamp: str = ""
 
 
@@ -111,13 +112,16 @@ _MISTAKE_TEMPLATES = [
 _template_cache: dict[str, list[list[float]]] = {}
 
 
-def _get_template_embeddings(templates: list[str], key: str) -> Optional[list[list[float]]]:
+def _get_template_embeddings(
+    templates: list[str], key: str
+) -> Optional[list[list[float]]]:
     """Get cached template embeddings via AllMiniLM scorer server."""
     if key in _template_cache:
         return _template_cache[key]
 
     try:
         from claude_engram.hooks.scorer_server import embed_via_server
+
         embeddings = []
         for t in templates:
             emb = embed_via_server(t)
@@ -130,7 +134,9 @@ def _get_template_embeddings(templates: list[str], key: str) -> Optional[list[li
         return None
 
 
-def _semantic_score_single(text_emb: list[float], template_embs: list[list[float]]) -> float:
+def _semantic_score_single(
+    text_emb: list[float], template_embs: list[list[float]]
+) -> float:
     """Score a pre-computed embedding against templates. Returns max cosine similarity."""
     max_sim = 0.0
     for templ_emb in template_embs:
@@ -145,6 +151,7 @@ def _batch_embed(texts: list[str]) -> list[list[float]]:
         return []
     try:
         from claude_engram.hooks.scorer_server import embed_batch_via_server
+
         return embed_batch_via_server(texts)
     except Exception:
         return [[] for _ in texts]
@@ -193,6 +200,7 @@ _TEST_FAILURE_PATTERN = re.compile(
 
 # ─── Structural extractors ──────────────────────────────────────────────
 
+
 def extract_all(messages: list[dict]) -> SessionExtractions:
     """
     Extract all intelligence from a message sequence using structural analysis.
@@ -226,8 +234,9 @@ def extract_all(messages: list[dict]) -> SessionExtractions:
 @dataclass
 class FlowMessage:
     """A message in the conversation flow with pre-extracted data."""
+
     index: int
-    msg_type: str         # "user" | "assistant"
+    msg_type: str  # "user" | "assistant"
     timestamp: str = ""
     user_text: str = ""
     assistant_texts: list[str] = field(default_factory=list)
@@ -276,7 +285,9 @@ def _build_conversation_flow(messages: list[dict]) -> list[FlowMessage]:
                     if block.get("is_error"):
                         fm.has_error = True
                     block_content = block.get("content", "")
-                    if isinstance(block_content, str) and _ERROR_TYPE_PATTERN.search(block_content):
+                    if isinstance(block_content, str) and _ERROR_TYPE_PATTERN.search(
+                        block_content
+                    ):
                         fm.has_error = True
                         if not fm.error_content:
                             fm.error_content = block_content[:500]
@@ -334,13 +345,15 @@ def _extract_mistakes_structural(flow: list[FlowMessage]) -> list[Mistake]:
                 related_files = flow[j].file_edits
                 break
 
-        mistakes.append(Mistake(
-            description=f"{error_type}: {error_msg}",
-            fix=fix,
-            timestamp=fm.timestamp,
-            related_files=related_files,
-            error_type=error_type,
-        ))
+        mistakes.append(
+            Mistake(
+                description=f"{error_type}: {error_msg}",
+                fix=fix,
+                timestamp=fm.timestamp,
+                related_files=related_files,
+                error_type=error_type,
+            )
+        )
 
     return mistakes
 
@@ -403,12 +416,14 @@ def _extract_corrections_structural(flow: list[FlowMessage]) -> list[Correction]
             continue
         seen.add(key)
 
-        corrections.append(Correction(
-            user_said=text[:300],
-            preference=preference[:300],
-            context=prev_asst,
-            timestamp=flow[idx].timestamp,
-        ))
+        corrections.append(
+            Correction(
+                user_said=text[:300],
+                preference=preference[:300],
+                context=prev_asst,
+                timestamp=flow[idx].timestamp,
+            )
+        )
 
     return corrections
 
@@ -440,10 +455,15 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         elif fm.msg_type == "assistant":
             for thought in fm.thinking:
                 if len(thought) > 50:
-                    candidates.append((
-                        thought[:300], "thinking", fm.timestamp, fm.file_edits,
-                        _extract_reasoning_from_text(thought),
-                    ))
+                    candidates.append(
+                        (
+                            thought[:300],
+                            "thinking",
+                            fm.timestamp,
+                            fm.file_edits,
+                            _extract_reasoning_from_text(thought),
+                        )
+                    )
 
     if not candidates:
         return []
@@ -455,7 +475,9 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
     # Phase 3: Threshold and extract
     for (text, source, ts, files, reasoning), score in zip(candidates, scores):
         threshold = 0.5 if source == "user" else 0.6
-        confidence_factor = 1.0 if source == "user" else (0.9 if source == "thinking" else 0.8)
+        confidence_factor = (
+            1.0 if source == "user" else (0.9 if source == "thinking" else 0.8)
+        )
 
         if score < threshold:
             continue
@@ -466,14 +488,16 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
             continue
         seen.add(key)
 
-        decisions.append(Decision(
-            content=content,
-            reasoning=reasoning,
-            timestamp=ts,
-            source=source,
-            related_files=files,
-            confidence=min(score * confidence_factor, 1.0),
-        ))
+        decisions.append(
+            Decision(
+                content=content,
+                reasoning=reasoning,
+                timestamp=ts,
+                source=source,
+                related_files=files,
+                confidence=min(score * confidence_factor, 1.0),
+            )
+        )
 
     return decisions
 
@@ -517,13 +541,16 @@ def _extract_approaches_structural(flow: list[FlowMessage]) -> list[Approach]:
                     break
 
             from pathlib import Path
-            approaches.append(Approach(
-                tried=f"Multiple edits to {Path(fp).name} ({len(indices)} times)",
-                result="struggled" if error_between else "worked",
-                switched_to=context,
-                timestamp=flow[indices[0]].timestamp,
-                related_files=[fp],
-            ))
+
+            approaches.append(
+                Approach(
+                    tried=f"Multiple edits to {Path(fp).name} ({len(indices)} times)",
+                    result="struggled" if error_between else "worked",
+                    switched_to=context,
+                    timestamp=flow[indices[0]].timestamp,
+                    related_files=[fp],
+                )
+            )
 
     # Error → different file pattern
     for i, fm in enumerate(flow):
@@ -537,21 +564,29 @@ def _extract_approaches_structural(flow: list[FlowMessage]) -> list[Approach]:
             new_files = set(flow[j].file_edits) - prev_files
             if new_files:
                 from pathlib import Path
-                old = ", ".join(Path(f).name for f in prev_files) if prev_files else "previous approach"
+
+                old = (
+                    ", ".join(Path(f).name for f in prev_files)
+                    if prev_files
+                    else "previous approach"
+                )
                 new = ", ".join(Path(f).name for f in new_files)
-                approaches.append(Approach(
-                    tried=f"Editing {old}",
-                    result="error",
-                    switched_to=f"Moved to {new}",
-                    timestamp=fm.timestamp,
-                    related_files=list(prev_files | new_files),
-                ))
+                approaches.append(
+                    Approach(
+                        tried=f"Editing {old}",
+                        result="error",
+                        switched_to=f"Moved to {new}",
+                        timestamp=fm.timestamp,
+                        related_files=list(prev_files | new_files),
+                    )
+                )
                 break
 
     return approaches
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────
+
 
 def _first_sentence(text: str, max_len: int = 150) -> str:
     """Extract the first meaningful sentence from text."""
@@ -560,7 +595,7 @@ def _first_sentence(text: str, max_len: int = 150) -> str:
     for end in [". ", ".\n", "!\n", "! ", ":\n"]:
         idx = text.find(end)
         if 10 < idx < max_len:
-            return text[:idx + 1].strip()
+            return text[: idx + 1].strip()
     return text[:max_len].strip()
 
 
@@ -572,7 +607,7 @@ def _summarize_decision(text: str) -> str:
         return text
 
     # Try to find the decision sentence
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    sentences = re.split(r"(?<=[.!?])\s+", text)
     for s in sentences:
         s = s.strip()
         if len(s) > 15 and len(s) < 200:
@@ -596,6 +631,7 @@ def _extract_reasoning_from_text(text: str) -> str:
 
 
 # ─── Pipeline ────────────────────────────────────────────────────────────
+
 
 def run_extraction_pipeline(
     project_path: str,
@@ -665,7 +701,9 @@ def run_extraction_pipeline(
         extraction_data = asdict(extractions)
         # Strip raw message data to keep files small
         tmp = extraction_file.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(extraction_data, indent=2, default=str), encoding="utf-8")
+        tmp.write_text(
+            json.dumps(extraction_data, indent=2, default=str), encoding="utf-8"
+        )
         tmp.replace(extraction_file)
 
         count = (
@@ -691,6 +729,7 @@ def _feed_to_memory_store(
     """Feed high-confidence extractions into MemoryStore."""
     try:
         from claude_engram.tools.memory import MemoryStore
+
         store = MemoryStore(storage_dir=engram_storage_dir)
 
         # High-confidence decisions
@@ -728,10 +767,23 @@ def _feed_to_memory_store(
         # User corrections with clear directives
         for c in extractions.corrections:
             pref = c.preference.lower()
-            has_directive = any(w in pref for w in [
-                "don't", "dont", "stop", "never", "always", "should",
-                "want", "need", "prefer", "use", "not", "instead",
-            ])
+            has_directive = any(
+                w in pref
+                for w in [
+                    "don't",
+                    "dont",
+                    "stop",
+                    "never",
+                    "always",
+                    "should",
+                    "want",
+                    "need",
+                    "prefer",
+                    "use",
+                    "not",
+                    "instead",
+                ]
+            )
             if has_directive and len(c.preference) > 15:
                 store.remember_discovery(
                     project_path,

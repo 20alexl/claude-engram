@@ -21,6 +21,7 @@ from ..schema import MiniClaudeResponse, WorkLog
 
 class Convention(BaseModel):
     """A single project convention/rule."""
+
     rule: str  # The actual rule text
     category: str  # "naming", "architecture", "style", "pattern", "avoid"
     examples: list[str] = Field(default_factory=list)  # Good/bad examples
@@ -31,6 +32,7 @@ class Convention(BaseModel):
 
 class ProjectConventions(BaseModel):
     """All conventions for a project."""
+
     project_path: str
     project_name: str
     conventions: list[Convention] = Field(default_factory=list)
@@ -87,10 +89,7 @@ class ConventionTracker:
 
     def _save(self) -> bool:
         """Save conventions to disk with atomic write."""
-        data = {
-            path: proj.model_dump()
-            for path, proj in self._projects.items()
-        }
+        data = {path: proj.model_dump() for path, proj in self._projects.items()}
         try:
             # Atomic write: write to temp file then rename
             temp_file = self.conventions_file.with_suffix(".json.tmp")
@@ -136,7 +135,10 @@ class ConventionTracker:
 
         # Check for duplicate/similar rules
         for existing in proj.conventions:
-            if rule.lower() in existing.rule.lower() or existing.rule.lower() in rule.lower():
+            if (
+                rule.lower() in existing.rule.lower()
+                or existing.rule.lower() in rule.lower()
+            ):
                 work_log.what_failed.append("Similar rule already exists")
                 return MiniClaudeResponse(
                     status="partial",
@@ -258,7 +260,11 @@ class ConventionTracker:
             code_lower = code_or_filename.lower()
 
             # Check for "never use X" patterns
-            if "never use" in rule_lower or "don't use" in rule_lower or "avoid" in rule_lower:
+            if (
+                "never use" in rule_lower
+                or "don't use" in rule_lower
+                or "avoid" in rule_lower
+            ):
                 # Extract what to avoid
                 avoid_terms = []
                 if "var " in rule_lower:
@@ -270,29 +276,44 @@ class ConventionTracker:
 
                 for term in avoid_terms:
                     if term in code_lower:
-                        warnings.append({
-                            "rule": conv.rule,
-                            "violation": f"Found '{term.strip()}'",
-                            "importance": conv.importance,
-                        })
+                        warnings.append(
+                            {
+                                "rule": conv.rule,
+                                "violation": f"Found '{term.strip()}'",
+                                "importance": conv.importance,
+                            }
+                        )
 
             # Check naming conventions
-            if "snake_case" in rule_lower and "_" not in code_or_filename and code_or_filename.endswith((".py", ".js", ".ts")):
-                if any(c.isupper() for c in code_or_filename.replace(".py", "").replace(".js", "").replace(".ts", "")):
-                    warnings.append({
-                        "rule": conv.rule,
-                        "violation": f"Filename may not follow snake_case",
-                        "importance": conv.importance,
-                    })
+            if (
+                "snake_case" in rule_lower
+                and "_" not in code_or_filename
+                and code_or_filename.endswith((".py", ".js", ".ts"))
+            ):
+                if any(
+                    c.isupper()
+                    for c in code_or_filename.replace(".py", "")
+                    .replace(".js", "")
+                    .replace(".ts", "")
+                ):
+                    warnings.append(
+                        {
+                            "rule": conv.rule,
+                            "violation": f"Filename may not follow snake_case",
+                            "importance": conv.importance,
+                        }
+                    )
 
             if "camelCase" in rule_lower or "camel case" in rule_lower:
                 # Check for snake_case in what looks like identifiers
                 if "_" in code_or_filename and not code_or_filename.startswith("_"):
-                    warnings.append({
-                        "rule": conv.rule,
-                        "violation": f"Found underscore in name (expecting camelCase)",
-                        "importance": conv.importance,
-                    })
+                    warnings.append(
+                        {
+                            "rule": conv.rule,
+                            "violation": f"Found underscore in name (expecting camelCase)",
+                            "importance": conv.importance,
+                        }
+                    )
 
         work_log.what_worked.append(f"Checked {len(proj.conventions)} conventions")
 
@@ -302,7 +323,10 @@ class ConventionTracker:
                 confidence="medium",
                 reasoning=f"Found {len(warnings)} potential convention violations",
                 work_log=work_log,
-                warnings=[f"[{w['importance']}/10] {w['rule']}: {w['violation']}" for w in warnings],
+                warnings=[
+                    f"[{w['importance']}/10] {w['rule']}: {w['violation']}"
+                    for w in warnings
+                ],
                 data={"violations": warnings},
             )
         else:
@@ -333,8 +357,7 @@ class ConventionTracker:
         original_count = len(proj.conventions)
 
         proj.conventions = [
-            c for c in proj.conventions
-            if rule_substring.lower() not in c.rule.lower()
+            c for c in proj.conventions if rule_substring.lower() not in c.rule.lower()
         ]
 
         removed = original_count - len(proj.conventions)
@@ -380,9 +403,7 @@ class ConventionTracker:
 
     def get_stats(self) -> dict:
         """Get convention statistics."""
-        total_conventions = sum(
-            len(p.conventions) for p in self._projects.values()
-        )
+        total_conventions = sum(len(p.conventions) for p in self._projects.values())
         return {
             "projects_with_conventions": len(self._projects),
             "total_conventions": total_conventions,
@@ -429,13 +450,15 @@ class ConventionTracker:
 
         # First do quick pattern-based check
         quick_result = self.check_conventions(project_path, code)
-        quick_violations = quick_result.data.get("violations", []) if quick_result.data else []
+        quick_violations = (
+            quick_result.data.get("violations", []) if quick_result.data else []
+        )
 
         # Build prompt for LLM analysis
         conventions_text = "\n".join(
-            f"- [{c.category}] {c.rule}" +
-            (f" (importance: {c.importance}/10)" if c.importance >= 7 else "") +
-            (f"\n  Examples: {', '.join(c.examples[:2])}" if c.examples else "")
+            f"- [{c.category}] {c.rule}"
+            + (f" (importance: {c.importance}/10)" if c.importance >= 7 else "")
+            + (f"\n  Examples: {', '.join(c.examples[:2])}" if c.examples else "")
             for c in sorted(proj.conventions, key=lambda x: x.importance, reverse=True)
         )
 
@@ -469,7 +492,9 @@ Be thorough. Don't miss violations. Don't make up violations that aren't there."
         llm_analysis = None
 
         try:
-            result = llm_client.generate(prompt, timeout=60)  # 60s timeout for convention check
+            result = llm_client.generate(
+                prompt, timeout=60
+            )  # 60s timeout for convention check
             if result.get("success"):
                 llm_analysis = result.get("response", "")
                 work_log.what_worked.append("LLM analysis complete")
@@ -477,17 +502,21 @@ Be thorough. Don't miss violations. Don't make up violations that aren't there."
                 # Check if LLM found violations
                 # Look for explicit violation markers or absence of "no violations" confirmation
                 has_violations = (
-                    "❌" in llm_analysis or
-                    "VIOLATION" in llm_analysis.upper() or
-                    ("no violation" not in llm_analysis.lower() and
-                     "✅" not in llm_analysis)
+                    "❌" in llm_analysis
+                    or "VIOLATION" in llm_analysis.upper()
+                    or (
+                        "no violation" not in llm_analysis.lower()
+                        and "✅" not in llm_analysis
+                    )
                 )
 
                 if has_violations:
-                    violations.append({
-                        "source": "llm",
-                        "analysis": llm_analysis,
-                    })
+                    violations.append(
+                        {
+                            "source": "llm",
+                            "analysis": llm_analysis,
+                        }
+                    )
             else:
                 work_log.what_failed.append(f"LLM check failed: {result.get('error')}")
         except Exception as e:
@@ -500,8 +529,10 @@ Be thorough. Don't miss violations. Don't make up violations that aren't there."
         if all_violations:
             status = "partial"
             reasoning = f"Found {total_violations} potential violation(s)"
-            warnings = [f"[{v.get('importance', '?')}/10] {v.get('rule', 'LLM Analysis')}: {v.get('violation', v.get('analysis', '')[:100])}"
-                       for v in all_violations[:5]]
+            warnings = [
+                f"[{v.get('importance', '?')}/10] {v.get('rule', 'LLM Analysis')}: {v.get('violation', v.get('analysis', '')[:100])}"
+                for v in all_violations[:5]
+            ]
         else:
             status = "success"
             reasoning = "Code follows all stored conventions"

@@ -33,7 +33,7 @@ def seed_memory_file(memory_file: Path, project_path: str, entries: list):
                 "recent_searches": [],
                 "last_updated": time.time(),
             }
-        }
+        },
     }
     memory_file.parent.mkdir(parents=True, exist_ok=True)
     memory_file.write_text(json.dumps(data, indent=2))
@@ -52,6 +52,7 @@ def load_memory_entries(memory_file: Path, project_path: str) -> list:
 def make_entry(content, category="discovery", relevance=5):
     """Create a memory entry dict."""
     import hashlib
+
     return {
         "id": hashlib.md5(content.encode()).hexdigest()[:12],
         "content": content,
@@ -121,7 +122,10 @@ CASES = [
             make_entry("Always use type hints", "rule", 9),
         ],
         "expect_survive": ["type hints"],
-        "expect_not_survive_alone": ["Docker", "/v2/"],  # discoveries shouldn't be in rules/mistakes
+        "expect_not_survive_alone": [
+            "Docker",
+            "/v2/",
+        ],  # discoveries shouldn't be in rules/mistakes
         "expect_category": "rule",
     },
     {
@@ -248,7 +252,9 @@ def run_benchmark():
                 status = "FAIL"
 
             print(f"\n  [{status}] {case['name']}")
-            print(f"    Entries: {result['total_entries_before']} before, {result['total_entries_after']} after")
+            print(
+                f"    Entries: {result['total_entries_before']} before, {result['total_entries_after']} after"
+            )
             print(f"    Rules survived: {len(result['rules_found'])}")
             print(f"    Mistakes survived: {len(result['mistakes_found'])}")
             if result["reinject_text"]:
@@ -258,7 +264,8 @@ def run_benchmark():
 
             if not case_pass:
                 missing = [
-                    e for e in case.get("expect_survive", [])
+                    e
+                    for e in case.get("expect_survive", [])
                     if e.lower() not in all_survived_text
                 ]
                 if missing:

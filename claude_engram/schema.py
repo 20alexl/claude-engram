@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 class WorkLog(BaseModel):
     """What claude_engram did during this operation."""
+
     what_i_tried: list[str] = Field(default_factory=list)
     what_worked: list[str] = Field(default_factory=list)
     what_failed: list[str] = Field(default_factory=list)
@@ -21,6 +22,7 @@ class WorkLog(BaseModel):
 
 class SearchResult(BaseModel):
     """A single search finding."""
+
     file: str
     line: Optional[int] = None
     relevance: str = "medium"  # high, medium, low
@@ -35,6 +37,7 @@ class MiniClaudeResponse(BaseModel):
     This is the core of the "junior agent" pattern - rich communication
     that tells Claude not just WHAT was found, but HOW and WHY.
     """
+
     # Core result
     status: str = "success"  # success, partial, failed, needs_clarification
 
@@ -54,8 +57,12 @@ class MiniClaudeResponse(BaseModel):
 
     # Proactive collaboration
     questions: list[str] = Field(default_factory=list)  # "Should I also check...?"
-    suggestions: list[str] = Field(default_factory=list)  # "I noticed X might be related..."
-    warnings: list[str] = Field(default_factory=list)  # "This code has a potential issue..."
+    suggestions: list[str] = Field(
+        default_factory=list
+    )  # "I noticed X might be related..."
+    warnings: list[str] = Field(
+        default_factory=list
+    )  # "This code has a potential issue..."
 
     # For Claude to decide next steps
     follow_up_options: list[dict] = Field(default_factory=list)
@@ -66,9 +73,9 @@ class MiniClaudeResponse(BaseModel):
 
         # SPECIAL CASE: Test failures need prominent display
         is_test_failure = (
-            self.status == "failed" and
-            isinstance(self.data, dict) and
-            self.data.get("passed") is False
+            self.status == "failed"
+            and isinstance(self.data, dict)
+            and self.data.get("passed") is False
         )
 
         if is_test_failure:
@@ -165,13 +172,21 @@ class MiniClaudeResponse(BaseModel):
                                     mid = item.get("id", "")
                                     content = item.get("content", str(item))
                                     rel = item.get("relevance", "")
-                                    tags = " ".join(f"#{t}" for t in item.get("tags", [])[:3])
-                                    lines.append(f"[{mid}] ({rel}) {content[:100]} {tags}".rstrip())
+                                    tags = " ".join(
+                                        f"#{t}" for t in item.get("tags", [])[:3]
+                                    )
+                                    lines.append(
+                                        f"[{mid}] ({rel}) {content[:100]} {tags}".rstrip()
+                                    )
                                 else:
                                     lines.append(f"  {item}")
                     elif isinstance(value, dict):
                         # Inline small dicts, skip large ones
-                        flat = ", ".join(f"{k}={v}" for k, v in value.items() if v is not None and v != "" and v != [])
+                        flat = ", ".join(
+                            f"{k}={v}"
+                            for k, v in value.items()
+                            if v is not None and v != "" and v != []
+                        )
                         if flat:
                             lines.append(f"{key}: {flat}")
                     elif value is not None and value != "" and value != []:

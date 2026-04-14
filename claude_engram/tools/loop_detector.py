@@ -23,6 +23,7 @@ from ..schema import MiniClaudeResponse, WorkLog
 @dataclass
 class EditEvent:
     """A single edit event."""
+
     file_path: str
     timestamp: float
     description: str
@@ -32,6 +33,7 @@ class EditEvent:
 @dataclass
 class LoopPattern:
     """A detected loop pattern."""
+
     pattern_type: str  # "repeated_edit", "oscillation", "test_failure_loop"
     severity: str  # "warning", "critical"
     message: str
@@ -110,11 +112,13 @@ class LoopDetector:
 
         now = time.time()
 
-        self._edits.append(EditEvent(
-            file_path=file_path,
-            timestamp=now,
-            description=description,
-        ))
+        self._edits.append(
+            EditEvent(
+                file_path=file_path,
+                timestamp=now,
+                description=description,
+            )
+        )
         self._file_edit_counts[file_path] += 1
         self._persist_state()  # Save for hooks to read
 
@@ -153,14 +157,18 @@ class LoopDetector:
                     "file_edit_counts": dict(self._file_edit_counts),
                 },
                 warnings=warning_messages,
-                suggestions=[
-                    "STOP and reconsider your approach",
-                    "Try a completely different strategy",
-                    "Ask the user for guidance",
-                ] if critical else [
-                    "Consider if you're making progress",
-                    "Maybe try a different approach",
-                ],
+                suggestions=(
+                    [
+                        "STOP and reconsider your approach",
+                        "Try a completely different strategy",
+                        "Ask the user for guidance",
+                    ]
+                    if critical
+                    else [
+                        "Consider if you're making progress",
+                        "Maybe try a different approach",
+                    ]
+                ),
             )
 
         return MiniClaudeResponse(
@@ -212,18 +220,23 @@ class LoopDetector:
 
         elif edit_count >= self.max_edits_per_file - 1:
             risk_level = "medium"
-            warnings.append(f"About to edit '{file_path}' for the {edit_count + 1}th time")
-            warnings.append("   → Make sure this edit is different from previous attempts")
+            warnings.append(
+                f"About to edit '{file_path}' for the {edit_count + 1}th time"
+            )
+            warnings.append(
+                "   → Make sure this edit is different from previous attempts"
+            )
 
         # Check recent test failures after edits to this file
         file_edits_with_failures = [
-            e for e in self._edits
-            if e.file_path == file_path and e.success is False
+            e for e in self._edits if e.file_path == file_path and e.success is False
         ]
 
         if len(file_edits_with_failures) >= 2:
             risk_level = "high"
-            warnings.append(f"Previous {len(file_edits_with_failures)} edits to this file failed tests")
+            warnings.append(
+                f"Previous {len(file_edits_with_failures)} edits to this file failed tests"
+            )
             warnings.append("   → The issue might be elsewhere")
 
         work_log.what_worked.append(f"risk level: {risk_level}")
@@ -238,16 +251,24 @@ class LoopDetector:
                 "edit_count": edit_count,
                 "risk_level": risk_level,
                 "recent_edits": [
-                    {"time": e.timestamp, "description": e.description, "success": e.success}
+                    {
+                        "time": e.timestamp,
+                        "description": e.description,
+                        "success": e.success,
+                    }
                     for e in recent_edits
                 ],
             },
             warnings=warnings,
-            suggestions=[
-                "Try fixing a different file",
-                "Re-read the error message carefully",
-                "Check if the root cause is elsewhere",
-            ] if risk_level == "high" else [],
+            suggestions=(
+                [
+                    "Try fixing a different file",
+                    "Re-read the error message carefully",
+                    "Check if the root cause is elsewhere",
+                ]
+                if risk_level == "high"
+                else []
+            ),
         )
 
     def get_status(self) -> MiniClaudeResponse:
@@ -265,9 +286,15 @@ class LoopDetector:
         )[:5]
 
         # Recent test pass rate
-        recent_tests = [t for t in self._test_results if time.time() - t[0] < self.loop_window_seconds]
+        recent_tests = [
+            t
+            for t in self._test_results
+            if time.time() - t[0] < self.loop_window_seconds
+        ]
         if recent_tests:
-            pass_rate = sum(1 for _, passed in recent_tests if passed) / len(recent_tests)
+            pass_rate = sum(1 for _, passed in recent_tests if passed) / len(
+                recent_tests
+            )
         else:
             pass_rate = None
 
@@ -299,19 +326,24 @@ class LoopDetector:
         # Pattern 1: Same file edited too many times
         for file_path, count in self._file_edit_counts.items():
             if count >= self.max_edits_per_file:
-                severity = "critical" if count >= self.max_edits_per_file + 2 else "warning"
-                patterns.append(LoopPattern(
-                    pattern_type="repeated_edit",
-                    severity=severity,
-                    message=f"File '{file_path}' edited {count} times",
-                    file_path=file_path,
-                    count=count,
-                    suggestion="Try a completely different approach or fix a different file",
-                ))
+                severity = (
+                    "critical" if count >= self.max_edits_per_file + 2 else "warning"
+                )
+                patterns.append(
+                    LoopPattern(
+                        pattern_type="repeated_edit",
+                        severity=severity,
+                        message=f"File '{file_path}' edited {count} times",
+                        file_path=file_path,
+                        count=count,
+                        suggestion="Try a completely different approach or fix a different file",
+                    )
+                )
 
         # Pattern 2: Tests keep failing after edits
         recent_tests = [
-            (t, passed) for t, passed in self._test_results
+            (t, passed)
+            for t, passed in self._test_results
             if now - t < self.loop_window_seconds
         ]
         recent_failures = [t for t, passed in recent_tests if not passed]
@@ -319,18 +351,19 @@ class LoopDetector:
         if len(recent_failures) >= 3 and len(recent_tests) >= 3:
             fail_rate = len(recent_failures) / len(recent_tests)
             if fail_rate >= 0.7:
-                patterns.append(LoopPattern(
-                    pattern_type="test_failure_loop",
-                    severity="critical",
-                    message=f"Tests failed {len(recent_failures)}/{len(recent_tests)} times recently",
-                    count=len(recent_failures),
-                    suggestion="STOP. Re-read the error. The bug might be elsewhere.",
-                ))
+                patterns.append(
+                    LoopPattern(
+                        pattern_type="test_failure_loop",
+                        severity="critical",
+                        message=f"Tests failed {len(recent_failures)}/{len(recent_tests)} times recently",
+                        count=len(recent_failures),
+                        suggestion="STOP. Re-read the error. The bug might be elsewhere.",
+                    )
+                )
 
         # Pattern 3: Same error repeating
         recent_errors = [
-            (t, msg) for t, msg in self._errors
-            if now - t < self.loop_window_seconds
+            (t, msg) for t, msg in self._errors if now - t < self.loop_window_seconds
         ]
 
         if len(recent_errors) >= 2:
@@ -338,27 +371,33 @@ class LoopDetector:
             error_groups = self._group_similar_errors(recent_errors)
             for error_pattern, count in error_groups.items():
                 if count >= 2:
-                    patterns.append(LoopPattern(
-                        pattern_type="repeated_error",
-                        severity="warning" if count < 3 else "critical",
-                        message=f"Same error appeared {count} times: {error_pattern[:50]}...",
-                        count=count,
-                        suggestion="Your fix isn't working. Try something different.",
-                    ))
+                    patterns.append(
+                        LoopPattern(
+                            pattern_type="repeated_error",
+                            severity="warning" if count < 3 else "critical",
+                            message=f"Same error appeared {count} times: {error_pattern[:50]}...",
+                            count=count,
+                            suggestion="Your fix isn't working. Try something different.",
+                        )
+                    )
 
         # Pattern 4: Oscillation (editing same 2-3 files back and forth)
         if len(self._edits) >= self.oscillation_threshold:
-            recent_files = [e.file_path for e in self._edits[-self.oscillation_threshold:]]
+            recent_files = [
+                e.file_path for e in self._edits[-self.oscillation_threshold :]
+            ]
             unique_files = set(recent_files)
 
             if len(unique_files) <= 2 and len(recent_files) >= 4:
-                patterns.append(LoopPattern(
-                    pattern_type="oscillation",
-                    severity="warning",
-                    message=f"Oscillating between {len(unique_files)} files: {', '.join(unique_files)}",
-                    count=len(recent_files),
-                    suggestion="You might be fixing symptoms, not the root cause",
-                ))
+                patterns.append(
+                    LoopPattern(
+                        pattern_type="oscillation",
+                        severity="warning",
+                        message=f"Oscillating between {len(unique_files)} files: {', '.join(unique_files)}",
+                        count=len(recent_files),
+                        suggestion="You might be fixing symptoms, not the root cause",
+                    )
+                )
 
         return patterns
 
@@ -366,7 +405,8 @@ class LoopDetector:
         """Get recent edits to a specific file."""
         now = time.time()
         return [
-            e for e in self._edits
+            e
+            for e in self._edits
             if e.file_path == file_path and now - e.timestamp < self.loop_window_seconds
         ]
 
@@ -381,9 +421,8 @@ class LoopDetector:
             # Normalize error message (remove line numbers, specific values)
             normalized = msg.lower()
             # Remove numbers that might be line numbers or counts
-            normalized = ' '.join(
-                word for word in normalized.split()
-                if not word.isdigit()
+            normalized = " ".join(
+                word for word in normalized.split() if not word.isdigit()
             )
             # Truncate for grouping (use 200 chars to avoid false grouping)
             normalized = normalized[:200]

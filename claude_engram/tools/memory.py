@@ -29,8 +29,11 @@ from pydantic import BaseModel, Field
 
 class MemoryEntry(BaseModel):
     """A single memory entry with smart features."""
+
     content: str
-    category: str  # "rule", "mistake", "context", "discovery", "priority", "note", "decision"
+    category: (
+        str  # "rule", "mistake", "context", "discovery", "priority", "note", "decision"
+    )
     created_at: float = Field(default_factory=time.time)
     source: Optional[str] = None  # What operation created this memory
     relevance: int = 5  # 1-10, higher = more important
@@ -39,8 +42,12 @@ class MemoryEntry(BaseModel):
     id: str = Field(default="")  # Unique identifier (set on creation)
     last_accessed: float = Field(default_factory=time.time)  # For decay tracking
     access_count: int = 1  # How often this memory was relevant
-    tags: list[str] = Field(default_factory=list)  # Auto-extracted: ["auth", "bootstrap"]
-    related_files: list[str] = Field(default_factory=list)  # Files this memory relates to
+    tags: list[str] = Field(
+        default_factory=list
+    )  # Auto-extracted: ["auth", "bootstrap"]
+    related_files: list[str] = Field(
+        default_factory=list
+    )  # Files this memory relates to
     cluster_id: Optional[str] = None  # Which cluster this belongs to
 
     # v3: Archive support
@@ -61,6 +68,7 @@ RECENCY_HALF_LIFE_DAYS = 30
 
 class MemoryCluster(BaseModel):
     """A group of related memories."""
+
     cluster_id: str
     name: str  # "Bootstrap Discoveries", "Auth Memories"
     memory_ids: list[str] = Field(default_factory=list)
@@ -72,6 +80,7 @@ class MemoryCluster(BaseModel):
 
 class ProjectMemory(BaseModel):
     """Memory about a specific project/directory."""
+
     project_path: str
     project_name: str
 
@@ -93,9 +102,15 @@ class ProjectMemory(BaseModel):
     last_updated: float = Field(default_factory=time.time)
 
     # v2: Smart memory indexes
-    file_memory_index: dict[str, list[str]] = Field(default_factory=dict)  # file -> memory IDs
-    tag_memory_index: dict[str, list[str]] = Field(default_factory=dict)  # tag -> memory IDs
-    clusters: dict[str, MemoryCluster] = Field(default_factory=dict)  # cluster_id -> cluster
+    file_memory_index: dict[str, list[str]] = Field(
+        default_factory=dict
+    )  # file -> memory IDs
+    tag_memory_index: dict[str, list[str]] = Field(
+        default_factory=dict
+    )  # tag -> memory IDs
+    clusters: dict[str, MemoryCluster] = Field(
+        default_factory=dict
+    )  # cluster_id -> cluster
     last_cleanup: float = Field(default_factory=time.time)  # Track when last cleaned
 
 
@@ -152,7 +167,9 @@ class MemoryStore:
         # v3: Archive tier (lazy-loaded, never on hot path)
         self._archive_projects: dict[str, ProjectMemory] = {}
         self._archive_loaded: bool = False
-        self.archive_after_days: int = int(os.environ.get("CLAUDE_ENGRAM_ARCHIVE_DAYS", "14"))
+        self.archive_after_days: int = int(
+            os.environ.get("CLAUDE_ENGRAM_ARCHIVE_DAYS", "14")
+        )
 
         # v4: Vector embeddings for semantic search (now per-project)
         self._embeddings_file = self.storage_dir / "embeddings.json"  # legacy
@@ -168,6 +185,7 @@ class MemoryStore:
         """Try to import numpy for binary embeddings. Optional."""
         try:
             import numpy as np
+
             self._np = np
         except ImportError:
             self._np = None
@@ -361,7 +379,9 @@ class MemoryStore:
                         proj_emb_vecs.append(legacy_embeddings[entry.id])
 
                 if proj_emb_ids:
-                    self._save_project_embeddings(norm_path, proj_emb_ids, proj_emb_vecs)
+                    self._save_project_embeddings(
+                        norm_path, proj_emb_ids, proj_emb_vecs
+                    )
 
             self._dirty_projects.clear()
 
@@ -382,7 +402,9 @@ class MemoryStore:
             # Remove legacy embeddings file (backed up data is now per-project)
             if legacy_emb_file.exists():
                 try:
-                    legacy_emb_file.replace(legacy_emb_file.with_suffix(".json.v2backup"))
+                    legacy_emb_file.replace(
+                        legacy_emb_file.with_suffix(".json.v2backup")
+                    )
                 except Exception:
                     pass
 
@@ -401,7 +423,9 @@ class MemoryStore:
         # Add ID if missing (include created_at to avoid collisions for same-content entries)
         if not entry_data.get("id"):
             created = str(entry_data.get("created_at", ""))
-            entry_data["id"] = hashlib.md5(f"{content}{created}".encode()).hexdigest()[:12]
+            entry_data["id"] = hashlib.md5(f"{content}{created}".encode()).hexdigest()[
+                :12
+            ]
 
         # Add tags if missing
         if "tags" not in entry_data:
@@ -505,7 +529,9 @@ class MemoryStore:
             counter += 1
         return f"{base_id}_{counter}"
 
-    def _is_duplicate(self, content: str, entries: list[MemoryEntry], threshold: float = 0.85) -> Optional[MemoryEntry]:
+    def _is_duplicate(
+        self, content: str, entries: list[MemoryEntry], threshold: float = 0.85
+    ) -> Optional[MemoryEntry]:
         """
         Check if content is a duplicate of an existing memory.
         Uses Jaccard similarity on word sets.
@@ -593,7 +619,11 @@ class MemoryStore:
         try:
             # Save only dirty projects (or all loaded projects if dirty set is empty
             # — backward compat for callers that don't track dirty)
-            projects_to_save = self._dirty_projects if self._dirty_projects else set(self._projects.keys())
+            projects_to_save = (
+                self._dirty_projects
+                if self._dirty_projects
+                else set(self._projects.keys())
+            )
             for norm_path in projects_to_save:
                 if not self._save_project(norm_path):
                     ok = False
@@ -706,7 +736,10 @@ class MemoryStore:
             if relevance > duplicate.relevance:
                 duplicate.relevance = relevance
             self._save()
-            return (False, f"Duplicate of existing memory (id={duplicate.id}), updated access count")
+            return (
+                False,
+                f"Duplicate of existing memory (id={duplicate.id}), updated access count",
+            )
 
         # Auto-extract tags and files if not provided
         auto_tags = self._extract_tags(content)
@@ -770,12 +803,14 @@ class MemoryStore:
 
         # Keep only last 20 searches
         proj.recent_searches = proj.recent_searches[-19:]
-        proj.recent_searches.append({
-            "query": query,
-            "results_count": results_count,
-            "top_files": top_files[:5],
-            "timestamp": time.time(),
-        })
+        proj.recent_searches.append(
+            {
+                "query": query,
+                "results_count": results_count,
+                "top_files": top_files[:5],
+                "timestamp": time.time(),
+            }
+        )
 
         self._save()
 
@@ -802,8 +837,7 @@ class MemoryStore:
             reverse=True,
         )
         result["global_priorities"] = [
-            {"content": e.content, "relevance": e.relevance}
-            for e in priorities[:5]
+            {"content": e.content, "relevance": e.relevance} for e in priorities[:5]
         ]
 
         # Project-specific memories (lazy-load if not yet loaded)
@@ -854,6 +888,7 @@ class MemoryStore:
             proj_dir = self._projects_dir / hash_id
             if proj_dir.exists():
                 import shutil
+
                 try:
                     shutil.rmtree(str(proj_dir))
                 except Exception:
@@ -952,20 +987,26 @@ class MemoryStore:
             # Check for stale memories (not accessed in 60+ days)
             age_days = (now - entry.last_accessed) / 86400
             if age_days > 60 and entry.category not in ("rule", "mistake"):
-                stale.append({
-                    "id": entry.id,
-                    "age_days": int(age_days),
-                    "category": entry.category,
-                    "preview": entry.content[:50] + "..." if len(entry.content) > 50 else entry.content,
-                })
+                stale.append(
+                    {
+                        "id": entry.id,
+                        "age_days": int(age_days),
+                        "category": entry.category,
+                        "preview": (
+                            entry.content[:50] + "..."
+                            if len(entry.content) > 50
+                            else entry.content
+                        ),
+                    }
+                )
 
         # Count decisions separately (they have DECISION: prefix or decision category)
         decision_count = 0
         recent_decisions = []
         for entry in proj.entries:
             is_decision = (
-                entry.content.upper().startswith("DECISION:") or
-                entry.category == "decision"
+                entry.content.upper().startswith("DECISION:")
+                or entry.category == "decision"
             )
             if is_decision:
                 decision_count += 1
@@ -975,25 +1016,35 @@ class MemoryStore:
                     content = entry.content
                     if content.upper().startswith("DECISION:"):
                         content = content[9:].strip()
-                    recent_decisions.append({
-                        "content": content[:100],
-                        "age_hours": int(age_hours),
-                    })
+                    recent_decisions.append(
+                        {
+                            "content": content[:100],
+                            "age_hours": int(age_hours),
+                        }
+                    )
 
         # Generate suggestions
         if len(stale) > 3:
-            suggestions.append(f"{len(stale)} memories haven't been accessed in 60+ days - consider reviewing with memory(cleanup, dry_run=true)")
+            suggestions.append(
+                f"{len(stale)} memories haven't been accessed in 60+ days - consider reviewing with memory(cleanup, dry_run=true)"
+            )
 
         if categories.get("discovery", 0) > 20:
-            suggestions.append("Many discoveries stored - consider promoting important ones to rules")
+            suggestions.append(
+                "Many discoveries stored - consider promoting important ones to rules"
+            )
 
         if categories.get("mistake", 0) > 10:
-            suggestions.append("Learning from many mistakes! Review if patterns have emerged")
+            suggestions.append(
+                "Learning from many mistakes! Review if patterns have emerged"
+            )
 
         # Memory management hints
         total = len(proj.entries)
         if total > 30:
-            suggestions.append("Manage memories: memory(modify/delete/promote, memory_id='...')")
+            suggestions.append(
+                "Manage memories: memory(modify/delete/promote, memory_id='...')"
+            )
 
         return {
             "total": total,
@@ -1159,7 +1210,9 @@ class MemoryStore:
 
         return results
 
-    def _get_entry_by_id(self, proj: ProjectMemory, entry_id: str) -> Optional[MemoryEntry]:
+    def _get_entry_by_id(
+        self, proj: ProjectMemory, entry_id: str
+    ) -> Optional[MemoryEntry]:
         """Get an entry by ID from a project."""
         for entry in proj.entries:
             if entry.id == entry_id:
@@ -1214,15 +1267,23 @@ class MemoryStore:
         for entry in proj.entries:
             reason = self._is_broken_memory(entry.content)
             if reason:
-                report["broken_found"].append({
-                    "entry_id": entry.id,
-                    "reason": reason,
-                    "content_preview": entry.content[:60] + "..." if len(entry.content) > 60 else entry.content,
-                })
-                report["removed"].append({
-                    "entry_id": entry.id,
-                    "reason": f"Broken memory: {reason}",
-                })
+                report["broken_found"].append(
+                    {
+                        "entry_id": entry.id,
+                        "reason": reason,
+                        "content_preview": (
+                            entry.content[:60] + "..."
+                            if len(entry.content) > 60
+                            else entry.content
+                        ),
+                    }
+                )
+                report["removed"].append(
+                    {
+                        "entry_id": entry.id,
+                        "reason": f"Broken memory: {reason}",
+                    }
+                )
 
         # Find duplicates — Jaccard word similarity first (fast)
         removed_ids = {r["entry_id"] for r in report["removed"]}
@@ -1230,13 +1291,17 @@ class MemoryStore:
         for entry in proj.entries:
             if entry.id in removed_ids:
                 continue
-            dup = self._is_duplicate(entry.content, list(seen_content.values()), threshold=0.85)
+            dup = self._is_duplicate(
+                entry.content, list(seen_content.values()), threshold=0.85
+            )
             if dup:
-                report["duplicates_found"].append({
-                    "entry_id": entry.id,
-                    "duplicate_of": dup.id,
-                    "content_preview": entry.content[:50] + "...",
-                })
+                report["duplicates_found"].append(
+                    {
+                        "entry_id": entry.id,
+                        "duplicate_of": dup.id,
+                        "content_preview": entry.content[:50] + "...",
+                    }
+                )
             else:
                 seen_content[entry.id] = entry
 
@@ -1244,16 +1309,23 @@ class MemoryStore:
         # (e.g., same error with slightly different wording)
         try:
             from claude_engram.hooks.scorer_server import embed_batch_via_server
+
             dup_ids = {d["entry_id"] for d in report["duplicates_found"]}
-            candidates = [e for e in proj.entries
-                          if e.id not in removed_ids and e.id not in dup_ids]
+            candidates = [
+                e
+                for e in proj.entries
+                if e.id not in removed_ids and e.id not in dup_ids
+            ]
             if len(candidates) >= 2:
                 texts = [e.content for e in candidates]
                 embeddings = embed_batch_via_server(texts)
-                valid_embs = [(i, emb) for i, emb in enumerate(embeddings) if emb and len(emb) > 0]
+                valid_embs = [
+                    (i, emb) for i, emb in enumerate(embeddings) if emb and len(emb) > 0
+                ]
 
                 if len(valid_embs) >= 2:
                     import numpy as np
+
                     indices = [i for i, _ in valid_embs]
                     matrix = np.array([emb for _, emb in valid_embs], dtype=np.float32)
                     sims = np.dot(matrix, matrix.T)
@@ -1269,12 +1341,17 @@ class MemoryStore:
                                 # Remove the newer one (keep the original)
                                 orig_idx = indices[a]
                                 dupe_idx = indices[b]
-                                report["duplicates_found"].append({
-                                    "entry_id": candidates[dupe_idx].id,
-                                    "duplicate_of": candidates[orig_idx].id,
-                                    "content_preview": candidates[dupe_idx].content[:50] + "...",
-                                    "method": "semantic",
-                                })
+                                report["duplicates_found"].append(
+                                    {
+                                        "entry_id": candidates[dupe_idx].id,
+                                        "duplicate_of": candidates[orig_idx].id,
+                                        "content_preview": candidates[dupe_idx].content[
+                                            :50
+                                        ]
+                                        + "...",
+                                        "method": "semantic",
+                                    }
+                                )
                                 semantic_keep.discard(b)
         except Exception:
             pass  # AllMiniLM not available — skip semantic dedup
@@ -1287,11 +1364,15 @@ class MemoryStore:
                 if any(d["entry_id"] == entry.id for d in report["duplicates_found"]):
                     continue
                 if self._is_archivable(entry):
-                    report["archived"].append({
-                        "entry_id": entry.id,
-                        "age_days": int((time.time() - entry.last_accessed) / 86400),
-                        "content_preview": entry.content[:50] + "...",
-                    })
+                    report["archived"].append(
+                        {
+                            "entry_id": entry.id,
+                            "age_days": int(
+                                (time.time() - entry.last_accessed) / 86400
+                            ),
+                            "content_preview": entry.content[:50] + "...",
+                        }
+                    )
 
         # Calculate decay for old memories (only if apply_decay is True)
         # PROTECTED CATEGORIES: rules and mistakes NEVER decay
@@ -1310,23 +1391,29 @@ class MemoryStore:
                 age_days = (now - entry.last_accessed) / 86400
                 if age_days > max_age_days and entry.relevance < 7:
                     # Calculate decay
-                    decay_amount = int((age_days - max_age_days) / 7)  # -1 per week over threshold
+                    decay_amount = int(
+                        (age_days - max_age_days) / 7
+                    )  # -1 per week over threshold
                     new_relevance = max(1, entry.relevance - decay_amount)
 
                     if new_relevance < entry.relevance:
-                        report["decayed"].append({
-                            "entry_id": entry.id,
-                            "old_relevance": entry.relevance,
-                            "new_relevance": new_relevance,
-                            "age_days": int(age_days),
-                            "content_preview": entry.content[:50] + "...",
-                        })
+                        report["decayed"].append(
+                            {
+                                "entry_id": entry.id,
+                                "old_relevance": entry.relevance,
+                                "new_relevance": new_relevance,
+                                "age_days": int(age_days),
+                                "content_preview": entry.content[:50] + "...",
+                            }
+                        )
 
                         if new_relevance < min_relevance:
-                            report["removed"].append({
-                                "entry_id": entry.id,
-                                "reason": f"Relevance decayed to {new_relevance} (below {min_relevance})",
-                            })
+                            report["removed"].append(
+                                {
+                                    "entry_id": entry.id,
+                                    "reason": f"Relevance decayed to {new_relevance} (below {min_relevance})",
+                                }
+                            )
 
         # Auto-cluster by common tags
         tag_groups = defaultdict(list)
@@ -1338,15 +1425,16 @@ class MemoryStore:
             if len(entry_ids) >= 3:
                 # Check if cluster already exists
                 existing = any(
-                    c.name == f"{tag.title()} Memories"
-                    for c in proj.clusters.values()
+                    c.name == f"{tag.title()} Memories" for c in proj.clusters.values()
                 )
                 if not existing:
-                    report["clusters_created"].append({
-                        "name": f"{tag.title()} Memories",
-                        "tag": tag,
-                        "memory_count": len(entry_ids),
-                    })
+                    report["clusters_created"].append(
+                        {
+                            "name": f"{tag.title()} Memories",
+                            "tag": tag,
+                            "memory_count": len(entry_ids),
+                        }
+                    )
 
         # Generate summary
         actions = []
@@ -1363,9 +1451,13 @@ class MemoryStore:
 
         if actions:
             action_word = "would be cleaned" if dry_run else "cleaned"
-            report["summary"] = f"Found: {', '.join(actions)}. {len(report['removed'])} entries {action_word}."
+            report["summary"] = (
+                f"Found: {', '.join(actions)}. {len(report['removed'])} entries {action_word}."
+            )
         else:
-            report["summary"] = f"All {len(proj.entries)} memories are clean. No action needed."
+            report["summary"] = (
+                f"All {len(proj.entries)} memories are clean. No action needed."
+            )
 
         # Apply changes if not dry run
         if not dry_run:
@@ -1438,7 +1530,9 @@ class MemoryStore:
             if entry and original:
                 # Merge metadata into original, keeping higher-quality content
                 original.tags = list(set(original.tags + entry.tags))
-                original.related_files = list(set(original.related_files + entry.related_files))
+                original.related_files = list(
+                    set(original.related_files + entry.related_files)
+                )
                 original.access_count += entry.access_count
                 if entry.relevance > original.relevance:
                     original.relevance = entry.relevance
@@ -1534,10 +1628,7 @@ class MemoryStore:
             if not cluster:
                 return {"error": f"Cluster {cluster_id} not found", "clusters": []}
 
-            memories = [
-                self._get_entry_by_id(proj, mid)
-                for mid in cluster.memory_ids
-            ]
+            memories = [self._get_entry_by_id(proj, mid) for mid in cluster.memory_ids]
             memories = [m for m in memories if m]
 
             return {
@@ -1554,7 +1645,9 @@ class MemoryStore:
                             "relevance": m.relevance,
                             "tags": m.tags,
                         }
-                        for m in sorted(memories, key=lambda x: x.relevance, reverse=True)
+                        for m in sorted(
+                            memories, key=lambda x: x.relevance, reverse=True
+                        )
                     ],
                 }
             }
@@ -1562,14 +1655,16 @@ class MemoryStore:
         # Return all cluster summaries
         clusters = []
         for cluster in proj.clusters.values():
-            clusters.append({
-                "id": cluster.cluster_id,
-                "name": cluster.name,
-                "summary": cluster.summary,
-                "tags": cluster.tags,
-                "memory_count": len(cluster.memory_ids),
-                "relevance": cluster.relevance,
-            })
+            clusters.append(
+                {
+                    "id": cluster.cluster_id,
+                    "name": cluster.name,
+                    "summary": cluster.summary,
+                    "tags": cluster.tags,
+                    "memory_count": len(cluster.memory_ids),
+                    "relevance": cluster.relevance,
+                }
+            )
 
         # Also include unclustered memories count
         clustered_ids = set()
@@ -1824,7 +1919,10 @@ class MemoryStore:
             proj.entries = [e for e in proj.entries if e.id not in id_set]
         elif category:
             if category in ("rule", "mistake"):
-                return (0, f"Cannot bulk-delete '{category}' memories (protected). Use delete with specific memory_ids instead.")
+                return (
+                    0,
+                    f"Cannot bulk-delete '{category}' memories (protected). Use delete with specific memory_ids instead.",
+                )
             proj.entries = [e for e in proj.entries if e.category != category]
         else:
             return (0, "Specify memory_ids or category")
@@ -1908,8 +2006,7 @@ class MemoryStore:
         data = {
             "version": 2,
             "projects": {
-                path: proj.model_dump()
-                for path, proj in self._archive_projects.items()
+                path: proj.model_dump() for path, proj in self._archive_projects.items()
             },
         }
         try:
@@ -1950,8 +2047,14 @@ class MemoryStore:
         report = {
             "archived_count": len(to_archive),
             "entries": [
-                {"id": e.id, "category": e.category, "age_days": int((time.time() - e.last_accessed) / 86400),
-                 "preview": e.content[:60] + "..." if len(e.content) > 60 else e.content}
+                {
+                    "id": e.id,
+                    "category": e.category,
+                    "age_days": int((time.time() - e.last_accessed) / 86400),
+                    "preview": (
+                        e.content[:60] + "..." if len(e.content) > 60 else e.content
+                    ),
+                }
                 for e in to_archive
             ],
             "dry_run": dry_run,
@@ -2213,7 +2316,7 @@ class MemoryStore:
                 try:
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
-                    matrix = self._np.load(str(npy_file), mmap_mode='r')
+                    matrix = self._np.load(str(npy_file), mmap_mode="r")
                     return ids, matrix
                 except Exception:
                     pass
@@ -2236,7 +2339,9 @@ class MemoryStore:
         hash_id = self._manifest["projects"][norm_path]["hash"]
         pdir = self._projects_dir / hash_id
         if self._np is not None:
-            return (pdir / "embeddings.npy").exists() and (pdir / "embeddings_index.json").exists()
+            return (pdir / "embeddings.npy").exists() and (
+                pdir / "embeddings_index.json"
+            ).exists()
         return (pdir / "embeddings.json").exists()
 
     def _load_embeddings(self):
@@ -2265,6 +2370,7 @@ class MemoryStore:
         """Get embedding for text via scorer server. Returns [] if unavailable."""
         try:
             from claude_engram.hooks.scorer_server import embed_via_server
+
             return embed_via_server(text)
         except Exception:
             return []
@@ -2296,7 +2402,7 @@ class MemoryStore:
             norm = self._normalize_path(project_path)
             if self._project_has_embeddings(norm):
                 emb_ids, emb_data = self._load_project_embeddings(norm)
-                if self._np is not None and hasattr(emb_data, 'shape'):
+                if self._np is not None and hasattr(emb_data, "shape"):
                     emb_matrix = emb_data
                 elif emb_ids:
                     emb_dict = emb_data if isinstance(emb_data, dict) else {}
@@ -2409,7 +2515,7 @@ class MemoryStore:
         entry_map = {e.id: e for e in proj.entries}
 
         # Vectorized path (numpy)
-        if self._np is not None and hasattr(data, 'shape'):
+        if self._np is not None and hasattr(data, "shape"):
             query_arr = self._np.array(query_emb, dtype=self._np.float32)
             sims = self._np.dot(data, query_arr)
             # Get top-k indices
@@ -2460,7 +2566,10 @@ class MemoryStore:
 
         # Strategy 1: Keyword search
         keyword_results = self.search_memories(
-            project_path, query=query, tags=tags, limit=limit * 2,
+            project_path,
+            query=query,
+            tags=tags,
+            limit=limit * 2,
         )
         keyword_ids = [e.id for e in keyword_results]
 
@@ -2496,7 +2605,7 @@ class MemoryStore:
 
         # Get top candidates for reranking (2x limit for better rerank pool)
         candidates = []
-        for eid, score in ranked[:limit * 2]:
+        for eid, score in ranked[: limit * 2]:
             if eid in entry_map:
                 candidates.append(entry_map[eid])
 
@@ -2504,7 +2613,9 @@ class MemoryStore:
         if candidates and query:
             return self._rerank(query, candidates, limit, project_path=project_path)
 
-        return [(entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map]
+        return [
+            (entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map
+        ]
 
     def embed_all_memories(self, project_path: str) -> int:
         """
@@ -2525,7 +2636,11 @@ class MemoryStore:
         all_ids = list(existing_ids)
         all_vecs = []
         # Reconstruct existing vectors
-        if self._np is not None and hasattr(existing_data, 'shape') and len(existing_data) > 0:
+        if (
+            self._np is not None
+            and hasattr(existing_data, "shape")
+            and len(existing_data) > 0
+        ):
             all_vecs = [existing_data[i].tolist() for i in range(len(existing_data))]
         elif isinstance(existing_data, dict):
             all_vecs = [existing_data[mid] for mid in existing_ids]
@@ -2608,7 +2723,12 @@ class MemoryStore:
                 "tag": t,
                 "count": len(entries),
                 "entries": [
-                    {"id": e.id, "preview": e.content[:60] + "..." if len(e.content) > 60 else e.content}
+                    {
+                        "id": e.id,
+                        "preview": (
+                            e.content[:60] + "..." if len(e.content) > 60 else e.content
+                        ),
+                    }
                     for e in entries[:5]  # Show first 5
                 ],
             }
@@ -2618,18 +2738,22 @@ class MemoryStore:
                 consolidated = self._consolidate_group_with_llm(entries, t, llm_client)
                 if consolidated:
                     group_info["consolidated_to"] = consolidated
-                    report["consolidated"].append({
-                        "tag": t,
-                        "original_count": len(entries),
-                        "new_memory_id": consolidated["id"],
-                    })
+                    report["consolidated"].append(
+                        {
+                            "tag": t,
+                            "original_count": len(entries),
+                            "new_memory_id": consolidated["id"],
+                        }
+                    )
 
             report["groups_found"].append(group_info)
 
         # Summary
         if report["groups_found"]:
             if dry_run:
-                report["summary"] = f"Found {len(report['groups_found'])} groups that could be consolidated"
+                report["summary"] = (
+                    f"Found {len(report['groups_found'])} groups that could be consolidated"
+                )
             else:
                 report["summary"] = f"Consolidated {len(report['consolidated'])} groups"
                 report["new_count"] = len(proj.entries)
@@ -2646,10 +2770,12 @@ class MemoryStore:
     ) -> Optional[dict]:
         """Use LLM to consolidate a group of memories into one."""
         # Build prompt with all memory contents
-        memories_text = "\n\n".join([
-            f"Memory {i+1} (relevance {e.relevance}):\n{e.content}"
-            for i, e in enumerate(entries)
-        ])
+        memories_text = "\n\n".join(
+            [
+                f"Memory {i+1} (relevance {e.relevance}):\n{e.content}"
+                for i, e in enumerate(entries)
+            ]
+        )
 
         prompt = f"""You are consolidating related memories about "{tag}".
 
@@ -2896,7 +3022,7 @@ class HotMemoryReader:
             result = file_relevant[:limit]
             remaining = limit - len(result)
             if remaining > 0:
-                result.extend(rules[:min(remaining, 2)])
+                result.extend(rules[: min(remaining, 2)])
 
             return result
 
@@ -2945,7 +3071,9 @@ class HotMemoryReader:
         score += SCORE_WEIGHTS["relevance"] * (entry.get("relevance", 5) / 10.0)
 
         # Access frequency (0.10)
-        score += SCORE_WEIGHTS["access_freq"] * min(entry.get("access_count", 1) / 10.0, 1.0)
+        score += SCORE_WEIGHTS["access_freq"] * min(
+            entry.get("access_count", 1) / 10.0, 1.0
+        )
 
         # Category bonuses
         category = entry.get("category", "")

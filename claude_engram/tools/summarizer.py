@@ -139,28 +139,42 @@ class FileSummarizer:
             # Classes
             facts["classes"] = re.findall(r"^class (\w+)", content, re.MULTILINE)
             # Imports
-            facts["imports"] = re.findall(r"^(?:from|import) ([\w.]+)", content, re.MULTILINE)
+            facts["imports"] = re.findall(
+                r"^(?:from|import) ([\w.]+)", content, re.MULTILINE
+            )
 
         # JavaScript/TypeScript
         elif extension in (".js", ".ts", ".jsx", ".tsx"):
             # Functions
-            facts["functions"] = re.findall(r"(?:function|const|let|var)\s+(\w+)\s*(?:=\s*(?:async\s*)?\(|=\s*function|\()", content)
+            facts["functions"] = re.findall(
+                r"(?:function|const|let|var)\s+(\w+)\s*(?:=\s*(?:async\s*)?\(|=\s*function|\()",
+                content,
+            )
             # Classes
             facts["classes"] = re.findall(r"class\s+(\w+)", content)
             # Imports
-            facts["imports"] = re.findall(r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", content)
+            facts["imports"] = re.findall(
+                r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", content
+            )
             # Exports
-            facts["exports"] = re.findall(r"export\s+(?:default\s+)?(?:function|class|const|let|var|async)?\s*(\w+)", content)
+            facts["exports"] = re.findall(
+                r"export\s+(?:default\s+)?(?:function|class|const|let|var|async)?\s*(\w+)",
+                content,
+            )
 
         # Go
         elif extension == ".go":
             facts["functions"] = re.findall(r"func\s+(?:\([^)]+\)\s+)?(\w+)\(", content)
-            facts["imports"] = re.findall(r'"([^"]+)"', content[:2000])  # Usually at top
+            facts["imports"] = re.findall(
+                r'"([^"]+)"', content[:2000]
+            )  # Usually at top
 
         # Java/Kotlin
         elif extension in (".java", ".kt"):
             facts["classes"] = re.findall(r"class\s+(\w+)", content)
-            facts["functions"] = re.findall(r"(?:public|private|protected|static|\s)+\w+\s+(\w+)\s*\(", content)
+            facts["functions"] = re.findall(
+                r"(?:public|private|protected|static|\s)+\w+\s+(\w+)\s*\(", content
+            )
 
         # Rust
         elif extension == ".rs":

@@ -13,7 +13,11 @@ from claude_engram.mining.jsonl_reader import (
 )
 from claude_engram.mining.session_index import SessionIndex
 from claude_engram.mining.background import start_mining_background
-from claude_engram.mining.search import search_sessions, find_decision, find_file_discussions
+from claude_engram.mining.search import (
+    search_sessions,
+    find_decision,
+    find_file_discussions,
+)
 from claude_engram.mining.patterns import detect_all_patterns
 from claude_engram.mining.timeline import build_timeline, get_project_overview
 

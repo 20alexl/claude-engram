@@ -58,8 +58,7 @@ class SessionManager:
         memories = self.memory.recall(project_path=project_path)
 
         has_memories = bool(
-            memories.get("project") or
-            memories.get("global_priorities")
+            memories.get("project") or memories.get("global_priorities")
         )
 
         if has_memories:
@@ -70,7 +69,9 @@ class SessionManager:
         # Load conventions
         work_log.what_i_tried.append("loading conventions")
         conv_response = self.conventions.get_conventions(project_path)
-        conventions_data = conv_response.data.get("conventions", []) if conv_response.data else []
+        conventions_data = (
+            conv_response.data.get("conventions", []) if conv_response.data else []
+        )
 
         if conventions_data:
             work_log.what_worked.append(f"loaded {len(conventions_data)} conventions")
@@ -83,13 +84,36 @@ class SessionManager:
         discoveries = project.get("discoveries", [])
 
         # Count by type for summary
-        mistake_count = sum(1 for d in discoveries if d.get("content", "").upper().startswith("MISTAKE:"))
-        rule_count = len([c for c in conventions_data if c.get("category") == "avoid" or c.get("importance", 5) >= 9])
+        mistake_count = sum(
+            1
+            for d in discoveries
+            if d.get("content", "").upper().startswith("MISTAKE:")
+        )
+        rule_count = len(
+            [
+                c
+                for c in conventions_data
+                if c.get("category") == "avoid" or c.get("importance", 5) >= 9
+            ]
+        )
 
         # Get top 3 non-mistake discoveries by relevance for discoverability
-        non_mistakes = [d for d in discoveries if not d.get("content", "").upper().startswith("MISTAKE:")]
-        top_discoveries = sorted(non_mistakes, key=lambda d: d.get("relevance", 5), reverse=True)[:3]
-        hints = [d.get("content", "")[:57] + "..." if len(d.get("content", "")) > 60 else d.get("content", "") for d in top_discoveries]
+        non_mistakes = [
+            d
+            for d in discoveries
+            if not d.get("content", "").upper().startswith("MISTAKE:")
+        ]
+        top_discoveries = sorted(
+            non_mistakes, key=lambda d: d.get("relevance", 5), reverse=True
+        )[:3]
+        hints = [
+            (
+                d.get("content", "")[:57] + "..."
+                if len(d.get("content", "")) > 60
+                else d.get("content", "")
+            )
+            for d in top_discoveries
+        ]
 
         # Get memory health summary
         memory_summary = self.memory.get_memory_summary(project_path)
@@ -111,6 +135,7 @@ class SessionManager:
         # Get last session files for curated context
         try:
             from ..hooks.remind import get_last_session_files
+
             last_session_files = get_last_session_files()
         except ImportError:
             last_session_files = []
@@ -118,17 +143,22 @@ class SessionManager:
         # Add last session context to data
         if last_session_files:
             context["last_session_files"] = [
-                str(Path(f).name) for f in last_session_files[:5]  # Show file names only
+                str(Path(f).name)
+                for f in last_session_files[:5]  # Show file names only
             ]
             # Get memories relevant to these files
-            curated = self.memory.get_memories_for_files(project_path, last_session_files)
+            curated = self.memory.get_memories_for_files(
+                project_path, last_session_files
+            )
             context["curated_context"] = {
                 "file_memories": len(curated.get("file_memories", [])),
                 "other": len(curated.get("other", [])),
             }
 
         # Generate suggestions
-        suggestions = self._generate_suggestions(memories, conventions_data, project_path)
+        suggestions = self._generate_suggestions(
+            memories, conventions_data, project_path
+        )
 
         # Extract warnings - past mistakes are CRITICAL to surface
         warnings = self._extract_warnings(memories, conventions_data)
@@ -164,7 +194,9 @@ class SessionManager:
             "discovery_count": len(project.get("discoveries", [])) if project else 0,
             "convention_count": len(conventions),
             "global_priority_count": len(memories.get("global_priorities", [])),
-            "recent_search_count": len(project.get("recent_searches", [])) if project else 0,
+            "recent_search_count": (
+                len(project.get("recent_searches", [])) if project else 0
+            ),
         }
 
     def _build_reasoning(self, memories: dict, conventions: list) -> str:
@@ -215,7 +247,9 @@ class SessionManager:
         # If there are recent searches, mention them
         if project and project.get("recent_searches"):
             recent = project["recent_searches"][-1]
-            suggestions.append(f"Last search was for '{recent.get('query', '?')}' - avoid repeating")
+            suggestions.append(
+                f"Last search was for '{recent.get('query', '?')}' - avoid repeating"
+            )
 
         # Add memory management suggestions from memory summary
         memory_summary = self.memory.get_memory_summary(project_path)
@@ -241,7 +275,8 @@ class SessionManager:
 
         # Find past mistakes - they're marked with "MISTAKE:" prefix at the START
         mistakes = [
-            d for d in discoveries
+            d
+            for d in discoveries
             if d.get("content", "").upper().startswith("MISTAKE:")
         ]
 
@@ -252,23 +287,29 @@ class SessionManager:
                 # Clean up the display
                 if content.startswith("MISTAKE: "):
                     content = content[9:]
-                warnings.append(f"  - {content[:97]}..." if len(content) > 100 else f"  - {content}")
+                warnings.append(
+                    f"  - {content[:97]}..." if len(content) > 100 else f"  - {content}"
+                )
 
         # Find "avoid" conventions - things NOT to do
         avoid_rules = [c for c in conventions if c.get("category") == "avoid"]
         if avoid_rules:
             warnings.append("Things to AVOID in this project:")
             for rule in avoid_rules[:3]:
-                text = rule.get('rule', '')
-                warnings.append(f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}")
+                text = rule.get("rule", "")
+                warnings.append(
+                    f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}"
+                )
 
         # Check for high-importance conventions
         critical_rules = [c for c in conventions if c.get("importance", 5) >= 9]
         if critical_rules and not avoid_rules:
             warnings.append("Critical conventions to follow:")
             for rule in critical_rules[:3]:
-                text = rule.get('rule', '')
-                warnings.append(f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}")
+                text = rule.get("rule", "")
+                warnings.append(
+                    f"  - {text[:77]}..." if len(text) > 80 else f"  - {text}"
+                )
 
         # Find recent decisions - surface them so they're remembered
         decisions = self._extract_decisions(memories)
@@ -303,8 +344,7 @@ class SessionManager:
 
             # Check if it's a decision
             is_decision = (
-                content.upper().startswith("DECISION:") or
-                category == "decision"
+                content.upper().startswith("DECISION:") or category == "decision"
             )
             if not is_decision:
                 continue
@@ -339,8 +379,7 @@ class SessionManager:
 
         # Find SESSION: entries (auto-saved by session_end)
         session_entries = [
-            d for d in discoveries
-            if d.get("content", "").startswith("SESSION:")
+            d for d in discoveries if d.get("content", "").startswith("SESSION:")
         ]
 
         if not session_entries:
@@ -348,10 +387,7 @@ class SessionManager:
 
         # Check if any are recent (within 2 hours)
         two_hours_ago = time.time() - (2 * 60 * 60)
-        recent = [
-            s for s in session_entries
-            if s.get("created_at", 0) > two_hours_ago
-        ]
+        recent = [s for s in session_entries if s.get("created_at", 0) > two_hours_ago]
 
         if recent:
             # Show the most recent one

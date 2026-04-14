@@ -44,7 +44,9 @@ class LLMClient:
         keep_alive: Union[int, str] = None,
     ):
         # Allow environment variables to override defaults
-        self.base_url = base_url or os.environ.get("CLAUDE_ENGRAM_OLLAMA_URL", "http://localhost:11434")
+        self.base_url = base_url or os.environ.get(
+            "CLAUDE_ENGRAM_OLLAMA_URL", "http://localhost:11434"
+        )
         self.model = model or os.environ.get("CLAUDE_ENGRAM_MODEL", DEFAULT_MODEL)
         # Timeout: explicit param > env var > default (300s)
         if timeout is not None:
@@ -88,15 +90,14 @@ class LLMClient:
                 return {
                     "healthy": False,
                     "error": f"Ollama returned status {response.status_code}",
-                    "suggestion": "Is Ollama running? Try: ollama serve"
+                    "suggestion": "Is Ollama running? Try: ollama serve",
                 }
 
             models = response.json().get("models", [])
             model_names = [m.get("name", "") for m in models]
 
             model_available = any(
-                self.model in name or name in self.model
-                for name in model_names
+                self.model in name or name in self.model for name in model_names
             )
 
             if not model_available:
@@ -104,7 +105,7 @@ class LLMClient:
                     "healthy": False,
                     "error": f"Model '{self.model}' not found",
                     "available_models": model_names,
-                    "suggestion": f"Try: ollama pull {self.model}"
+                    "suggestion": f"Try: ollama pull {self.model}",
                 }
 
             self._is_healthy = True
@@ -113,20 +114,17 @@ class LLMClient:
             return {
                 "healthy": True,
                 "model": self.model,
-                "available_models": model_names
+                "available_models": model_names,
             }
 
         except httpx.ConnectError:
             return {
                 "healthy": False,
                 "error": "Cannot connect to Ollama",
-                "suggestion": "Start Ollama with: ollama serve"
+                "suggestion": "Start Ollama with: ollama serve",
             }
         except Exception as e:
-            return {
-                "healthy": False,
-                "error": str(e)
-            }
+            return {"healthy": False, "error": str(e)}
 
     def generate(
         self,
@@ -180,7 +178,7 @@ class LLMClient:
                         "keep_alive": self.keep_alive,  # Configurable via CLAUDE_ENGRAM_KEEP_ALIVE
                         "options": {
                             "temperature": temperature,
-                        }
+                        },
                     }
 
                     if system:
@@ -213,7 +211,7 @@ class LLMClient:
 
                 # Wait before retry (exponential backoff)
                 if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
 
             return {
                 "success": False,
@@ -270,7 +268,9 @@ Focus on the main purpose, not implementation details."""
         """
         stats = self._queue_stats.copy()
         if stats["queued_requests"] > 0:
-            stats["avg_queue_wait_ms"] = stats["total_queue_wait_ms"] // stats["queued_requests"]
+            stats["avg_queue_wait_ms"] = (
+                stats["total_queue_wait_ms"] // stats["queued_requests"]
+            )
         else:
             stats["avg_queue_wait_ms"] = 0
         return stats

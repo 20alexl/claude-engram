@@ -43,6 +43,7 @@ from claude_engram.tools.memory import MemoryStore, HotMemoryReader, _HOOK_TAG_P
 
 # ─── Vault setup ────────────────────────────────────────────────────────
 
+
 def create_obsidian_vault(tmpdir: str) -> dict:
     """
     Create a realistic Obsidian vault with PARA structure + CLAUDE.md.
@@ -125,12 +126,10 @@ def create_obsidian_vault(tmpdir: str) -> dict:
     areas = root / "02_Areas"
     areas.mkdir()
     (areas / "Health.md").write_text(
-        "# Health\n\n## Habits\n- Morning run\n- Sleep 8h\n\n"
-        "#area/health\n"
+        "# Health\n\n## Habits\n- Morning run\n- Sleep 8h\n\n" "#area/health\n"
     )
     (areas / "Finances.md").write_text(
-        "# Finances\n\n## Budget\n- Track monthly\n\n"
-        "#area/finances\n"
+        "# Finances\n\n## Budget\n- Track monthly\n\n" "#area/finances\n"
     )
 
     # 03_Resources
@@ -208,6 +207,7 @@ def create_large_vault(tmpdir: str, note_count: int = 1000) -> str:
 
 # ─── Tests ───────────────────────────────────────────────────────────────
 
+
 def test_project_detection(paths: dict) -> list[tuple[str, bool, str]]:
     """
     Test 1: Does resolve_project_for_file find CLAUDE.md as marker?
@@ -250,48 +250,67 @@ def test_memory_scoping(paths: dict) -> list[tuple[str, bool, str]]:
 
         # Store memories referencing vault files
         store.remember_discovery(
-            root, "MQTT is better than HTTP for real-time device state",
-            related_files=[paths["project_note"]], category="discovery",
+            root,
+            "MQTT is better than HTTP for real-time device state",
+            related_files=[paths["project_note"]],
+            category="discovery",
         )
         store.remember_discovery(
-            root, "Use lru_cache for the sensor polling function",
-            related_files=[paths["resource_note"]], category="discovery",
+            root,
+            "Use lru_cache for the sensor polling function",
+            related_files=[paths["resource_note"]],
+            category="discovery",
         )
         store.add_rule(
-            root, "Always link back to project note when creating references",
+            root,
+            "Always link back to project note when creating references",
         )
         store.remember_discovery(
-            root, "MISTAKE: forgot to update wikilinks after renaming note",
-            category="mistake", relevance=9,
+            root,
+            "MISTAKE: forgot to update wikilinks after renaming note",
+            category="mistake",
+            relevance=9,
         )
 
         # Retrieve — should find all 4
         proj = store.get_project(root)
         entry_count = len(proj.entries) if proj else 0
-        results.append((
-            f"Stored 4 memories, found {entry_count}",
-            entry_count == 4,
-            "",
-        ))
+        results.append(
+            (
+                f"Stored 4 memories, found {entry_count}",
+                entry_count == 4,
+                "",
+            )
+        )
 
         # Score and rank for a project note edit
-        ranked = store.score_and_rank(root, {"file_path": paths["project_note"]}, limit=4)
-        results.append((
-            f"Score+rank returned {len(ranked)} results",
-            len(ranked) > 0,
-            "",
-        ))
+        ranked = store.score_and_rank(
+            root, {"file_path": paths["project_note"]}, limit=4
+        )
+        results.append(
+            (
+                f"Score+rank returned {len(ranked)} results",
+                len(ranked) > 0,
+                "",
+            )
+        )
 
         # The MQTT memory should be in results for project_note (file match)
         # Note: rules get +0.3 bonus so they may rank above file-matched discoveries
         if ranked:
             all_contents = [e.content for e, _ in ranked]
             mqtt_present = any("MQTT" in c for c in all_contents)
-            results.append((
-                "MQTT memory present in results for project note",
-                mqtt_present,
-                f"contents: {[c[:40] for c in all_contents]}" if not mqtt_present else "",
-            ))
+            results.append(
+                (
+                    "MQTT memory present in results for project note",
+                    mqtt_present,
+                    (
+                        f"contents: {[c[:40] for c in all_contents]}"
+                        if not mqtt_present
+                        else ""
+                    ),
+                )
+            )
 
         # Rules and mistakes should appear for any file (they cascade)
         ranked_inbox = store.score_and_rank(
@@ -300,16 +319,20 @@ def test_memory_scoping(paths: dict) -> list[tuple[str, bool, str]]:
         categories = [e.category for e, _ in ranked_inbox]
         has_rule = "rule" in categories
         has_mistake = "mistake" in categories
-        results.append((
-            "Rules visible from inbox note",
-            has_rule,
-            f"categories: {categories}" if not has_rule else "",
-        ))
-        results.append((
-            "Mistakes visible from inbox note",
-            has_mistake,
-            f"categories: {categories}" if not has_mistake else "",
-        ))
+        results.append(
+            (
+                "Rules visible from inbox note",
+                has_rule,
+                f"categories: {categories}" if not has_rule else "",
+            )
+        )
+        results.append(
+            (
+                "Mistakes visible from inbox note",
+                has_mistake,
+                f"categories: {categories}" if not has_mistake else "",
+            )
+        )
 
     return results
 
@@ -329,47 +352,68 @@ def test_file_scoring_discrimination(paths: dict) -> list[tuple[str, bool, str]]
 
         # Memory about a specific file
         store.remember_discovery(
-            root, "Home Automation uses MQTT, not HTTP",
-            related_files=[paths["project_note"]], category="discovery",
+            root,
+            "Home Automation uses MQTT, not HTTP",
+            related_files=[paths["project_note"]],
+            category="discovery",
         )
         # Memory about a different file
         store.remember_discovery(
-            root, "Python list comprehensions are faster than map()",
-            related_files=[paths["resource_note"]], category="discovery",
+            root,
+            "Python list comprehensions are faster than map()",
+            related_files=[paths["resource_note"]],
+            category="discovery",
         )
         # Memory about API design
         store.remember_discovery(
-            root, "REST API needs cursor-based pagination",
-            related_files=[paths["resource_api"]], category="discovery",
+            root,
+            "REST API needs cursor-based pagination",
+            related_files=[paths["resource_api"]],
+            category="discovery",
         )
 
         # Score for project note — MQTT should rank highest
-        ranked = store.score_and_rank(root, {"file_path": paths["project_note"]}, limit=3)
+        ranked = store.score_and_rank(
+            root, {"file_path": paths["project_note"]}, limit=3
+        )
         if len(ranked) >= 2:
             score_diff = ranked[0][1] - ranked[1][1]
-            results.append((
-                f"Score gap: exact match vs extension-only: {score_diff:.3f}",
-                score_diff > 0.05,
-                f"scores: {ranked[0][1]:.3f} vs {ranked[1][1]:.3f}",
-            ))
+            results.append(
+                (
+                    f"Score gap: exact match vs extension-only: {score_diff:.3f}",
+                    score_diff > 0.05,
+                    f"scores: {ranked[0][1]:.3f} vs {ranked[1][1]:.3f}",
+                )
+            )
             top_has_mqtt = "MQTT" in ranked[0][0].content
-            results.append((
-                "Exact file match wins over extension-only",
-                top_has_mqtt,
-                f"top: {ranked[0][0].content[:50]}",
-            ))
+            results.append(
+                (
+                    "Exact file match wins over extension-only",
+                    top_has_mqtt,
+                    f"top: {ranked[0][0].content[:50]}",
+                )
+            )
         else:
-            results.append(("Got enough results to compare", False, f"only {len(ranked)}"))
+            results.append(
+                ("Got enough results to compare", False, f"only {len(ranked)}")
+            )
 
         # Score for API resource — API memory should be top
-        ranked_api = store.score_and_rank(root, {"file_path": paths["resource_api"]}, limit=3)
+        ranked_api = store.score_and_rank(
+            root, {"file_path": paths["resource_api"]}, limit=3
+        )
         if ranked_api:
-            top_has_api = "REST" in ranked_api[0][0].content or "pagination" in ranked_api[0][0].content
-            results.append((
-                "API memory ranks top for API Design.md",
-                top_has_api,
-                f"top: {ranked_api[0][0].content[:50]}" if not top_has_api else "",
-            ))
+            top_has_api = (
+                "REST" in ranked_api[0][0].content
+                or "pagination" in ranked_api[0][0].content
+            )
+            results.append(
+                (
+                    "API memory ranks top for API Design.md",
+                    top_has_api,
+                    f"top: {ranked_api[0][0].content[:50]}" if not top_has_api else "",
+                )
+            )
 
         # Score for a file with NO related memories (archive)
         ranked_archive = store.score_and_rank(
@@ -377,11 +421,13 @@ def test_file_scoring_discrimination(paths: dict) -> list[tuple[str, bool, str]]
         )
         if ranked_archive:
             max_score = ranked_archive[0][1]
-            results.append((
-                f"Unrelated file max score: {max_score:.3f}",
-                max_score < 0.7,
-                "",
-            ))
+            results.append(
+                (
+                    f"Unrelated file max score: {max_score:.3f}",
+                    max_score < 0.7,
+                    "",
+                )
+            )
 
     return results
 
@@ -399,7 +445,11 @@ def test_tag_inference(paths: dict) -> list[tuple[str, bool, str]]:
         (paths["resource_note"], [], "Python Tips — no code tags from path"),
         (paths["resource_api"], ["api"], "API Design.md → api tag"),
         (paths["resource_db"], ["database"], "Database Patterns.md → database tag"),
-        (paths["resource_security"], ["security"], "Security Checklist.md → security tag"),
+        (
+            paths["resource_security"],
+            ["security"],
+            "Security Checklist.md → security tag",
+        ),
         (paths["area_note"], [], "Health.md — no code tags"),
         (paths["project_engram"], [], "Claude Engram.md — no code tags from path"),
     ]
@@ -431,12 +481,15 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
         store = MemoryStore(storage_dir=storage_dir)
 
         # Seed memories
-        store.remember_discovery(root, "Vault convention: always use wikilinks",
-                                 category="discovery")
+        store.remember_discovery(
+            root, "Vault convention: always use wikilinks", category="discovery"
+        )
         store.add_rule(root, "Link notes bidirectionally")
         store.remember_discovery(
-            root, "MISTAKE: broke wikilinks by renaming without updating backlinks",
-            category="mistake", relevance=9,
+            root,
+            "MISTAKE: broke wikilinks by renaming without updating backlinks",
+            category="mistake",
+            relevance=9,
         )
 
         # HotMemoryReader should find them
@@ -447,19 +500,23 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
             limit=5,
         )
 
-        results.append((
-            f"HotMemoryReader found {len(scored)} memories",
-            len(scored) >= 1,  # Rules always pass, others need file match
-            "",
-        ))
+        results.append(
+            (
+                f"HotMemoryReader found {len(scored)} memories",
+                len(scored) >= 1,  # Rules always pass, others need file match
+                "",
+            )
+        )
 
         # Rules should always show (they pass the injection filter)
         categories = [e.get("category", "") for e in scored]
-        results.append((
-            "Rules present in hot injection",
-            "rule" in categories,
-            f"categories: {categories}",
-        ))
+        results.append(
+            (
+                "Rules present in hot injection",
+                "rule" in categories,
+                f"categories: {categories}",
+            )
+        )
 
     return results
 
@@ -480,7 +537,9 @@ def test_large_vault_scaling(tmpdir: str) -> list[tuple[str, bool, str]]:
             store.remember_discovery(
                 vault_root,
                 f"Memory about note {i}: important pattern #{i}",
-                related_files=[str(Path(vault_root) / "01_Projects" / f"note_{i:04d}.md")],
+                related_files=[
+                    str(Path(vault_root) / "01_Projects" / f"note_{i:04d}.md")
+                ],
                 category="discovery",
                 auto_embed=False,  # Skip embedding for speed
             )
@@ -496,27 +555,35 @@ def test_large_vault_scaling(tmpdir: str) -> list[tuple[str, bool, str]]:
             )
         resolve_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"100 project resolutions: {resolve_ms:.1f}ms",
-            resolve_ms < 500,
-            "",
-        ))
+        results.append(
+            (
+                f"100 project resolutions: {resolve_ms:.1f}ms",
+                resolve_ms < 500,
+                "",
+            )
+        )
 
         # Time score_and_rank
         t0 = time.perf_counter()
         for i in range(100):
             store.score_and_rank(
                 vault_root,
-                {"file_path": str(Path(vault_root) / "01_Projects" / f"note_{i:04d}.md")},
+                {
+                    "file_path": str(
+                        Path(vault_root) / "01_Projects" / f"note_{i:04d}.md"
+                    )
+                },
                 limit=3,
             )
         score_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"100 score_and_rank calls (50 memories): {score_ms:.1f}ms",
-            score_ms < 1000,
-            "",
-        ))
+        results.append(
+            (
+                f"100 score_and_rank calls (50 memories): {score_ms:.1f}ms",
+                score_ms < 1000,
+                "",
+            )
+        )
 
         # Time HotMemoryReader
         reader = HotMemoryReader(storage_dir=storage_dir)
@@ -524,21 +591,28 @@ def test_large_vault_scaling(tmpdir: str) -> list[tuple[str, bool, str]]:
         for i in range(100):
             reader.get_scored_memories(
                 project_path=vault_root,
-                context={"file_path": str(Path(vault_root) / "01_Projects" / f"note_{i:04d}.md")},
+                context={
+                    "file_path": str(
+                        Path(vault_root) / "01_Projects" / f"note_{i:04d}.md"
+                    )
+                },
                 limit=3,
             )
         hot_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"100 HotMemoryReader calls: {hot_ms:.1f}ms",
-            hot_ms < 1000,
-            "",
-        ))
+        results.append(
+            (
+                f"100 HotMemoryReader calls: {hot_ms:.1f}ms",
+                hot_ms < 1000,
+                "",
+            )
+        )
 
     return results
 
 
 # ─── Runner ──────────────────────────────────────────────────────────────
+
 
 def main():
     print("=" * 70)
@@ -552,12 +626,24 @@ def main():
         paths = create_obsidian_vault(tmpdir)
 
         test_suites = [
-            ("1. Project Detection (CLAUDE.md marker)", test_project_detection, (paths,)),
+            (
+                "1. Project Detection (CLAUDE.md marker)",
+                test_project_detection,
+                (paths,),
+            ),
             ("2. Memory Scoping", test_memory_scoping, (paths,)),
-            ("3. File Scoring Discrimination", test_file_scoring_discrimination, (paths,)),
+            (
+                "3. File Scoring Discrimination",
+                test_file_scoring_discrimination,
+                (paths,),
+            ),
             ("4. Tag Inference from .md Filenames", test_tag_inference, (paths,)),
             ("5. HotMemoryReader for Vault", test_hot_memory_reader, (paths,)),
-            ("6. Large Vault Scaling (1000 notes)", test_large_vault_scaling, (tmpdir,)),
+            (
+                "6. Large Vault Scaling (1000 notes)",
+                test_large_vault_scaling,
+                (tmpdir,),
+            ),
         ]
 
         for suite_name, test_fn, args in test_suites:
@@ -578,11 +664,14 @@ def main():
                 total_fail += 1
                 print(f"  [ERROR] {suite_name}: {e}")
                 import traceback
+
                 traceback.print_exc()
 
     print(f"\n{'=' * 70}")
-    print(f"TOTAL: {total_pass} passed, {total_fail} failed "
-          f"({total_pass}/{total_pass + total_fail})")
+    print(
+        f"TOTAL: {total_pass} passed, {total_fail} failed "
+        f"({total_pass}/{total_pass + total_fail})"
+    )
     print(f"{'=' * 70}")
 
     return 0 if total_fail == 0 else 1

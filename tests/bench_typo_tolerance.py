@@ -29,26 +29,106 @@ from claude_engram.tools.memory import MemoryStore
 # ============================================================================
 
 MEMORIES = [
-    ("Auth middleware validates JWT tokens before processing requests", "auth", ["auth", "security"]),
-    ("Database uses PostgreSQL with connection pooling via pgbouncer", "database", ["database", "postgres"]),
-    ("Frontend components built with React 18 and TypeScript strict mode", "frontend", ["frontend", "react"]),
-    ("API rate limiting configured at 100 requests per minute per user", "api", ["api", "ratelimit"]),
-    ("Migration system uses Alembic for database schema versioning", "database", ["database", "migration"]),
-    ("Error handling follows the Result pattern instead of exceptions", "architecture", ["patterns"]),
-    ("Caching layer uses Redis with 5 minute TTL for user sessions", "infrastructure", ["cache", "redis"]),
-    ("Deployment pipeline uses GitHub Actions with blue-green strategy", "devops", ["ci", "deployment"]),
-    ("Authentication flow supports OAuth2 PKCE for mobile clients", "auth", ["auth", "oauth"]),
-    ("WebSocket connections timeout after 30 seconds of inactivity", "api", ["websocket", "timeout"]),
-    ("Password hashing uses bcrypt with 12 rounds minimum", "security", ["auth", "security"]),
-    ("Logging format is structured JSON sent to Elasticsearch", "infrastructure", ["logging"]),
-    ("Test suite uses pytest with fixtures for database isolation", "testing", ["testing", "pytest"]),
-    ("GraphQL schema generated from TypeScript types via codegen", "api", ["graphql", "typescript"]),
-    ("Background jobs processed by Celery with RabbitMQ broker", "infrastructure", ["queue", "celery"]),
-    ("Docker images use multi-stage builds to minimize size", "devops", ["docker", "build"]),
-    ("Configuration loaded from environment variables via python-dotenv", "config", ["config", "env"]),
-    ("Pagination defaults to 20 items with cursor-based navigation", "api", ["api", "pagination"]),
-    ("Monitoring uses Prometheus metrics with Grafana dashboards", "infrastructure", ["monitoring"]),
-    ("Code formatting enforced by black and isort pre-commit hooks", "tooling", ["formatting", "precommit"]),
+    (
+        "Auth middleware validates JWT tokens before processing requests",
+        "auth",
+        ["auth", "security"],
+    ),
+    (
+        "Database uses PostgreSQL with connection pooling via pgbouncer",
+        "database",
+        ["database", "postgres"],
+    ),
+    (
+        "Frontend components built with React 18 and TypeScript strict mode",
+        "frontend",
+        ["frontend", "react"],
+    ),
+    (
+        "API rate limiting configured at 100 requests per minute per user",
+        "api",
+        ["api", "ratelimit"],
+    ),
+    (
+        "Migration system uses Alembic for database schema versioning",
+        "database",
+        ["database", "migration"],
+    ),
+    (
+        "Error handling follows the Result pattern instead of exceptions",
+        "architecture",
+        ["patterns"],
+    ),
+    (
+        "Caching layer uses Redis with 5 minute TTL for user sessions",
+        "infrastructure",
+        ["cache", "redis"],
+    ),
+    (
+        "Deployment pipeline uses GitHub Actions with blue-green strategy",
+        "devops",
+        ["ci", "deployment"],
+    ),
+    (
+        "Authentication flow supports OAuth2 PKCE for mobile clients",
+        "auth",
+        ["auth", "oauth"],
+    ),
+    (
+        "WebSocket connections timeout after 30 seconds of inactivity",
+        "api",
+        ["websocket", "timeout"],
+    ),
+    (
+        "Password hashing uses bcrypt with 12 rounds minimum",
+        "security",
+        ["auth", "security"],
+    ),
+    (
+        "Logging format is structured JSON sent to Elasticsearch",
+        "infrastructure",
+        ["logging"],
+    ),
+    (
+        "Test suite uses pytest with fixtures for database isolation",
+        "testing",
+        ["testing", "pytest"],
+    ),
+    (
+        "GraphQL schema generated from TypeScript types via codegen",
+        "api",
+        ["graphql", "typescript"],
+    ),
+    (
+        "Background jobs processed by Celery with RabbitMQ broker",
+        "infrastructure",
+        ["queue", "celery"],
+    ),
+    (
+        "Docker images use multi-stage builds to minimize size",
+        "devops",
+        ["docker", "build"],
+    ),
+    (
+        "Configuration loaded from environment variables via python-dotenv",
+        "config",
+        ["config", "env"],
+    ),
+    (
+        "Pagination defaults to 20 items with cursor-based navigation",
+        "api",
+        ["api", "pagination"],
+    ),
+    (
+        "Monitoring uses Prometheus metrics with Grafana dashboards",
+        "infrastructure",
+        ["monitoring"],
+    ),
+    (
+        "Code formatting enforced by black and isort pre-commit hooks",
+        "tooling",
+        ["formatting", "precommit"],
+    ),
 ]
 
 # ============================================================================
@@ -211,12 +291,16 @@ def run_benchmark():
 
     print("=" * 70)
     print("Typo Tolerance Benchmark")
-    print(f"Queries: {len(QUERY_PAIRS)} | Typo types: 5 | Methods: {', '.join(methods)}")
+    print(
+        f"Queries: {len(QUERY_PAIRS)} | Typo types: 5 | Methods: {', '.join(methods)}"
+    )
     print("=" * 70)
 
     # Results: method -> typo_type -> list of pass/fail
-    results = {m: {"clean": [], "swap": [], "drop": [], "double": [], "wrong": [], "heavy": []}
-               for m in methods}
+    results = {
+        m: {"clean": [], "swap": [], "drop": [], "double": [], "wrong": [], "heavy": []}
+        for m in methods
+    }
 
     for clean_query, expected, typos in QUERY_PAIRS:
         for method in methods:
@@ -271,7 +355,9 @@ def run_benchmark():
             typo_rates.append(sum(results[method][tt]) / len(results[method][tt]) * 100)
         avg_typo = sum(typo_rates) / len(typo_rates)
         degradation = clean_rate - avg_typo
-        print(f"    {method:<10} {clean_rate:.0f}% clean -> {avg_typo:.0f}% with typos ({degradation:+.0f}pp)")
+        print(
+            f"    {method:<10} {clean_rate:.0f}% clean -> {avg_typo:.0f}% with typos ({degradation:+.0f}pp)"
+        )
 
     print(f"{'='*70}")
 

@@ -42,6 +42,7 @@ from claude_engram.mining.background import (
 
 # ─── Tests ───────────────────────────────────────────────────────────────
 
+
 def test_path_conversion() -> list[tuple[str, bool, str]]:
     """Test directory name ↔ path conversion."""
     results = []
@@ -57,11 +58,13 @@ def test_path_conversion() -> list[tuple[str, bool, str]]:
     for path, expected in cases:
         result = path_to_dir_name(path)
         passed = result == expected
-        results.append((
-            f"path_to_dir_name({path!r})",
-            passed,
-            f"got {result!r}" if not passed else "",
-        ))
+        results.append(
+            (
+                f"path_to_dir_name({path!r})",
+                passed,
+                f"got {result!r}" if not passed else "",
+            )
+        )
 
     return results
 
@@ -74,11 +77,13 @@ def test_resolve_jsonl_dir() -> list[tuple[str, bool, str]]:
     for proj in [r"E:\workspace", r"e:\chappie"]:
         d = resolve_jsonl_dir(proj)
         has_sessions = d is not None and any(d.glob("*.jsonl"))
-        results.append((
-            f"resolve {proj}",
-            has_sessions,
-            f"dir={d}" if d else "not found",
-        ))
+        results.append(
+            (
+                f"resolve {proj}",
+                has_sessions,
+                f"dir={d}" if d else "not found",
+            )
+        )
 
     return results
 
@@ -88,21 +93,25 @@ def test_session_files() -> list[tuple[str, bool, str]]:
     results = []
 
     files = get_session_files(r"E:\workspace")
-    results.append((
-        f"Found {len(files)} session files",
-        len(files) > 0,
-        "",
-    ))
+    results.append(
+        (
+            f"Found {len(files)} session files",
+            len(files) > 0,
+            "",
+        )
+    )
 
     # Should be sorted newest first
     if len(files) >= 2:
         newest = files[0].stat().st_mtime
         second = files[1].stat().st_mtime
-        results.append((
-            "Sorted newest first",
-            newest >= second,
-            "",
-        ))
+        results.append(
+            (
+                "Sorted newest first",
+                newest >= second,
+                "",
+            )
+        )
 
     return results
 
@@ -126,16 +135,20 @@ def test_streaming_parser() -> list[tuple[str, bool, str]]:
         if count > 100:
             break
 
-    results.append((
-        f"Parsed {count} messages from {small.name[:12]}",
-        count > 0,
-        "",
-    ))
-    results.append((
-        f"Found types: {types}",
-        "user" in types or "assistant" in types or len(types) > 0,
-        "",
-    ))
+    results.append(
+        (
+            f"Parsed {count} messages from {small.name[:12]}",
+            count > 0,
+            "",
+        )
+    )
+    results.append(
+        (
+            f"Found types: {types}",
+            "user" in types or "assistant" in types or len(types) > 0,
+            "",
+        )
+    )
 
     return results
 
@@ -154,16 +167,20 @@ def test_read_tail() -> list[tuple[str, bool, str]]:
     tail = read_tail(target, n_messages=20)
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
-    results.append((
-        f"Tail read {len(tail)} msgs in {elapsed_ms:.0f}ms",
-        len(tail) > 0,
-        "",
-    ))
-    results.append((
-        f"Tail read under 500ms",
-        elapsed_ms < 500,
-        f"{elapsed_ms:.0f}ms",
-    ))
+    results.append(
+        (
+            f"Tail read {len(tail)} msgs in {elapsed_ms:.0f}ms",
+            len(tail) > 0,
+            "",
+        )
+    )
+    results.append(
+        (
+            f"Tail read under 500ms",
+            elapsed_ms < 500,
+            f"{elapsed_ms:.0f}ms",
+        )
+    )
 
     return results
 
@@ -220,21 +237,27 @@ def test_session_index() -> list[tuple[str, bool, str]]:
     meta = build_index_for_session(small)
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
-    results.append((
-        f"Indexed {small.name[:12]} ({small.stat().st_size / 1024:.0f}KB) in {elapsed_ms:.0f}ms",
-        True,
-        "",
-    ))
-    results.append((
-        f"Session ID: {meta.session_id[:12]}",
-        len(meta.session_id) > 0,
-        "",
-    ))
-    results.append((
-        f"Messages: {meta.message_count}",
-        meta.message_count > 0,
-        "",
-    ))
+    results.append(
+        (
+            f"Indexed {small.name[:12]} ({small.stat().st_size / 1024:.0f}KB) in {elapsed_ms:.0f}ms",
+            True,
+            "",
+        )
+    )
+    results.append(
+        (
+            f"Session ID: {meta.session_id[:12]}",
+            len(meta.session_id) > 0,
+            "",
+        )
+    )
+    results.append(
+        (
+            f"Messages: {meta.message_count}",
+            meta.message_count > 0,
+            "",
+        )
+    )
 
     # Test SessionIndex persistence — use a session with actual content
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -249,18 +272,22 @@ def test_session_index() -> list[tuple[str, bool, str]]:
         # Reload
         idx2 = SessionIndex(Path(tmpdir) / "session_index.json")
         loaded = idx2.get_session(content_meta.session_id)
-        results.append((
-            "Index persists and reloads",
-            loaded is not None,
-            "",
-        ))
+        results.append(
+            (
+                "Index persists and reloads",
+                loaded is not None,
+                "",
+            )
+        )
 
         summary = idx2.get_latest_session_summary()
-        results.append((
-            "Latest session summary works",
-            summary is not None,
-            f"summary={summary}" if summary is None else "",
-        ))
+        results.append(
+            (
+                "Latest session summary works",
+                summary is not None,
+                f"summary={summary}" if summary is None else "",
+            )
+        )
 
     return results
 
@@ -287,16 +314,20 @@ def test_index_performance() -> list[tuple[str, bool, str]]:
         idx.save()
         elapsed = time.perf_counter() - t0
 
-        results.append((
-            f"All {len(files)} sessions ({total_bytes / 1024 / 1024:.0f}MB) in {elapsed:.1f}s",
-            elapsed < 10,  # Should complete within 10s even for 300MB+
-            "",
-        ))
-        results.append((
-            f"Total messages: {idx.get_total_messages()}",
-            idx.get_total_messages() > 0,
-            "",
-        ))
+        results.append(
+            (
+                f"All {len(files)} sessions ({total_bytes / 1024 / 1024:.0f}MB) in {elapsed:.1f}s",
+                elapsed < 10,  # Should complete within 10s even for 300MB+
+                "",
+            )
+        )
+        results.append(
+            (
+                f"Total messages: {idx.get_total_messages()}",
+                idx.get_total_messages() > 0,
+                "",
+            )
+        )
 
         # Test read-only speed
         t0 = time.perf_counter()
@@ -304,11 +335,13 @@ def test_index_performance() -> list[tuple[str, bool, str]]:
         summary = idx2.get_latest_session_summary()
         read_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"Read-only load + summary: {read_ms:.1f}ms",
-            read_ms < 50,  # Must be fast for hook use
-            "",
-        ))
+        results.append(
+            (
+                f"Read-only load + summary: {read_ms:.1f}ms",
+                read_ms < 50,  # Must be fast for hook use
+                "",
+            )
+        )
 
     return results
 
@@ -333,11 +366,13 @@ def test_incremental_processing() -> list[tuple[str, bool, str]]:
 
         # Check needs_processing
         needs, offset = idx.needs_processing(small)
-        results.append((
-            "Already-indexed file skipped",
-            not needs,
-            f"needs={needs}, offset={offset}" if needs else "",
-        ))
+        results.append(
+            (
+                "Already-indexed file skipped",
+                not needs,
+                f"needs={needs}, offset={offset}" if needs else "",
+            )
+        )
 
     return results
 
@@ -348,8 +383,12 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
 
     # Simulate: edit files, then test fails, mistake should have related_files
     from claude_engram.hooks.remind import (
-        _auto_record_test, _auto_log_detected_mistake_with_files,
-        load_state, save_state, record_file_edit, mark_session_started,
+        _auto_record_test,
+        _auto_log_detected_mistake_with_files,
+        load_state,
+        save_state,
+        record_file_edit,
+        mark_session_started,
     )
 
     # Setup: start session and record some edits
@@ -359,34 +398,41 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
 
     state = load_state()
     edited = state.get("files_edited_this_session", [])
-    results.append((
-        f"Files tracked: {len(edited)}",
-        len(edited) >= 2,
-        "",
-    ))
+    results.append(
+        (
+            f"Files tracked: {len(edited)}",
+            len(edited) >= 2,
+            "",
+        )
+    )
 
     # Simulate test failure recording with file context
     result = _auto_record_test(False, "AssertionError: expected 5 got 3")
-    results.append((
-        "Test failure recorded",
-        True,
-        "",
-    ))
+    results.append(
+        (
+            "Test failure recorded",
+            True,
+            "",
+        )
+    )
 
     # Check test result has file context
     loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
     if loop_file.exists():
         import json
+
         ld = json.loads(loop_file.read_text())
         test_results = ld.get("test_results", [])
         if test_results:
             last = test_results[-1]
             has_files = "files_since_last_test" in last
-            results.append((
-                f"Test result has file context: {last.get('files_since_last_test', [])}",
-                has_files,
-                "",
-            ))
+            results.append(
+                (
+                    f"Test result has file context: {last.get('files_since_last_test', [])}",
+                    has_files,
+                    "",
+                )
+            )
         else:
             results.append(("Test results exist", False, "empty"))
     else:
@@ -396,6 +442,7 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
 
 
 # ─── Runner ──────────────────────────────────────────────────────────────
+
 
 def main():
     print("=" * 70)
@@ -436,11 +483,14 @@ def main():
             total_fail += 1
             print(f"  [ERROR] {suite_name}: {e}")
             import traceback
+
             traceback.print_exc()
 
     print(f"\n{'=' * 70}")
-    print(f"TOTAL: {total_pass} passed, {total_fail} failed "
-          f"({total_pass}/{total_pass + total_fail})")
+    print(
+        f"TOTAL: {total_pass} passed, {total_fail} failed "
+        f"({total_pass}/{total_pass + total_fail})"
+    )
     print(f"{'=' * 70}")
 
     return 0 if total_fail == 0 else 1

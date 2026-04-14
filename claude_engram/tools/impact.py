@@ -24,6 +24,7 @@ from ..schema import MiniClaudeResponse, WorkLog
 @dataclass
 class ExportedSymbol:
     """A function, class, or constant exported from a file."""
+
     name: str
     kind: str  # "function", "class", "constant", "variable"
     line: int
@@ -33,6 +34,7 @@ class ExportedSymbol:
 @dataclass
 class SymbolUsage:
     """Where a symbol is used in dependent files."""
+
     file: str
     line: int
     context: str  # The line of code where it's used
@@ -41,6 +43,7 @@ class SymbolUsage:
 @dataclass
 class ImpactReport:
     """Summary of potential impact from changing a file."""
+
     file: str
     dependents: list[str] = field(default_factory=list)
     exported_symbols: list[ExportedSymbol] = field(default_factory=list)
@@ -88,7 +91,9 @@ class ImpactAnalyzer:
             return self._error_response(f"File does not exist: {file_path}", work_log)
 
         if not root.exists():
-            return self._error_response(f"Project root does not exist: {project_root}", work_log)
+            return self._error_response(
+                f"Project root does not exist: {project_root}", work_log
+            )
 
         try:
             content = path.read_text(errors="ignore")
@@ -121,7 +126,9 @@ class ImpactAnalyzer:
             work_log.what_worked.append(f"tracked {usage_count} symbol usages")
 
         # Step 4: Assess risk level
-        report.risk_level, report.risk_reasons = self._assess_risk(report, proposed_changes)
+        report.risk_level, report.risk_reasons = self._assess_risk(
+            report, proposed_changes
+        )
 
         # Build response
         return self._build_response(report, work_log)
@@ -152,34 +159,40 @@ class ImpactAnalyzer:
             if match:
                 name = match.group(1)
                 is_public = not name.startswith("_")
-                exports.append(ExportedSymbol(
-                    name=name,
-                    kind="function",
-                    line=i,
-                    is_public=is_public,
-                ))
+                exports.append(
+                    ExportedSymbol(
+                        name=name,
+                        kind="function",
+                        line=i,
+                        is_public=is_public,
+                    )
+                )
 
             # Classes
             match = re.match(r"^class\s+([a-zA-Z_][a-zA-Z0-9_]*)", line)
             if match:
                 name = match.group(1)
                 is_public = not name.startswith("_")
-                exports.append(ExportedSymbol(
-                    name=name,
-                    kind="class",
-                    line=i,
-                    is_public=is_public,
-                ))
+                exports.append(
+                    ExportedSymbol(
+                        name=name,
+                        kind="class",
+                        line=i,
+                        is_public=is_public,
+                    )
+                )
 
             # Constants (ALL_CAPS at module level)
             match = re.match(r"^([A-Z][A-Z0-9_]+)\s*=", line)
             if match:
-                exports.append(ExportedSymbol(
-                    name=match.group(1),
-                    kind="constant",
-                    line=i,
-                    is_public=True,
-                ))
+                exports.append(
+                    ExportedSymbol(
+                        name=match.group(1),
+                        kind="constant",
+                        line=i,
+                        is_public=True,
+                    )
+                )
 
         return exports
 
@@ -190,36 +203,42 @@ class ImpactAnalyzer:
         # export function/const/class
         for match in re.finditer(
             r"export\s+(default\s+)?(function|const|let|class|async function)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)",
-            content
+            content,
         ):
             kind = match.group(2)
             name = match.group(3)
-            line = content[:match.start()].count("\n") + 1
+            line = content[: match.start()].count("\n") + 1
 
             if kind in ("const", "let"):
                 kind = "constant"
             elif kind == "async function":
                 kind = "function"
 
-            exports.append(ExportedSymbol(
-                name=name,
-                kind=kind,
-                line=line,
-                is_public=True,
-            ))
+            exports.append(
+                ExportedSymbol(
+                    name=name,
+                    kind=kind,
+                    line=line,
+                    is_public=True,
+                )
+            )
 
         # export { name1, name2 }
         for match in re.finditer(r"export\s*\{([^}]+)\}", content):
-            names = [n.strip().split(" as ")[0].strip() for n in match.group(1).split(",")]
-            line = content[:match.start()].count("\n") + 1
+            names = [
+                n.strip().split(" as ")[0].strip() for n in match.group(1).split(",")
+            ]
+            line = content[: match.start()].count("\n") + 1
             for name in names:
                 if name:
-                    exports.append(ExportedSymbol(
-                        name=name,
-                        kind="variable",
-                        line=line,
-                        is_public=True,
-                    ))
+                    exports.append(
+                        ExportedSymbol(
+                            name=name,
+                            kind="variable",
+                            line=line,
+                            is_public=True,
+                        )
+                    )
 
         return exports
 
@@ -228,24 +247,32 @@ class ImpactAnalyzer:
         exports = []
 
         # Functions
-        for match in re.finditer(r"^func\s+(?:\([^)]+\)\s+)?([A-Z][a-zA-Z0-9_]*)\s*\(", content, re.MULTILINE):
-            line = content[:match.start()].count("\n") + 1
-            exports.append(ExportedSymbol(
-                name=match.group(1),
-                kind="function",
-                line=line,
-                is_public=True,
-            ))
+        for match in re.finditer(
+            r"^func\s+(?:\([^)]+\)\s+)?([A-Z][a-zA-Z0-9_]*)\s*\(", content, re.MULTILINE
+        ):
+            line = content[: match.start()].count("\n") + 1
+            exports.append(
+                ExportedSymbol(
+                    name=match.group(1),
+                    kind="function",
+                    line=line,
+                    is_public=True,
+                )
+            )
 
         # Types
-        for match in re.finditer(r"^type\s+([A-Z][a-zA-Z0-9_]*)\s+", content, re.MULTILINE):
-            line = content[:match.start()].count("\n") + 1
-            exports.append(ExportedSymbol(
-                name=match.group(1),
-                kind="class",
-                line=line,
-                is_public=True,
-            ))
+        for match in re.finditer(
+            r"^type\s+([A-Z][a-zA-Z0-9_]*)\s+", content, re.MULTILINE
+        ):
+            line = content[: match.start()].count("\n") + 1
+            exports.append(
+                ExportedSymbol(
+                    name=match.group(1),
+                    kind="class",
+                    line=line,
+                    is_public=True,
+                )
+            )
 
         return exports
 
@@ -257,9 +284,22 @@ class ImpactAnalyzer:
         """Find files that import/depend on the target file."""
         dependents = []
         target_name = target.stem
-        target_rel = str(target.relative_to(root)) if target.is_relative_to(root) else target.name
+        target_rel = (
+            str(target.relative_to(root))
+            if target.is_relative_to(root)
+            else target.name
+        )
 
-        skip_dirs = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build", ".next"}
+        skip_dirs = {
+            "node_modules",
+            ".git",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            ".next",
+        }
         search_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java"}
 
         for root_dir, dirs, files in os.walk(root):
@@ -282,7 +322,9 @@ class ImpactAnalyzer:
 
         return dependents
 
-    def _imports_target(self, content: str, target_name: str, target_rel: str, ext: str) -> bool:
+    def _imports_target(
+        self, content: str, target_name: str, target_rel: str, ext: str
+    ) -> bool:
         """Check if content imports the target file."""
         if target_name not in content:
             return False
@@ -330,11 +372,13 @@ class ImpactAnalyzer:
                         if re.search(pattern, line):
                             if symbol.name not in usages:
                                 usages[symbol.name] = []
-                            usages[symbol.name].append(SymbolUsage(
-                                file=dep_path,
-                                line=i,
-                                context=line.strip()[:100],
-                            ))
+                            usages[symbol.name].append(
+                                SymbolUsage(
+                                    file=dep_path,
+                                    line=i,
+                                    context=line.strip()[:100],
+                                )
+                            )
             except Exception:
                 continue
 
@@ -384,11 +428,20 @@ class ImpactAnalyzer:
 
         # Check for specific high-risk patterns in proposed changes
         if proposed_changes:
-            high_risk_words = ["rename", "delete", "remove", "signature", "parameter", "return type"]
+            high_risk_words = [
+                "rename",
+                "delete",
+                "remove",
+                "signature",
+                "parameter",
+                "return type",
+            ]
             for word in high_risk_words:
                 if word.lower() in proposed_changes.lower():
                     score += 1
-                    reasons.append(f"Proposed change involves '{word}' - may break callers")
+                    reasons.append(
+                        f"Proposed change involves '{word}' - may break callers"
+                    )
                     break
 
         # Determine level
@@ -407,7 +460,9 @@ class ImpactAnalyzer:
     # Response Building
     # -------------------------------------------------------------------------
 
-    def _build_response(self, report: ImpactReport, work_log: WorkLog) -> MiniClaudeResponse:
+    def _build_response(
+        self, report: ImpactReport, work_log: WorkLog
+    ) -> MiniClaudeResponse:
         """Build the response from an impact report."""
         # Format exports for output
         exports_data = [
@@ -438,7 +493,9 @@ class ImpactAnalyzer:
             "summary": {
                 "dependent_count": len(report.dependents),
                 "export_count": len(report.exported_symbols),
-                "public_export_count": len([s for s in report.exported_symbols if s.is_public]),
+                "public_export_count": len(
+                    [s for s in report.exported_symbols if s.is_public]
+                ),
                 "total_usages": sum(len(u) for u in report.symbol_usages.values()),
             },
         }
@@ -446,7 +503,9 @@ class ImpactAnalyzer:
         suggestions = self._generate_suggestions(report)
         warnings = []
         if report.risk_level in ("high", "critical"):
-            warnings.append(f"Risk level is {report.risk_level.upper()} - consider the impact carefully")
+            warnings.append(
+                f"Risk level is {report.risk_level.upper()} - consider the impact carefully"
+            )
 
         return MiniClaudeResponse(
             status="success",
@@ -463,22 +522,26 @@ class ImpactAnalyzer:
         suggestions = []
 
         if report.dependents:
-            suggestions.append(f"Review these files before changing: {', '.join(report.dependents[:3])}")
+            suggestions.append(
+                f"Review these files before changing: {', '.join(report.dependents[:3])}"
+            )
 
         if report.risk_level in ("high", "critical"):
-            suggestions.append("Consider adding tests for dependent code before making changes")
+            suggestions.append(
+                "Consider adding tests for dependent code before making changes"
+            )
             suggestions.append("Make changes incrementally and test after each step")
 
         # Most-used symbols
         if report.symbol_usages:
             most_used = sorted(
-                report.symbol_usages.items(),
-                key=lambda x: len(x[1]),
-                reverse=True
+                report.symbol_usages.items(), key=lambda x: len(x[1]), reverse=True
             )[:3]
             for name, usages in most_used:
                 if len(usages) > 2:
-                    suggestions.append(f"'{name}' is used {len(usages)} times - changes will have wide effect")
+                    suggestions.append(
+                        f"'{name}' is used {len(usages)} times - changes will have wide effect"
+                    )
 
         return suggestions
 

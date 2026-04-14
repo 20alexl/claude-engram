@@ -21,6 +21,7 @@ from .memory import MemoryStore
 @dataclass
 class WorkEvent:
     """A single work event in the current session."""
+
     event_type: str  # "edit", "search", "error", "decision"
     description: str
     file_path: Optional[str] = None
@@ -62,12 +63,14 @@ class WorkTracker:
         lines_changed: int = 0,
     ):
         """Log when a file is edited."""
-        self._events.append(WorkEvent(
-            event_type="edit",
-            description=description,
-            file_path=file_path,
-            metadata={"lines_changed": lines_changed},
-        ))
+        self._events.append(
+            WorkEvent(
+                event_type="edit",
+                description=description,
+                file_path=file_path,
+                metadata={"lines_changed": lines_changed},
+            )
+        )
 
     def log_search(
         self,
@@ -76,12 +79,14 @@ class WorkTracker:
         directory: str,
     ):
         """Log when a search is performed."""
-        self._events.append(WorkEvent(
-            event_type="search",
-            description=f"Searched for '{query}' - found {results_count} results",
-            file_path=directory,
-            metadata={"query": query, "results_count": results_count},
-        ))
+        self._events.append(
+            WorkEvent(
+                event_type="search",
+                description=f"Searched for '{query}' - found {results_count} results",
+                file_path=directory,
+                metadata={"query": query, "results_count": results_count},
+            )
+        )
 
     def log_mistake(
         self,
@@ -102,18 +107,21 @@ class WorkTracker:
         }
         self._mistakes.append(mistake)
 
-        self._events.append(WorkEvent(
-            event_type="error",
-            description=description,
-            file_path=file_path,
-            metadata={"how_to_avoid": how_to_avoid},
-        ))
+        self._events.append(
+            WorkEvent(
+                event_type="error",
+                description=description,
+                file_path=file_path,
+                metadata={"how_to_avoid": how_to_avoid},
+            )
+        )
 
         # Immediately persist mistakes - they're valuable
         if self._current_project:
             self.memory.remember_discovery(
                 self._current_project,
-                f"MISTAKE: {description}" + (f" - Fix: {how_to_avoid}" if how_to_avoid else ""),
+                f"MISTAKE: {description}"
+                + (f" - Fix: {how_to_avoid}" if how_to_avoid else ""),
                 source="work_tracker",
                 relevance=9,  # Mistakes are high relevance
                 category="mistake",  # Use proper category for filtering
@@ -126,15 +134,17 @@ class WorkTracker:
         alternatives_considered: Optional[list[str]] = None,
     ):
         """Log an important decision and why it was made."""
-        self._events.append(WorkEvent(
-            event_type="decision",
-            description=f"{decision} - Reason: {reason}",
-            metadata={
-                "decision": decision,
-                "reason": reason,
-                "alternatives": alternatives_considered or [],
-            },
-        ))
+        self._events.append(
+            WorkEvent(
+                event_type="decision",
+                description=f"{decision} - Reason: {reason}",
+                metadata={
+                    "decision": decision,
+                    "reason": reason,
+                    "alternatives": alternatives_considered or [],
+                },
+            )
+        )
 
     def get_session_summary(self) -> MiniClaudeResponse:
         """
@@ -164,7 +174,9 @@ class WorkTracker:
 
         if edits:
             files_edited = list(set(e.file_path for e in edits if e.file_path))
-            summary_parts.append(f"Edited {len(files_edited)} files: {', '.join(Path(f).name for f in files_edited[:5])}")
+            summary_parts.append(
+                f"Edited {len(files_edited)} files: {', '.join(Path(f).name for f in files_edited[:5])}"
+            )
 
         if searches:
             queries = list(set(e.metadata.get("query", "") for e in searches))
@@ -179,12 +191,18 @@ class WorkTracker:
         work_log.what_worked.append("session summarized")
 
         # Duration
-        duration_mins = (time.time() - self._session_start_time) / 60 if self._session_start_time else 0
+        duration_mins = (
+            (time.time() - self._session_start_time) / 60
+            if self._session_start_time
+            else 0
+        )
 
         return MiniClaudeResponse(
             status="success",
             confidence="high",
-            reasoning=". ".join(summary_parts) if summary_parts else "Session in progress",
+            reasoning=(
+                ". ".join(summary_parts) if summary_parts else "Session in progress"
+            ),
             work_log=work_log,
             data={
                 "duration_minutes": round(duration_mins, 1),
@@ -192,7 +210,13 @@ class WorkTracker:
                 "searches": len(searches),
                 "errors": len(errors),
                 "decisions": len(decisions),
-                "files_touched": list(set(e.file_path for e in self._events if e.file_path and e.event_type == "edit")),
+                "files_touched": list(
+                    set(
+                        e.file_path
+                        for e in self._events
+                        if e.file_path and e.event_type == "edit"
+                    )
+                ),
                 "mistakes": self._mistakes,
             },
             suggestions=[
@@ -218,11 +242,13 @@ class WorkTracker:
 
         for event in self._events:
             if event.file_path and self._paths_related(event.file_path, file_path):
-                relevant.append({
-                    "type": event.event_type,
-                    "description": event.description,
-                    "when": event.timestamp,
-                })
+                relevant.append(
+                    {
+                        "type": event.event_type,
+                        "description": event.description,
+                        "when": event.timestamp,
+                    }
+                )
 
         # Check memory for past mistakes with this file
         past_context = []
@@ -247,8 +273,12 @@ class WorkTracker:
         # Helpful message when no history exists
         if not relevant and not past_context:
             suggestions.append(f"No history yet for {Path(file_path).name}.")
-            suggestions.append("After editing, use loop_record_edit(file_path, description) to build history.")
-            suggestions.append("If something breaks, use work_log_mistake() so you'll be warned next time.")
+            suggestions.append(
+                "After editing, use loop_record_edit(file_path, description) to build history."
+            )
+            suggestions.append(
+                "If something breaks, use work_log_mistake() so you'll be warned next time."
+            )
 
         work_log.what_worked.append(f"found {len(relevant)} relevant events")
 

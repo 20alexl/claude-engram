@@ -92,7 +92,9 @@ class DependencyMapper:
             reverse_deps = self._find_reverse_deps(path, project_root, ext)
             data["imported_by"] = reverse_deps
             work_log.files_examined += reverse_deps.get("files_scanned", 0)
-            work_log.what_worked.append(f"found {len(reverse_deps.get('files', []))} reverse deps")
+            work_log.what_worked.append(
+                f"found {len(reverse_deps.get('files', []))} reverse deps"
+            )
 
         return MiniClaudeResponse(
             status="success",
@@ -110,14 +112,18 @@ class DependencyMapper:
         # Python
         if extension == ".py":
             # from x import y
-            imports.extend(re.findall(r"^from\s+([\w.]+)\s+import", content, re.MULTILINE))
+            imports.extend(
+                re.findall(r"^from\s+([\w.]+)\s+import", content, re.MULTILINE)
+            )
             # import x
             imports.extend(re.findall(r"^import\s+([\w.]+)", content, re.MULTILINE))
 
         # JavaScript/TypeScript
         elif extension in (".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"):
             # import from 'x' or require('x')
-            imports.extend(re.findall(r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", content))
+            imports.extend(
+                re.findall(r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", content)
+            )
             imports.extend(re.findall(r"require\(['\"]([^'\"]+)['\"]\)", content))
 
         # Go
@@ -150,11 +156,34 @@ class DependencyMapper:
 
         # Python standard library (incomplete but common ones)
         python_stdlib = {
-            "os", "sys", "re", "json", "time", "datetime", "collections",
-            "itertools", "functools", "pathlib", "typing", "asyncio",
-            "subprocess", "threading", "multiprocessing", "logging",
-            "unittest", "pytest", "argparse", "dataclasses", "enum",
-            "abc", "io", "hashlib", "random", "math", "copy", "pickle",
+            "os",
+            "sys",
+            "re",
+            "json",
+            "time",
+            "datetime",
+            "collections",
+            "itertools",
+            "functools",
+            "pathlib",
+            "typing",
+            "asyncio",
+            "subprocess",
+            "threading",
+            "multiprocessing",
+            "logging",
+            "unittest",
+            "pytest",
+            "argparse",
+            "dataclasses",
+            "enum",
+            "abc",
+            "io",
+            "hashlib",
+            "random",
+            "math",
+            "copy",
+            "pickle",
         }
 
         for imp in imports:
@@ -196,10 +225,22 @@ class DependencyMapper:
 
         root = Path(project_root)
         target_name = target_path.stem
-        target_rel = str(target_path.relative_to(root)) if target_path.is_relative_to(root) else str(target_path)
+        target_rel = (
+            str(target_path.relative_to(root))
+            if target_path.is_relative_to(root)
+            else str(target_path)
+        )
 
         # Directories to skip
-        skip_dirs = {"node_modules", ".git", "__pycache__", ".venv", "venv", "dist", "build"}
+        skip_dirs = {
+            "node_modules",
+            ".git",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+        }
 
         # Extensions to search
         search_extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java"}
@@ -262,7 +303,9 @@ class DependencyMapper:
         # Many external deps
         external = imports.get("external", [])
         if len(external) > 10:
-            suggestions.append(f"This file has {len(external)} external dependencies - consider if all are needed")
+            suggestions.append(
+                f"This file has {len(external)} external dependencies - consider if all are needed"
+            )
 
         # Circular dependency warning
         internal = imports.get("internal", [])
@@ -274,6 +317,8 @@ class DependencyMapper:
         if imported_by.get("files"):
             count = len(imported_by["files"])
             if count > 5:
-                suggestions.append(f"This file is imported by {count} other files - changes may have wide impact")
+                suggestions.append(
+                    f"This file is imported by {count} other files - changes may have wide impact"
+                )
 
         return suggestions

@@ -268,11 +268,13 @@ def extract_tool_uses(msg: dict) -> list[dict]:
     tools = []
     for block in content:
         if isinstance(block, dict) and block.get("type") == "tool_use":
-            tools.append({
-                "name": block.get("name", ""),
-                "id": block.get("id", ""),
-                "input": block.get("input", {}),
-            })
+            tools.append(
+                {
+                    "name": block.get("name", ""),
+                    "id": block.get("id", ""),
+                    "input": block.get("input", {}),
+                }
+            )
     return tools
 
 
@@ -344,7 +346,4 @@ def get_git_branch(msg: dict) -> str:
 
 def is_compaction_event(msg: dict) -> bool:
     """Check if a system message is a compaction boundary."""
-    return (
-        msg.get("type") == "system"
-        and msg.get("subtype") == "compact_boundary"
-    )
+    return msg.get("type") == "system" and msg.get("subtype") == "compact_boundary"

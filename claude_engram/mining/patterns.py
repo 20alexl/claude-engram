@@ -18,6 +18,7 @@ from typing import Optional
 @dataclass
 class Struggle:
     """A file/area where the user repeatedly struggles."""
+
     file_path: str
     sessions_affected: int
     total_edits: int
@@ -28,6 +29,7 @@ class Struggle:
 @dataclass
 class RecurringError:
     """An error that appears across multiple sessions."""
+
     error_type: str
     message_pattern: str  # Common substring
     session_count: int
@@ -37,16 +39,18 @@ class RecurringError:
 @dataclass
 class EditCorrelation:
     """Files that are frequently edited together."""
+
     file_a: str
     file_b: str
-    co_occurrence: int     # How many sessions both appear in
-    total_sessions: int    # Total sessions where either appears
+    co_occurrence: int  # How many sessions both appear in
+    total_sessions: int  # Total sessions where either appears
     strength: float = 0.0  # co_occurrence / total_sessions
 
 
 @dataclass
 class PatternReport:
     """All detected patterns for a project."""
+
     struggles: list[Struggle] = field(default_factory=list)
     recurring_errors: list[RecurringError] = field(default_factory=list)
     correlations: list[EditCorrelation] = field(default_factory=list)
@@ -71,7 +75,9 @@ def detect_all_patterns(
 
     report = PatternReport(
         struggles=detect_struggles(sessions, project_root=project_path),
-        recurring_errors=detect_recurring_errors(sessions, project_path, engram_storage_dir),
+        recurring_errors=detect_recurring_errors(
+            sessions, project_path, engram_storage_dir
+        ),
         correlations=detect_edit_correlations(sessions),
         generated_at=time.time(),
     )
@@ -152,13 +158,15 @@ def detect_struggles(
         if score < 3:
             continue
 
-        struggles.append(Struggle(
-            file_path=name,
-            sessions_affected=len(sids),
-            total_edits=len(sids),
-            errors_nearby=error_count,
-            description=f"Edited in {len(sids)} sessions, {error_count} had errors",
-        ))
+        struggles.append(
+            Struggle(
+                file_path=name,
+                sessions_affected=len(sids),
+                total_edits=len(sids),
+                errors_nearby=error_count,
+                description=f"Edited in {len(sids)} sessions, {error_count} had errors",
+            )
+        )
 
     struggles.sort(key=lambda s: -(s.sessions_affected + s.errors_nearby))
     return struggles[:20]
@@ -211,12 +219,14 @@ def detect_recurring_errors(
     for error_type, sids in error_occurrences.items():
         unique_sessions = list(set(sids))
         if len(unique_sessions) >= 2:
-            recurring.append(RecurringError(
-                error_type=error_type,
-                message_pattern=error_type,
-                session_count=len(unique_sessions),
-                sessions=unique_sessions[:10],
-            ))
+            recurring.append(
+                RecurringError(
+                    error_type=error_type,
+                    message_pattern=error_type,
+                    session_count=len(unique_sessions),
+                    sessions=unique_sessions[:10],
+                )
+            )
 
     recurring.sort(key=lambda e: -e.session_count)
     return recurring[:15]
@@ -246,7 +256,7 @@ def detect_edit_correlations(
     files = sorted(active_files.keys())
 
     for i, file_a in enumerate(files):
-        for file_b in files[i + 1:]:
+        for file_b in files[i + 1 :]:
             co = len(active_files[file_a] & active_files[file_b])
             if co < min_co_occurrence:
                 continue
@@ -255,13 +265,15 @@ def detect_edit_correlations(
             strength = co / total if total > 0 else 0
 
             if strength >= min_strength:
-                correlations.append(EditCorrelation(
-                    file_a=file_a,
-                    file_b=file_b,
-                    co_occurrence=co,
-                    total_sessions=total,
-                    strength=round(strength, 3),
-                ))
+                correlations.append(
+                    EditCorrelation(
+                        file_a=file_a,
+                        file_b=file_b,
+                        co_occurrence=co,
+                        total_sessions=total,
+                        strength=round(strength, 3),
+                    )
+                )
 
     correlations.sort(key=lambda c: -c.strength)
     return correlations[:30]

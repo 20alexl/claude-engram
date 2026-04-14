@@ -25,6 +25,7 @@ from ..schema import MiniClaudeResponse, WorkLog
 @dataclass
 class TaskCheckpoint:
     """A saved checkpoint of task state."""
+
     task_id: str
     task_description: str
     current_step: str
@@ -44,6 +45,7 @@ class TaskCheckpoint:
 @dataclass
 class CriticalInstruction:
     """An instruction that must not be forgotten."""
+
     instruction: str
     reason: str
     last_reinforced: float = field(default_factory=time.time)
@@ -68,7 +70,9 @@ class ContextGuard:
 
         self._current_checkpoint: Optional[TaskCheckpoint] = None
         self._critical_instructions: list[CriticalInstruction] = []
-        self._claimed_completions: list[dict] = []  # Track what Claude claims to have done
+        self._claimed_completions: list[dict] = (
+            []
+        )  # Track what Claude claims to have done
         self._actual_verifications: list[dict] = []  # Track what was verified
 
     def save_checkpoint(
@@ -152,9 +156,15 @@ class ContextGuard:
 
         work_log.what_worked.append(f"checkpoint saved: {task_id}")
 
-        progress_pct = len(completed_steps) / (len(completed_steps) + len(pending_steps)) * 100 if (completed_steps or pending_steps) else 0
+        progress_pct = (
+            len(completed_steps) / (len(completed_steps) + len(pending_steps)) * 100
+            if (completed_steps or pending_steps)
+            else 0
+        )
 
-        has_handoff = bool(handoff_summary or handoff_context_needed or handoff_warnings)
+        has_handoff = bool(
+            handoff_summary or handoff_context_needed or handoff_warnings
+        )
         reasoning = f"Checkpoint saved. Task is {progress_pct:.0f}% complete. {len(pending_steps)} steps remaining."
         if has_handoff:
             reasoning += " Includes handoff info for next session."
@@ -212,11 +222,15 @@ class ContextGuard:
         # Calculate how old the checkpoint is
         age_hours = (time.time() - data.get("timestamp", 0)) / 3600
 
-        work_log.what_worked.append(f"checkpoint restored from {age_hours:.1f} hours ago")
+        work_log.what_worked.append(
+            f"checkpoint restored from {age_hours:.1f} hours ago"
+        )
 
         warnings = []
         if age_hours > 24:
-            warnings.append(f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant")
+            warnings.append(
+                f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant"
+            )
 
         # Build a summary for easy re-orientation
         summary_lines = [
@@ -229,7 +243,9 @@ class ContextGuard:
             summary_lines.append(f"**Blockers:** {', '.join(data['blockers'])}")
 
         if data.get("key_decisions"):
-            summary_lines.append(f"**Key decisions:** {len(data['key_decisions'])} recorded")
+            summary_lines.append(
+                f"**Key decisions:** {len(data['key_decisions'])} recorded"
+            )
 
         # Include handoff info if present
         handoff_summary = data.get("handoff_summary")
@@ -237,14 +253,18 @@ class ContextGuard:
         handoff_warnings = data.get("handoff_warnings", [])
 
         if handoff_summary:
-            summary_lines.extend([
-                "",
-                "## Handoff from previous session:",
-                handoff_summary,
-            ])
+            summary_lines.extend(
+                [
+                    "",
+                    "## Handoff from previous session:",
+                    handoff_summary,
+                ]
+            )
 
         if handoff_context:
-            summary_lines.append(f"**Context needed:** {', '.join(handoff_context[:3])}")
+            summary_lines.append(
+                f"**Context needed:** {', '.join(handoff_context[:3])}"
+            )
 
         # Add handoff warnings to main warnings
         warnings.extend(handoff_warnings)
@@ -294,12 +314,14 @@ class ContextGuard:
             with open(instructions_file) as f:
                 existing = json.load(f)
 
-        existing.append({
-            "instruction": instruction,
-            "reason": reason,
-            "importance": importance,
-            "added": time.time(),
-        })
+        existing.append(
+            {
+                "instruction": instruction,
+                "reason": reason,
+                "importance": importance,
+                "added": time.time(),
+            }
+        )
 
         with open(instructions_file, "w") as f:
             json.dump(existing, f, indent=2)
@@ -332,7 +354,9 @@ class ContextGuard:
                 confidence="high",
                 reasoning="No critical instructions registered",
                 work_log=work_log,
-                suggestions=["Use add_critical_instruction to register important rules"],
+                suggestions=[
+                    "Use add_critical_instruction to register important rules"
+                ],
             )
 
         with open(instructions_file) as f:
@@ -347,13 +371,19 @@ class ContextGuard:
             )
 
         # Sort by importance and build reinforcement message
-        sorted_instructions = sorted(instructions, key=lambda x: x.get("importance", 5), reverse=True)
+        sorted_instructions = sorted(
+            instructions, key=lambda x: x.get("importance", 5), reverse=True
+        )
 
         reinforcement_lines = ["## CRITICAL REMINDERS (Do not ignore!)"]
         for inst in sorted_instructions[:5]:  # Top 5 most important
-            reinforcement_lines.append(f"- **{inst['instruction']}** (Why: {inst['reason']})")
+            reinforcement_lines.append(
+                f"- **{inst['instruction']}** (Why: {inst['reason']})"
+            )
 
-        work_log.what_worked.append(f"generated reinforcement for {len(sorted_instructions[:5])} instructions")
+        work_log.what_worked.append(
+            f"generated reinforcement for {len(sorted_instructions[:5])} instructions"
+        )
 
         return MiniClaudeResponse(
             status="success",
@@ -451,17 +481,26 @@ class ContextGuard:
         self._actual_verifications.append(verification)
 
         # Build verification checklist
-        checklist = ["## Self-Check Verification", f"**Task:** {task}", "", "**Verification steps to perform:**"]
+        checklist = [
+            "## Self-Check Verification",
+            f"**Task:** {task}",
+            "",
+            "**Verification steps to perform:**",
+        ]
         for i, step in enumerate(verification_steps, 1):
             checklist.append(f"- [ ] {step}")
 
-        checklist.extend([
-            "",
-            "**Instructions:** Go through each step above and verify it's actually done.",
-            "If any step fails, the task is NOT complete.",
-        ])
+        checklist.extend(
+            [
+                "",
+                "**Instructions:** Go through each step above and verify it's actually done.",
+                "If any step fails, the task is NOT complete.",
+            ]
+        )
 
-        work_log.what_worked.append(f"generated {len(verification_steps)} verification steps")
+        work_log.what_worked.append(
+            f"generated {len(verification_steps)} verification steps"
+        )
 
         return MiniClaudeResponse(
             status="success",
@@ -512,15 +551,27 @@ class ContextGuard:
         if evidence:
             for ev in evidence:
                 # Check if it looks like a file path
-                if "/" in ev or "\\" in ev or ev.endswith((".py", ".js", ".ts", ".md", ".json", ".yaml", ".yml")):
+                if (
+                    "/" in ev
+                    or "\\" in ev
+                    or ev.endswith(
+                        (".py", ".js", ".ts", ".md", ".json", ".yaml", ".yml")
+                    )
+                ):
                     path = Path(ev)
                     if path.exists():
-                        evidence_results.append({"item": ev, "status": "FOUND", "valid": True})
+                        evidence_results.append(
+                            {"item": ev, "status": "FOUND", "valid": True}
+                        )
                     else:
-                        evidence_results.append({"item": ev, "status": "NOT FOUND", "valid": False})
+                        evidence_results.append(
+                            {"item": ev, "status": "NOT FOUND", "valid": False}
+                        )
                 else:
                     # Not a file path - just note it
-                    evidence_results.append({"item": ev, "status": "noted", "valid": True})
+                    evidence_results.append(
+                        {"item": ev, "status": "noted", "valid": True}
+                    )
 
         # ACTUALLY VERIFY - check verification steps where possible
         step_results = []
@@ -578,10 +629,14 @@ class ContextGuard:
             lines.append(f"**Result: {steps_manual} steps need manual verification**")
             status = "success"
         else:
-            lines.append(f"**Result: VERIFICATION FAILED** ({evidence_failed + steps_failed} checks failed)")
+            lines.append(
+                f"**Result: VERIFICATION FAILED** ({evidence_failed + steps_failed} checks failed)"
+            )
             status = "failed"
 
-        work_log.what_worked.append(f"verified {len(verification_steps)} steps: {steps_passed} passed, {steps_failed} failed, {steps_manual} manual")
+        work_log.what_worked.append(
+            f"verified {len(verification_steps)} steps: {steps_passed} passed, {steps_failed} failed, {steps_manual} manual"
+        )
 
         warnings = []
         if steps_manual > 0:
@@ -615,20 +670,34 @@ class ContextGuard:
 
         # Check for file existence patterns
         file_patterns = [
-            "file exists", "file created", "created file", "added file",
-            "exists at", "saved to", "wrote to", "created at"
+            "file exists",
+            "file created",
+            "created file",
+            "added file",
+            "exists at",
+            "saved to",
+            "wrote to",
+            "created at",
         ]
         if any(p in step_lower for p in file_patterns):
             # Try to extract file path from step
             import re
+
             # Look for paths like /foo/bar.py or foo/bar.py or "filename.ext"
-            path_match = re.search(r'["\']?([a-zA-Z0-9_/\\.-]+\.[a-zA-Z0-9]+)["\']?', step)
+            path_match = re.search(
+                r'["\']?([a-zA-Z0-9_/\\.-]+\.[a-zA-Z0-9]+)["\']?', step
+            )
             if path_match:
                 path = Path(path_match.group(1))
                 if path.exists():
                     return {"step": step, "status": "passed", "valid": True}
                 else:
-                    return {"step": step, "status": "failed", "valid": False, "reason": f"file not found: {path}"}
+                    return {
+                        "step": step,
+                        "status": "failed",
+                        "valid": False,
+                        "reason": f"file not found: {path}",
+                    }
 
         # Check for "no errors" patterns - can't auto-verify
         error_patterns = ["no errors", "no warnings", "compiles", "builds successfully"]
@@ -755,7 +824,13 @@ class ContextGuard:
             work_log=work_log,
             data=handoff,
             warnings=warnings,
-            suggestions=[f"First step: {handoff['next_steps'][0]}" if handoff.get("next_steps") else "Review context_needed items"],
+            suggestions=[
+                (
+                    f"First step: {handoff['next_steps'][0]}"
+                    if handoff.get("next_steps")
+                    else "Review context_needed items"
+                )
+            ],
         )
 
     def list_checkpoints(self) -> MiniClaudeResponse:
@@ -768,12 +843,16 @@ class ContextGuard:
             try:
                 with open(f) as file:
                     data = json.load(file)
-                    checkpoints.append({
-                        "task_id": data.get("task_id"),
-                        "description": data.get("task_description", "")[:50],
-                        "progress": f"{len(data.get('completed_steps', []))}/{len(data.get('completed_steps', [])) + len(data.get('pending_steps', []))}",
-                        "age_hours": round((time.time() - data.get("timestamp", 0)) / 3600, 1),
-                    })
+                    checkpoints.append(
+                        {
+                            "task_id": data.get("task_id"),
+                            "description": data.get("task_description", "")[:50],
+                            "progress": f"{len(data.get('completed_steps', []))}/{len(data.get('completed_steps', [])) + len(data.get('pending_steps', []))}",
+                            "age_hours": round(
+                                (time.time() - data.get("timestamp", 0)) / 3600, 1
+                            ),
+                        }
+                    )
             except (json.JSONDecodeError, KeyError):
                 continue
 

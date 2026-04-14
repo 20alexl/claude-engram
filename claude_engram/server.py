@@ -194,9 +194,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 def main():
     """Main entry point."""
+
     async def run():
         async with stdio_server() as (read_stream, write_stream):
-            await server.run(read_stream, write_stream, server.create_initialization_options())
+            await server.run(
+                read_stream, write_stream, server.create_initialization_options()
+            )
 
     try:
         asyncio.run(run())

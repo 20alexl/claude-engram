@@ -36,7 +36,10 @@ def run_all():
     try:
         import bench_decision_capture_v2
         from claude_engram.hooks.remind import _score_decision_intent
-        r, p, f1 = bench_decision_capture_v2.run_scorer(_score_decision_intent, "Regex Scorer", 0.45)
+
+        r, p, f1 = bench_decision_capture_v2.run_scorer(
+            _score_decision_intent, "Regex Scorer", 0.45
+        )
         results["Decision Capture (Regex)"] = f"F1={f1:.1f}%"
     except Exception as e:
         print(f"  ERROR: {e}")
@@ -48,6 +51,7 @@ def run_all():
     print("#" * 60)
     try:
         import bench_injection_relevance
+
         passed, total = bench_injection_relevance.run_benchmark()
         results["Injection Relevance"] = f"{passed}/{total} passed"
     except Exception as e:
@@ -60,6 +64,7 @@ def run_all():
     print("#" * 60)
     try:
         import bench_compaction_survival
+
         passed, total = bench_compaction_survival.run_benchmark()
         results["Compaction Survival"] = f"{passed}/{total} passed"
     except Exception as e:
@@ -72,6 +77,7 @@ def run_all():
     print("#" * 60)
     try:
         import bench_error_capture
+
         correct, total = bench_error_capture.run_benchmark()
         results["Error Auto-Capture"] = f"{correct}/{total} correct"
     except Exception as e:
@@ -84,6 +90,7 @@ def run_all():
     print("#" * 60)
     try:
         import bench_multi_project
+
         passed, total = bench_multi_project.run_benchmark()
         results["Multi-Project Scoping"] = f"{passed}/{total} passed"
     except Exception as e:
@@ -96,6 +103,7 @@ def run_all():
     print("#" * 60)
     try:
         import bench_edit_loop
+
         passed, total = bench_edit_loop.run_benchmark()
         results["Edit Loop Detection"] = f"{passed}/{total} passed"
     except Exception as e:

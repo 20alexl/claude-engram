@@ -30,11 +30,12 @@ from claude_engram.mining.jsonl_reader import (
 @dataclass
 class SearchResult:
     """A search result from session mining."""
-    chunk_text: str       # The matched text (preview)
-    score: float          # Relevance score (0-1)
+
+    chunk_text: str  # The matched text (preview)
+    score: float  # Relevance score (0-1)
     session_id: str = ""
     timestamp: str = ""
-    msg_type: str = ""    # "user" | "assistant"
+    msg_type: str = ""  # "user" | "assistant"
     surrounding: list[str] = field(default_factory=list)  # Context messages
     related_files: list[str] = field(default_factory=list)
 
@@ -42,12 +43,13 @@ class SearchResult:
 @dataclass
 class ChunkIndex:
     """Lightweight index entry for a searchable conversation chunk."""
+
     session_id: str
     jsonl_file: str
-    msg_offset: int       # Message index in the JSONL
+    msg_offset: int  # Message index in the JSONL
     timestamp: str
-    msg_type: str         # "user" | "assistant"
-    preview: str          # First 200 chars of text
+    msg_type: str  # "user" | "assistant"
+    preview: str  # First 200 chars of text
     related_files: list[str] = field(default_factory=list)
 
 
@@ -154,8 +156,9 @@ def build_session_embeddings(
     new_embeddings = []
     try:
         from claude_engram.hooks.scorer_server import embed_batch_via_server
+
         for i in range(0, len(new_texts), BATCH_SIZE):
-            batch = new_texts[i:i + BATCH_SIZE]
+            batch = new_texts[i : i + BATCH_SIZE]
             batch_embs = embed_batch_via_server(batch)
             new_embeddings.extend(batch_embs)
     except Exception:
@@ -325,14 +328,16 @@ def search_sessions(
             score = keyword_scores[i]
 
         if score > 0.1:
-            results.append(SearchResult(
-                chunk_text=chunk.get("preview", ""),
-                score=score,
-                session_id=chunk.get("session_id", ""),
-                timestamp=chunk.get("timestamp", ""),
-                msg_type=chunk.get("msg_type", ""),
-                related_files=chunk.get("related_files", []),
-            ))
+            results.append(
+                SearchResult(
+                    chunk_text=chunk.get("preview", ""),
+                    score=score,
+                    session_id=chunk.get("session_id", ""),
+                    timestamp=chunk.get("timestamp", ""),
+                    msg_type=chunk.get("msg_type", ""),
+                    related_files=chunk.get("related_files", []),
+                )
+            )
 
     results.sort(key=lambda r: -r.score)
     return results[:limit]
@@ -350,8 +355,11 @@ def find_decision(
     plus surrounding conversation for full reasoning.
     """
     results = search_sessions(
-        project_path, query, limit=5,
-        method="semantic", engram_storage_dir=engram_storage_dir,
+        project_path,
+        query,
+        limit=5,
+        method="semantic",
+        engram_storage_dir=engram_storage_dir,
     )
 
     # Expand context: for each result, load surrounding messages
@@ -369,14 +377,14 @@ def find_decision(
             continue
 
         hash_dir = storage / "projects" / proj_info["hash"]
-        idx_data = json.loads(
-            (hash_dir / "session_embeddings_index.json").read_text()
-        )
+        idx_data = json.loads((hash_dir / "session_embeddings_index.json").read_text())
 
         # Find the chunk's JSONL file
         for chunk in idx_data.get("chunks", []):
-            if (chunk.get("session_id") == result.session_id
-                    and chunk.get("preview") == result.chunk_text):
+            if (
+                chunk.get("session_id") == result.session_id
+                and chunk.get("preview") == result.chunk_text
+            ):
                 jsonl_file = jsonl_dir / chunk["jsonl_file"]
                 if jsonl_file.exists():
                     result.surrounding = _get_surrounding_messages(
@@ -434,14 +442,16 @@ def find_file_discussions(
             score = 0.5
 
         if score > 0:
-            results.append(SearchResult(
-                chunk_text=chunk.get("preview", ""),
-                score=score,
-                session_id=chunk.get("session_id", ""),
-                timestamp=chunk.get("timestamp", ""),
-                msg_type=chunk.get("msg_type", ""),
-                related_files=chunk.get("related_files", []),
-            ))
+            results.append(
+                SearchResult(
+                    chunk_text=chunk.get("preview", ""),
+                    score=score,
+                    session_id=chunk.get("session_id", ""),
+                    timestamp=chunk.get("timestamp", ""),
+                    msg_type=chunk.get("msg_type", ""),
+                    related_files=chunk.get("related_files", []),
+                )
+            )
 
     results.sort(key=lambda r: (-r.score, r.timestamp))
     return results[:limit]

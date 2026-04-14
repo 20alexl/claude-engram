@@ -42,7 +42,6 @@ DECISION_TEMPLATES = [
     "let's use Docker for the development environment",
     "switch to using async functions throughout the codebase",
     "I want to use GraphQL instead of REST for the API",
-
     # Convention/rule decisions
     "from now on always use strict mode in TypeScript files",
     "going forward prefer composition over inheritance",
@@ -51,7 +50,6 @@ DECISION_TEMPLATES = [
     "stick with the existing naming conventions for consistency",
     "keep using the current architecture, it works well",
     "prefer functional components over class components",
-
     # Negation decisions
     "don't use var anymore, use const and let instead",
     "stop using console.log for debugging, use the logger",
@@ -60,7 +58,6 @@ DECISION_TEMPLATES = [
     "get rid of the old jQuery code and use modern JavaScript",
     "remove the deprecated endpoints from the API",
     "drop support for the legacy database format",
-
     # Architecture decisions
     "use the repository pattern for data access",
     "implement dependency injection for better testability",
@@ -102,6 +99,7 @@ def _try_import_sentence_transformers():
     """Try to import sentence-transformers. Returns None if not installed."""
     try:
         from sentence_transformers import SentenceTransformer
+
         return SentenceTransformer
     except ImportError:
         return None
@@ -118,9 +116,11 @@ def _get_or_build_template_cache() -> Optional[dict]:
         try:
             cache = json.loads(_TEMPLATE_CACHE.read_text())
             # Validate cache has expected keys and correct template count
-            if (cache.get("decision_count") == len(DECISION_TEMPLATES)
-                    and cache.get("non_decision_count") == len(NON_DECISION_TEMPLATES)
-                    and cache.get("model") == "all-MiniLM-L6-v2"):
+            if (
+                cache.get("decision_count") == len(DECISION_TEMPLATES)
+                and cache.get("non_decision_count") == len(NON_DECISION_TEMPLATES)
+                and cache.get("model") == "all-MiniLM-L6-v2"
+            ):
                 return cache
         except Exception:
             pass
@@ -134,7 +134,9 @@ def _get_or_build_template_cache() -> Optional[dict]:
         model = SentenceTransformer("all-MiniLM-L6-v2")
 
         decision_embs = model.encode(DECISION_TEMPLATES, normalize_embeddings=True)
-        non_decision_embs = model.encode(NON_DECISION_TEMPLATES, normalize_embeddings=True)
+        non_decision_embs = model.encode(
+            NON_DECISION_TEMPLATES, normalize_embeddings=True
+        )
 
         cache = {
             "model": "all-MiniLM-L6-v2",
@@ -173,12 +175,14 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
     # Path 1: Try persistent server (fastest — model already loaded)
     try:
         from claude_engram.hooks.scorer_server import score_via_server
+
         score, extracted = score_via_server(text)
         if score > 0.0 or extracted:
             return (score, extracted)
         # Server returned 0 — could be genuine 0 or server not running.
         # Check if server is actually reachable before falling through.
         from claude_engram.hooks.scorer_server import PORT_FILE
+
         if PORT_FILE.exists():
             return (score, extracted)  # Server is running, score is genuinely 0
     except Exception:
@@ -198,7 +202,7 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
         model = SentenceTransformer("all-MiniLM-L6-v2")
 
         # Split into sentences and score each
-        sentences = re.split(r'(?<=[.!])\s+|\n+', text)
+        sentences = re.split(r"(?<=[.!])\s+|\n+", text)
         sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
         if not sentences:
             sentences = [text.strip()]
