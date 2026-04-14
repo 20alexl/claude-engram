@@ -23,7 +23,9 @@ import threading
 from pathlib import Path
 
 # How long to stay alive without requests (seconds)
-IDLE_TIMEOUT = int(os.environ.get("CLAUDE_ENGRAM_SCORER_TIMEOUT", "1800"))  # 30 min default
+IDLE_TIMEOUT = int(
+    os.environ.get("CLAUDE_ENGRAM_SCORER_TIMEOUT", "1800")
+)  # 30 min default
 
 # Where to store the port number so hooks can find us
 PORT_FILE = Path.home() / ".claude_engram" / "scorer_port"
@@ -35,7 +37,9 @@ def _load_model_and_templates():
     import numpy as np
     from sentence_transformers import SentenceTransformer
 
-    cache_file = Path.home() / ".claude_engram" / "embeddings" / "decision_templates.json"
+    cache_file = (
+        Path.home() / ".claude_engram" / "embeddings" / "decision_templates.json"
+    )
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
 
@@ -45,7 +49,12 @@ def _load_model_and_templates():
         non_decision_embs = np.array(cache["non_decision_embeddings"])
     else:
         # Build cache on the fly
-        from claude_engram.hooks.intent import DECISION_TEMPLATES, NON_DECISION_TEMPLATES, build_template_cache
+        from claude_engram.hooks.intent import (
+            DECISION_TEMPLATES,
+            NON_DECISION_TEMPLATES,
+            build_template_cache,
+        )
+
         build_template_cache()
         cache = json.loads(cache_file.read_text())
         decision_embs = np.array(cache["decision_embeddings"])
@@ -62,7 +71,7 @@ def _score_text(text, model, decision_embs, non_decision_embs):
     if len(text.strip()) < 15:
         return 0.0, ""
 
-    sentences = re.split(r'(?<=[.!])\s+|\n+', text)
+    sentences = re.split(r"(?<=[.!])\s+|\n+", text)
     sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
     if not sentences:
         sentences = [text.strip()]
@@ -121,7 +130,9 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
         else:
             # Decision scoring request
             text = request.get("text", "")
-            score, extracted = _score_text(text, model, decision_embs, non_decision_embs)
+            score, extracted = _score_text(
+                text, model, decision_embs, non_decision_embs
+            )
             response = json.dumps({"score": score, "text": extracted}) + "\n"
             conn.sendall(response.encode("utf-8"))
     except Exception:
@@ -152,7 +163,10 @@ def serve():
     PORT_FILE.write_text(str(port))
     PID_FILE.write_text(str(os.getpid()))
 
-    print(f"Scorer server listening on 127.0.0.1:{port} (PID {os.getpid()})", file=sys.stderr)
+    print(
+        f"Scorer server listening on 127.0.0.1:{port} (PID {os.getpid()})",
+        file=sys.stderr,
+    )
 
     last_activity = time.time()
 
@@ -235,6 +249,7 @@ def start_server_background():
 
     import subprocess
     import platform
+
     try:
         kwargs = {
             "stdin": subprocess.DEVNULL,

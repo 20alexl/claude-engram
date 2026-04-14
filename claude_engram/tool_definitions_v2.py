@@ -12,37 +12,39 @@ TOOL_DEFINITIONS = [
     # =========================================================================
     # ESSENTIAL TOOLS (always needed)
     # =========================================================================
-
     Tool(
         name="claude_engram_status",
         description="Check Claude Engram health. Returns: status, model, memory stats.",
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
-
     Tool(
         name="session_start",
         description="Load full context: memories, checkpoints, decisions, memory health. Auto-cleans duplicates. Hook auto-starts basic session, but this gives deep context.",
         inputSchema={
             "type": "object",
             "properties": {
-                "project_path": {"type": "string", "description": "Project directory path"}
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory path",
+                }
             },
             "required": ["project_path"],
         },
     ),
-
     Tool(
         name="session_end",
         description="Optional. Shows session summary. All memories auto-save without this - just a nice recap.",
         inputSchema={
             "type": "object",
             "properties": {
-                "project_path": {"type": "string", "description": "Project directory (optional)"}
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory (optional)",
+                }
             },
             "required": [],
         },
     ),
-
     Tool(
         name="pre_edit_check",
         description="Run BEFORE editing important files. Checks: past mistakes, loop risk, scope violations.",
@@ -54,11 +56,9 @@ TOOL_DEFINITIONS = [
             "required": ["file_path"],
         },
     ),
-
     # =========================================================================
     # COMBINED TOOLS (grouped by domain)
     # =========================================================================
-
     Tool(
         name="memory",
         description="""Memory operations. Operations:
@@ -87,30 +87,105 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["remember", "recall", "forget", "search", "clusters", "cleanup", "consolidate", "add_rule", "list_rules", "modify", "delete", "batch_delete", "promote", "recent", "archive", "restore", "archive_search", "archive_status", "hybrid_search", "embed_all"],
-                    "description": "Operation to perform"
+                    "enum": [
+                        "remember",
+                        "recall",
+                        "forget",
+                        "search",
+                        "clusters",
+                        "cleanup",
+                        "consolidate",
+                        "add_rule",
+                        "list_rules",
+                        "modify",
+                        "delete",
+                        "batch_delete",
+                        "promote",
+                        "recent",
+                        "archive",
+                        "restore",
+                        "archive_search",
+                        "archive_status",
+                        "hybrid_search",
+                        "embed_all",
+                    ],
+                    "description": "Operation to perform",
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
-                "content": {"type": "string", "description": "For remember/add_rule/modify: content"},
-                "category": {"type": "string", "enum": ["discovery", "priority", "note", "rule", "mistake", "context"], "description": "For remember/modify/batch_delete/recent: memory category"},
-                "relevance": {"type": "integer", "description": "For remember/modify: importance 1-10"},
-                "file_path": {"type": "string", "description": "For search: filter by file"},
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "For search: filter by tags"},
-                "query": {"type": "string", "description": "For search: keyword search"},
-                "limit": {"type": "integer", "description": "For search/recent: max results"},
-                "cluster_id": {"type": "string", "description": "For clusters: expand specific cluster"},
-                "tag": {"type": "string", "description": "For consolidate: only consolidate memories with this tag"},
-                "dry_run": {"type": "boolean", "description": "For cleanup/consolidate: preview only"},
-                "min_relevance": {"type": "integer", "description": "For cleanup: min to keep"},
-                "max_age_days": {"type": "integer", "description": "For cleanup: decay threshold"},
-                "memory_id": {"type": "string", "description": "For modify/delete/promote: memory ID"},
-                "memory_ids": {"type": "array", "items": {"type": "string"}, "description": "For batch_delete: list of memory IDs to delete"},
-                "reason": {"type": "string", "description": "For add_rule/promote: why this rule"},
+                "content": {
+                    "type": "string",
+                    "description": "For remember/add_rule/modify: content",
+                },
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "discovery",
+                        "priority",
+                        "note",
+                        "rule",
+                        "mistake",
+                        "context",
+                    ],
+                    "description": "For remember/modify/batch_delete/recent: memory category",
+                },
+                "relevance": {
+                    "type": "integer",
+                    "description": "For remember/modify: importance 1-10",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "For search: filter by file",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For search: filter by tags",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "For search: keyword search",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "For search/recent: max results",
+                },
+                "cluster_id": {
+                    "type": "string",
+                    "description": "For clusters: expand specific cluster",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "For consolidate: only consolidate memories with this tag",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "For cleanup/consolidate: preview only",
+                },
+                "min_relevance": {
+                    "type": "integer",
+                    "description": "For cleanup: min to keep",
+                },
+                "max_age_days": {
+                    "type": "integer",
+                    "description": "For cleanup: decay threshold",
+                },
+                "memory_id": {
+                    "type": "string",
+                    "description": "For modify/delete/promote: memory ID",
+                },
+                "memory_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For batch_delete: list of memory IDs to delete",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "For add_rule/promote: why this rule",
+                },
             },
             "required": ["operation", "project_path"],
         },
     ),
-
     Tool(
         name="work",
         description="""Work tracking. Operations:
@@ -122,19 +197,34 @@ TOOL_DEFINITIONS = [
                 "operation": {
                     "type": "string",
                     "enum": ["log_mistake", "log_decision"],
-                    "description": "Operation"
+                    "description": "Operation",
                 },
-                "description": {"type": "string", "description": "For log_mistake: what went wrong"},
-                "file_path": {"type": "string", "description": "For log_mistake: affected file"},
-                "how_to_avoid": {"type": "string", "description": "For log_mistake: prevention"},
-                "decision": {"type": "string", "description": "For log_decision: what was decided"},
+                "description": {
+                    "type": "string",
+                    "description": "For log_mistake: what went wrong",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "For log_mistake: affected file",
+                },
+                "how_to_avoid": {
+                    "type": "string",
+                    "description": "For log_mistake: prevention",
+                },
+                "decision": {
+                    "type": "string",
+                    "description": "For log_decision: what was decided",
+                },
                 "reason": {"type": "string", "description": "For log_decision: why"},
-                "alternatives": {"type": "array", "items": {"type": "string"}, "description": "For log_decision: other options"},
+                "alternatives": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For log_decision: other options",
+                },
             },
             "required": ["operation"],
         },
     ),
-
     Tool(
         name="scope",
         description="""Scope guard for multi-file tasks. Operations:
@@ -149,19 +239,36 @@ TOOL_DEFINITIONS = [
                 "operation": {
                     "type": "string",
                     "enum": ["declare", "check", "expand", "status", "clear"],
-                    "description": "Operation"
+                    "description": "Operation",
                 },
-                "task_description": {"type": "string", "description": "For declare: task being done"},
-                "in_scope_files": {"type": "array", "items": {"type": "string"}, "description": "For declare: allowed files"},
-                "in_scope_patterns": {"type": "array", "items": {"type": "string"}, "description": "For declare: glob patterns"},
-                "file_path": {"type": "string", "description": "For check: file to verify"},
-                "files_to_add": {"type": "array", "items": {"type": "string"}, "description": "For expand: files to add"},
+                "task_description": {
+                    "type": "string",
+                    "description": "For declare: task being done",
+                },
+                "in_scope_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For declare: allowed files",
+                },
+                "in_scope_patterns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For declare: glob patterns",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "For check: file to verify",
+                },
+                "files_to_add": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For expand: files to add",
+                },
                 "reason": {"type": "string", "description": "For expand: why adding"},
             },
             "required": ["operation"],
         },
     ),
-
     Tool(
         name="loop",
         description="""Loop detection to prevent death spirals. Operations:
@@ -176,17 +283,25 @@ TOOL_DEFINITIONS = [
                 "operation": {
                     "type": "string",
                     "enum": ["record_edit", "record_test", "check", "status", "reset"],
-                    "description": "Operation"
+                    "description": "Operation",
                 },
                 "file_path": {"type": "string", "description": "File being edited"},
-                "description": {"type": "string", "description": "For record_edit: what changed"},
-                "passed": {"type": "boolean", "description": "For record_test: did tests pass"},
-                "error_message": {"type": "string", "description": "For record_test: error if failed"},
+                "description": {
+                    "type": "string",
+                    "description": "For record_edit: what changed",
+                },
+                "passed": {
+                    "type": "boolean",
+                    "description": "For record_test: did tests pass",
+                },
+                "error_message": {
+                    "type": "string",
+                    "description": "For record_test: error if failed",
+                },
             },
             "required": ["operation"],
         },
     ),
-
     Tool(
         name="context",
         description="""Context protection for long tasks. Operations:
@@ -203,39 +318,70 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["checkpoint_save", "checkpoint_restore", "checkpoint_list", "verify_completion", "instruction_add", "instruction_reinforce", "handoff_create", "handoff_get"],
-                    "description": "Operation"
+                    "enum": [
+                        "checkpoint_save",
+                        "checkpoint_restore",
+                        "checkpoint_list",
+                        "verify_completion",
+                        "instruction_add",
+                        "instruction_reinforce",
+                        "handoff_create",
+                        "handoff_get",
+                    ],
+                    "description": "Operation",
                 },
                 "task_description": {"type": "string"},
                 "current_step": {"type": "string"},
                 "completed_steps": {"type": "array", "items": {"type": "string"}},
                 "pending_steps": {"type": "array", "items": {"type": "string"}},
                 "files_involved": {"type": "array", "items": {"type": "string"}},
-                "task_id": {"type": "string", "description": "For restore: specific checkpoint"},
+                "task_id": {
+                    "type": "string",
+                    "description": "For restore: specific checkpoint",
+                },
                 "task": {"type": "string", "description": "For verify: task to verify"},
-                "evidence": {"type": "array", "items": {"type": "string"}, "description": "For verify: proof"},
-                "verification_steps": {"type": "array", "items": {"type": "string"}, "description": "For verify: checks"},
+                "evidence": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For verify: proof",
+                },
+                "verification_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For verify: checks",
+                },
                 "instruction": {"type": "string", "description": "For instruction_add"},
                 "reason": {"type": "string"},
                 "importance": {"type": "integer"},
                 "project_path": {"type": "string"},
-                "handoff_summary": {"type": "string", "description": "For handoff_create: summary for next session"},
-                "next_steps": {"type": "array", "items": {"type": "string"}, "description": "For handoff_create: what to do next"},
-                "handoff_context_needed": {"type": "array", "items": {"type": "string"}, "description": "For handoff_create: context the next session needs"},
-                "handoff_warnings": {"type": "array", "items": {"type": "string"}, "description": "For handoff_create: warnings for next session"},
+                "handoff_summary": {
+                    "type": "string",
+                    "description": "For handoff_create: summary for next session",
+                },
+                "next_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For handoff_create: what to do next",
+                },
+                "handoff_context_needed": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For handoff_create: context the next session needs",
+                },
+                "handoff_warnings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For handoff_create: warnings for next session",
+                },
             },
             "required": ["operation"],
         },
     ),
-
     # NOTE: momentum tool REMOVED - redundant with Claude Code's native TodoWrite
     # Use TodoWrite for task tracking instead
-
     # NOTE: think tool REMOVED - generic LLM responses weren't useful enough
     # Scout tools (semantic search/analysis) are still available
-
     # NOTE: habit tool REMOVED - meta-tracking of tool usage adds noise without value
-
     Tool(
         name="convention",
         description="""Project conventions. Operations:
@@ -249,11 +395,14 @@ TOOL_DEFINITIONS = [
                 "operation": {
                     "type": "string",
                     "enum": ["add", "get", "check", "remove"],
-                    "description": "Operation"
+                    "description": "Operation",
                 },
                 "project_path": {"type": "string"},
                 "rule": {"type": "string"},
-                "category": {"type": "string", "enum": ["naming", "architecture", "style", "pattern", "avoid"]},
+                "category": {
+                    "type": "string",
+                    "enum": ["naming", "architecture", "style", "pattern", "avoid"],
+                },
                 "reason": {"type": "string"},
                 "examples": {"type": "array", "items": {"type": "string"}},
                 "importance": {"type": "integer"},
@@ -262,7 +411,6 @@ TOOL_DEFINITIONS = [
             "required": ["operation", "project_path"],
         },
     ),
-
     Tool(
         name="output",
         description="""Output validation. Operations:
@@ -274,7 +422,7 @@ TOOL_DEFINITIONS = [
                 "operation": {
                     "type": "string",
                     "enum": ["validate_code", "validate_result"],
-                    "description": "Operation"
+                    "description": "Operation",
                 },
                 "code": {"type": "string"},
                 "context": {"type": "string"},
@@ -286,17 +434,13 @@ TOOL_DEFINITIONS = [
             "required": ["operation"],
         },
     ),
-
     # NOTE: test tool REMOVED - redundant with Claude Code's native Bash
     # Use Bash to run tests directly: pytest, npm test, etc.
-
     # NOTE: git tool REMOVED - Claude excels at commit messages natively
     # Use memory(search) to get work context if needed for commits
-
     # =========================================================================
     # STANDALONE TOOLS (unique functionality, keep separate)
     # =========================================================================
-
     Tool(
         name="scout_search",
         description="Search codebase semantically. Returns findings with files, lines, connections.",
@@ -310,7 +454,6 @@ TOOL_DEFINITIONS = [
             "required": ["query", "directory"],
         },
     ),
-
     Tool(
         name="scout_analyze",
         description="Analyze code with local LLM. Provide code and question.",
@@ -323,7 +466,6 @@ TOOL_DEFINITIONS = [
             "required": ["code", "question"],
         },
     ),
-
     Tool(
         name="file_summarize",
         description="Summarize file purpose. Modes: quick (pattern-based) or detailed (LLM).",
@@ -331,12 +473,15 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "file_path": {"type": "string"},
-                "mode": {"type": "string", "enum": ["quick", "detailed"], "default": "quick"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["quick", "detailed"],
+                    "default": "quick",
+                },
             },
             "required": ["file_path"],
         },
     ),
-
     Tool(
         name="deps_map",
         description="Map file dependencies. Shows imports and optionally reverse deps.",
@@ -350,7 +495,6 @@ TOOL_DEFINITIONS = [
             "required": ["file_path"],
         },
     ),
-
     Tool(
         name="impact_analyze",
         description="Analyze change impact. Shows dependents, exports, risk level.",
@@ -364,7 +508,6 @@ TOOL_DEFINITIONS = [
             "required": ["file_path", "project_root"],
         },
     ),
-
     Tool(
         name="code_quality_check",
         description="Check code for AI slop: long functions, vague names, deep nesting.",
@@ -377,7 +520,6 @@ TOOL_DEFINITIONS = [
             "required": ["code"],
         },
     ),
-
     Tool(
         name="code_pattern_check",
         description="Check code against stored conventions using LLM.",
@@ -390,7 +532,6 @@ TOOL_DEFINITIONS = [
             "required": ["project_path", "code"],
         },
     ),
-
     Tool(
         name="audit_batch",
         description="Audit multiple files for issues. Supports glob patterns.",
@@ -398,12 +539,14 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {
                 "file_paths": {"type": "array", "items": {"type": "string"}},
-                "min_severity": {"type": "string", "enum": ["critical", "warning", "info"]},
+                "min_severity": {
+                    "type": "string",
+                    "enum": ["critical", "warning", "info"],
+                },
             },
             "required": ["file_paths"],
         },
     ),
-
     Tool(
         name="find_similar_issues",
         description="Search codebase for bug pattern (e.g., 'except:\\s*pass').",
@@ -418,11 +561,9 @@ TOOL_DEFINITIONS = [
             "required": ["issue_pattern", "project_path"],
         },
     ),
-
     # =========================================================================
     # SESSION MINING (search history, find decisions, detect patterns)
     # =========================================================================
-
     Tool(
         name="session_mine",
         description="""Mine session history. Operations:
@@ -445,17 +586,52 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["search", "decisions", "replay", "struggles", "errors", "correlations", "timeline", "summaries", "overview", "status", "reindex", "predict", "cross_project", "reflect"],
-                    "description": "Operation to perform"
+                    "enum": [
+                        "search",
+                        "decisions",
+                        "replay",
+                        "struggles",
+                        "errors",
+                        "correlations",
+                        "timeline",
+                        "summaries",
+                        "overview",
+                        "status",
+                        "reindex",
+                        "predict",
+                        "cross_project",
+                        "reflect",
+                    ],
+                    "description": "Operation to perform",
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
-                "query": {"type": "string", "description": "For search/decisions: search query"},
-                "file_path": {"type": "string", "description": "For replay: file to find discussions about"},
+                "query": {
+                    "type": "string",
+                    "description": "For search/decisions: search query",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "For replay: file to find discussions about",
+                },
                 "limit": {"type": "integer", "description": "Max results (default 10)"},
-                "method": {"type": "string", "enum": ["hybrid", "semantic", "keyword"], "description": "For search: search method"},
-                "mode": {"type": "string", "enum": ["post_session", "bootstrap", "full"], "description": "For reindex: mining mode"},
-                "since": {"type": "string", "description": "For search: filter after date (YYYY-MM-DD)"},
-                "until": {"type": "string", "description": "For search: filter before date (YYYY-MM-DD)"},
+                "method": {
+                    "type": "string",
+                    "enum": ["hybrid", "semantic", "keyword"],
+                    "description": "For search: search method",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["post_session", "bootstrap", "full"],
+                    "description": "For reindex: mining mode",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "For search: filter after date (YYYY-MM-DD)",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "For search: filter before date (YYYY-MM-DD)",
+                },
             },
             "required": ["operation"],
         },

@@ -77,7 +77,8 @@ def run_benchmark(data_path, limit=None, granularity="session"):
             if user_turns:
                 content = "\n".join(user_turns)[:2000]
                 m.remember_discovery(
-                    project, content,
+                    project,
+                    content,
                     relevance=5,
                     tags=[f"sess_{sess_id}"],
                     source=sess_id,
@@ -116,7 +117,9 @@ def run_benchmark(data_path, limit=None, granularity="session"):
         if (qi + 1) % 10 == 0 or (qi + 1) == len(dataset):
             avg_r5 = sum(results["recall@5"]) / len(results["recall@5"])
             avg_r10 = sum(results["recall@10"]) / len(results["recall@10"])
-            print(f"  [{qi+1}/{len(dataset)}] R@5={avg_r5:.3f} R@10={avg_r10:.3f} ({elapsed*1000:.0f}ms)")
+            print(
+                f"  [{qi+1}/{len(dataset)}] R@5={avg_r5:.3f} R@10={avg_r10:.3f} ({elapsed*1000:.0f}ms)"
+            )
 
     # Cleanup
     m.forget_project(project)

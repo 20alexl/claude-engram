@@ -5,9 +5,11 @@ Tests whether the right memory ranks #1 when editing a file.
 Simulates a project with diverse memories and checks that file-relevant
 memories are surfaced over irrelevant ones.
 """
+
 import time
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_engram.tools.memory import MemoryStore, HotMemoryReader
@@ -17,23 +19,79 @@ def setup_test_project(m: MemoryStore, project: str):
     """Create a realistic project with diverse memories."""
     memories = [
         # Auth-related
-        ("Auth uses JWT tokens validated in middleware", "discovery", 8, ["auth", "security"], ["auth/middleware.py"]),
-        ("MISTAKE: removed session check from auth, broke all routes", "mistake", 9, ["auth", "mistake"], ["auth/middleware.py"]),
-        ("Auth tokens expire after 24 hours", "discovery", 6, ["auth"], ["auth/tokens.py"]),
-
+        (
+            "Auth uses JWT tokens validated in middleware",
+            "discovery",
+            8,
+            ["auth", "security"],
+            ["auth/middleware.py"],
+        ),
+        (
+            "MISTAKE: removed session check from auth, broke all routes",
+            "mistake",
+            9,
+            ["auth", "mistake"],
+            ["auth/middleware.py"],
+        ),
+        (
+            "Auth tokens expire after 24 hours",
+            "discovery",
+            6,
+            ["auth"],
+            ["auth/tokens.py"],
+        ),
         # Database-related
-        ("Database uses PostgreSQL with pgbouncer connection pooling", "discovery", 7, ["database"], ["db/pool.py"]),
-        ("MISTAKE: migration failed because column was NOT NULL without default", "mistake", 9, ["database", "mistake"], ["db/migrations.py"]),
-        ("Always use parameterized queries", "rule", 9, ["database", "security", "rule"], ["db/queries.py"]),
-
+        (
+            "Database uses PostgreSQL with pgbouncer connection pooling",
+            "discovery",
+            7,
+            ["database"],
+            ["db/pool.py"],
+        ),
+        (
+            "MISTAKE: migration failed because column was NOT NULL without default",
+            "mistake",
+            9,
+            ["database", "mistake"],
+            ["db/migrations.py"],
+        ),
+        (
+            "Always use parameterized queries",
+            "rule",
+            9,
+            ["database", "security", "rule"],
+            ["db/queries.py"],
+        ),
         # Frontend-related
-        ("React components use strict TypeScript", "discovery", 6, ["frontend"], ["src/App.tsx"]),
-        ("DECISION: use Tailwind instead of styled-components", "decision", 7, ["frontend", "decision"], ["src/styles/"]),
-
+        (
+            "React components use strict TypeScript",
+            "discovery",
+            6,
+            ["frontend"],
+            ["src/App.tsx"],
+        ),
+        (
+            "DECISION: use Tailwind instead of styled-components",
+            "decision",
+            7,
+            ["frontend", "decision"],
+            ["src/styles/"],
+        ),
         # API-related
-        ("API rate limiting is 100 req/min per user", "discovery", 5, ["api"], ["api/routes.py"]),
-        ("MISTAKE: forgot to validate request body in POST /users", "mistake", 9, ["api", "mistake"], ["api/routes.py"]),
-
+        (
+            "API rate limiting is 100 req/min per user",
+            "discovery",
+            5,
+            ["api"],
+            ["api/routes.py"],
+        ),
+        (
+            "MISTAKE: forgot to validate request body in POST /users",
+            "mistake",
+            9,
+            ["api", "mistake"],
+            ["api/routes.py"],
+        ),
         # General
         ("Project uses monorepo with turborepo", "discovery", 4, [], []),
         ("CI runs on GitHub Actions", "context", 3, [], [".github/workflows/"]),
@@ -42,8 +100,12 @@ def setup_test_project(m: MemoryStore, project: str):
 
     for content, category, relevance, tags, files in memories:
         m.remember_discovery(
-            project, content, category=category, relevance=relevance,
-            tags=tags, related_files=files,
+            project,
+            content,
+            category=category,
+            relevance=relevance,
+            tags=tags,
+            related_files=files,
         )
 
 
@@ -100,7 +162,9 @@ def test_scoring_precision():
     reader = HotMemoryReader()
     reader_match = 0
     for file_path, tags, expected_keyword in test_cases:
-        results = reader.get_scored_memories(project, {"file_path": file_path, "tags": tags}, limit=1)
+        results = reader.get_scored_memories(
+            project, {"file_path": file_path, "tags": tags}, limit=1
+        )
         if results and expected_keyword.lower() in results[0]["content"].lower():
             reader_match += 1
 
@@ -117,9 +181,27 @@ def test_category_bonus():
     project = "/tmp/bench_bonus"
 
     # Same file, different categories
-    m.remember_discovery(project, "Auth handler processes requests", category="discovery", relevance=5, related_files=["auth.py"])
-    m.remember_discovery(project, "MISTAKE: auth handler crashed on empty token", category="mistake", relevance=5, related_files=["auth.py"])
-    m.remember_discovery(project, "Always validate tokens in auth handler", category="rule", relevance=5, related_files=["auth.py"])
+    m.remember_discovery(
+        project,
+        "Auth handler processes requests",
+        category="discovery",
+        relevance=5,
+        related_files=["auth.py"],
+    )
+    m.remember_discovery(
+        project,
+        "MISTAKE: auth handler crashed on empty token",
+        category="mistake",
+        relevance=5,
+        related_files=["auth.py"],
+    )
+    m.remember_discovery(
+        project,
+        "Always validate tokens in auth handler",
+        category="rule",
+        relevance=5,
+        related_files=["auth.py"],
+    )
 
     results = m.score_and_rank(project, {"file_path": "auth.py"}, limit=3)
 
@@ -145,12 +227,25 @@ def test_parent_inheritance():
     m = MemoryStore()
 
     # Workspace-level rule
-    m.remember_discovery("/tmp/workspace", "Always run linter before commit", category="rule", relevance=9)
+    m.remember_discovery(
+        "/tmp/workspace",
+        "Always run linter before commit",
+        category="rule",
+        relevance=9,
+    )
     # Sub-project memory
-    m.remember_discovery("/tmp/workspace/backend", "Backend uses FastAPI", category="discovery", relevance=7, related_files=["main.py"])
+    m.remember_discovery(
+        "/tmp/workspace/backend",
+        "Backend uses FastAPI",
+        category="discovery",
+        relevance=7,
+        related_files=["main.py"],
+    )
 
     reader = HotMemoryReader()
-    results = reader.get_scored_memories("/tmp/workspace/backend", {"file_path": "main.py"}, limit=5)
+    results = reader.get_scored_memories(
+        "/tmp/workspace/backend", {"file_path": "main.py"}, limit=5
+    )
     contents = [r["content"] for r in results]
 
     print("\n=== Parent Inheritance Benchmark ===\n")
@@ -174,22 +269,51 @@ def test_token_efficiency():
 
     cases = [
         ("Simple success", MiniClaudeResponse(status="success", reasoning="Done")),
-        ("Memory search (3)", MiniClaudeResponse(
-            status="success", reasoning="Found 3",
-            data={"memories": [
-                {"id": "a", "content": "Auth uses JWT", "relevance": 8, "tags": ["auth"]},
-                {"id": "b", "content": "DB uses Postgres", "relevance": 6, "tags": ["db"]},
-                {"id": "c", "content": "MISTAKE: broke CI", "relevance": 9, "tags": ["mistake"]},
-            ]},
-        )),
-        ("Archive status", MiniClaudeResponse(
-            status="success", reasoning="Hot: 12 | Archive: 5",
-            data={"hot": 12, "archive": 5, "categories": {"rule": 3, "mistake": 4}},
-        )),
-        ("Error", MiniClaudeResponse(
-            status="failed", reasoning="Project not found",
-            work_log=WorkLog(what_failed=["lookup"]),
-        )),
+        (
+            "Memory search (3)",
+            MiniClaudeResponse(
+                status="success",
+                reasoning="Found 3",
+                data={
+                    "memories": [
+                        {
+                            "id": "a",
+                            "content": "Auth uses JWT",
+                            "relevance": 8,
+                            "tags": ["auth"],
+                        },
+                        {
+                            "id": "b",
+                            "content": "DB uses Postgres",
+                            "relevance": 6,
+                            "tags": ["db"],
+                        },
+                        {
+                            "id": "c",
+                            "content": "MISTAKE: broke CI",
+                            "relevance": 9,
+                            "tags": ["mistake"],
+                        },
+                    ]
+                },
+            ),
+        ),
+        (
+            "Archive status",
+            MiniClaudeResponse(
+                status="success",
+                reasoning="Hot: 12 | Archive: 5",
+                data={"hot": 12, "archive": 5, "categories": {"rule": 3, "mistake": 4}},
+            ),
+        ),
+        (
+            "Error",
+            MiniClaudeResponse(
+                status="failed",
+                reasoning="Project not found",
+                work_log=WorkLog(what_failed=["lookup"]),
+            ),
+        ),
     ]
 
     for name, response in cases:

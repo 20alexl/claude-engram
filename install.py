@@ -62,6 +62,7 @@ def check_ollama():
     """Check if Ollama is running."""
     try:
         import urllib.request
+
         req = urllib.request.Request("http://localhost:11434/api/tags")
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status == 200
@@ -73,6 +74,7 @@ def check_package_installed():
     """Check if claude_engram package is installed."""
     try:
         import claude_engram
+
         return True
     except ImportError:
         return False
@@ -90,7 +92,7 @@ def install_package():
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "-e", str(script_dir)],
             capture_output=True,
-            text=True
+            text=True,
         )
         if result.returncode != 0:
             return False, result.stderr
@@ -116,7 +118,7 @@ def create_launcher_script():
         launcher = scripts_dir / "run_server.bat"
         launcher_content = '@echo off\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.server %%*\n'
         try:
-            launcher.write_text(launcher_content.replace('%%', '%'))
+            launcher.write_text(launcher_content.replace("%%", "%"))
             return str(launcher)
         except Exception:
             return None
@@ -141,7 +143,7 @@ def create_hook_launcher_script():
         hook_launcher = scripts_dir / "run_hook.bat"
         hook_content = '@echo off\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.hooks.remind %%*\n'
         try:
-            hook_launcher.write_text(hook_content.replace('%%', '%'))
+            hook_launcher.write_text(hook_content.replace("%%", "%"))
             return str(hook_launcher)
         except Exception:
             return None
@@ -180,9 +182,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" prompt_json {stderr_redirect} || echo ""',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 }
             ],
             "PreToolUse": [
@@ -192,9 +194,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" pre_edit_json {stderr_redirect} || echo ""',
-                            "timeout": 1000
+                            "timeout": 1000,
                         }
-                    ]
+                    ],
                 }
             ],
             "PostToolUse": [
@@ -204,9 +206,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" bash_json {stderr_redirect} || echo ""',
-                            "timeout": 1000
+                            "timeout": 1000,
                         }
-                    ]
+                    ],
                 },
                 {
                     "matcher": "Edit|Write",
@@ -214,10 +216,10 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" post_edit_json {stderr_redirect} || echo ""',
-                            "timeout": 1000
+                            "timeout": 1000,
                         }
-                    ]
-                }
+                    ],
+                },
             ],
             "PostToolUseFailure": [
                 {
@@ -226,9 +228,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" tool_failure_json {stderr_redirect} || echo ""',
-                            "timeout": 1000
+                            "timeout": 1000,
                         }
-                    ]
+                    ],
                 }
             ],
             "PreCompact": [
@@ -238,9 +240,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" pre_compact_json {stderr_redirect} || echo ""',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 }
             ],
             "PostCompact": [
@@ -250,9 +252,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" post_compact_json {stderr_redirect} || echo ""',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 }
             ],
             "SessionStart": [
@@ -262,9 +264,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" session_start_json {stderr_redirect} || echo ""',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 }
             ],
             "Stop": [
@@ -274,9 +276,9 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" stop_json {stderr_redirect} || echo ""',
-                            "timeout": 2000
+                            "timeout": 2000,
                         }
-                    ]
+                    ],
                 }
             ],
             "SessionEnd": [
@@ -286,11 +288,11 @@ def get_hooks_config():
                         {
                             "type": "command",
                             "command": f'"{hook_cmd}" session_end_json {stderr_redirect} || echo ""',
-                            "timeout": 1500
+                            "timeout": 1500,
                         }
-                    ]
+                    ],
                 }
-            ]
+            ],
         }
     }
 
@@ -401,14 +403,7 @@ def get_mcp_config():
         launcher = script_dir / "scripts" / "run_server.sh"
 
     if launcher.exists():
-        return {
-            "mcpServers": {
-                "claude-engram": {
-                    "command": str(launcher),
-                    "args": []
-                }
-            }
-        }
+        return {"mcpServers": {"claude-engram": {"command": str(launcher), "args": []}}}
 
     # Fallback to direct python path
     if is_windows():
@@ -425,7 +420,7 @@ def get_mcp_config():
         "mcpServers": {
             "claude-engram": {
                 "command": python_path,
-                "args": ["-m", "claude_engram.server"]
+                "args": ["-m", "claude_engram.server"],
             }
         }
     }
@@ -508,7 +503,7 @@ def main():
     else:
         print_error("Not running in a virtual environment!")
         print("\n  Please create and activate a venv first:")
-        print(f"    cd \"{script_dir}\"")
+        print(f'    cd "{script_dir}"')
         print("    python -m venv venv")
         print("    source venv/bin/activate  # Linux/Mac")
         print("    # or: venv\\Scripts\\activate  # Windows")
@@ -525,7 +520,7 @@ def main():
         print("    ollama serve")
         print("    ollama pull gemma3:12b")
         response = input("\n  Continue anyway? (y/n): ")
-        if response.lower() != 'y':
+        if response.lower() != "y":
             return 1
 
     # Step 3: Install package
@@ -581,11 +576,18 @@ def main():
     print_step(7, total_steps, "Building semantic intent cache...")
     try:
         from claude_engram.hooks.intent import build_template_cache
+
         if build_template_cache():
-            print_success("AllMiniLM decision templates cached (semantic intent scoring enabled)")
+            print_success(
+                "AllMiniLM decision templates cached (semantic intent scoring enabled)"
+            )
         else:
-            print_warning("sentence-transformers not installed - using regex-based intent scoring")
-            print("  To enable semantic scoring: pip install sentence-transformers numpy")
+            print_warning(
+                "sentence-transformers not installed - using regex-based intent scoring"
+            )
+            print(
+                "  To enable semantic scoring: pip install sentence-transformers numpy"
+            )
     except Exception as e:
         print_warning(f"Could not build intent cache: {e}")
         print("  Regex-based intent scoring will be used as fallback")
@@ -594,6 +596,7 @@ def main():
     print_step(8, total_steps, "Installing /engram skill...")
     try:
         import shutil
+
         skill_dir = Path.home() / ".claude" / "skills" / "engram"
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_src = script_dir / "claude_engram" / "skill" / "engram" / "SKILL.md"
@@ -639,7 +642,8 @@ def main():
     print("\n" + "-" * 60)
     print("WHAT'S AUTOMATIC (hooks — no invocation needed)")
     print("-" * 60)
-    print("""
+    print(
+        """
   Session restore          SessionStart hook
   Edit tracking            PostToolUse Edit/Write
   Loop warnings            PreToolUse Edit/Write (3+ edits to same file)
@@ -650,12 +654,14 @@ def main():
   Checkpoint on compact    PreCompact
   Context re-injection     PostCompact (rules + mistakes + decisions)
   Session handoff          Stop
-""")
+"""
+    )
 
     print("-" * 60)
     print("MCP TOOLS (use when helpful)")
     print("-" * 60)
-    print("""
+    print(
+        """
   memory        remember, search, add_rule, hybrid_search, archive, ...
   work          log_mistake, log_decision
   session_mine  search, decisions, replay, struggles, errors, overview, ...
@@ -664,7 +670,8 @@ def main():
 
   Also: scout_search, impact_analyze, file_summarize, deps_map
   Skill: /engram — quick reference for all tools
-""")
+"""
+    )
 
     print("-" * 60)
     print("AFTER SETUP")

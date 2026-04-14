@@ -30,280 +30,380 @@ PAYLOADS = [
     (
         "python main.py",
         "Traceback (most recent call last):\n  File \"main.py\", line 1\nModuleNotFoundError: No module named 'requests'",
-        True, "requests", "import",
+        True,
+        "requests",
+        "import",
     ),
     (
         "python app.py",
         "Traceback (most recent call last):\n  File \"app.py\", line 5\nImportError: cannot import name 'FastAPI' from 'flask'",
-        True, "FastAPI", "import",
+        True,
+        "FastAPI",
+        "import",
     ),
     (
         "python test.py",
         "ModuleNotFoundError: No module named 'numpy.core._multiarray_umath'",
-        True, "numpy", "import",
+        True,
+        "numpy",
+        "import",
     ),
     (
         "python run.py",
         "ImportError: cannot import name 'deprecated_func' from 'mylib.utils'",
-        True, "deprecated_func", "import",
+        True,
+        "deprecated_func",
+        "import",
     ),
     (
         "python server.py",
         "ModuleNotFoundError: No module named 'torch'",
-        True, "torch", "import",
+        True,
+        "torch",
+        "import",
     ),
     (
         "python cli.py",
         "ModuleNotFoundError: No module named 'pydantic'",
-        True, "pydantic", "import",
+        True,
+        "pydantic",
+        "import",
     ),
     (
         "python deep.py",
-        "Traceback:\n  File \"deep.py\", line 100\n  File \"lib/core.py\", line 50\nModuleNotFoundError: No module named 'cryptography.hazmat'",
-        True, "cryptography", "import",
+        'Traceback:\n  File "deep.py", line 100\n  File "lib/core.py", line 50\nModuleNotFoundError: No module named \'cryptography.hazmat\'',
+        True,
+        "cryptography",
+        "import",
     ),
     (
         "python nested.py",
         "ImportError: cannot import name 'BaseSettings' from 'pydantic'",
-        True, "BaseSettings", "import",
+        True,
+        "BaseSettings",
+        "import",
     ),
-
     # --- Syntax errors (8) ---
     (
         "python bad.py",
-        "  File \"bad.py\", line 42\n    def foo(\n         ^\nSyntaxError: unexpected EOF while parsing",
-        True, "bad.py", "syntax",
+        '  File "bad.py", line 42\n    def foo(\n         ^\nSyntaxError: unexpected EOF while parsing',
+        True,
+        "bad.py",
+        "syntax",
     ),
     (
         "python indent.py",
-        "  File \"indent.py\", line 10\n    return x\nIndentationError: unexpected indent",
+        '  File "indent.py", line 10\n    return x\nIndentationError: unexpected indent',
         # IndentationError is a subclass of SyntaxError but our code checks for "SyntaxError" string
-        False, "", "syntax",
+        False,
+        "",
+        "syntax",
     ),
     (
         "python missing.py",
-        "  File \"src/parser.py\", line 55\n    if x == :\n           ^\nSyntaxError: invalid syntax",
-        True, "parser.py", "syntax",
+        '  File "src/parser.py", line 55\n    if x == :\n           ^\nSyntaxError: invalid syntax',
+        True,
+        "parser.py",
+        "syntax",
     ),
     (
         "python unicode.py",
         "  File \"utils.py\", line 3\nSyntaxError: (unicode error) 'utf-8' codec can't decode byte",
-        True, "utils.py", "syntax",
+        True,
+        "utils.py",
+        "syntax",
     ),
     (
         "python f.py",
         "  File \"f.py\", line 1\n    f'{x!r:}'\n          ^\nSyntaxError: f-string: empty expression not allowed",
-        True, "f.py", "syntax",
+        True,
+        "f.py",
+        "syntax",
     ),
     (
         "python colon.py",
         "  File \"routes.py\", line 22\n    async def handler()\n                      ^\nSyntaxError: expected ':'",
-        True, "routes.py", "syntax",
+        True,
+        "routes.py",
+        "syntax",
     ),
     (
         "python eof.py",
-        "  File \"config.py\", line 99\n\nSyntaxError: unexpected EOF while parsing",
-        True, "config.py", "syntax",
+        '  File "config.py", line 99\n\nSyntaxError: unexpected EOF while parsing',
+        True,
+        "config.py",
+        "syntax",
     ),
     (
         "python walrus.py",
-        "  File \"new.py\", line 5\n    if (n := 10) > 5:\n         ^\nSyntaxError: invalid syntax",
-        True, "new.py", "syntax",
+        '  File "new.py", line 5\n    if (n := 10) > 5:\n         ^\nSyntaxError: invalid syntax',
+        True,
+        "new.py",
+        "syntax",
     ),
-
     # --- Type errors (6) ---
     (
         "python types.py",
         "Traceback:\n  File \"types.py\", line 20\nTypeError: unsupported operand type(s) for +: 'int' and 'str'",
-        True, "unsupported operand", "type",
+        True,
+        "unsupported operand",
+        "type",
     ),
     (
         "python none.py",
         "TypeError: 'NoneType' object is not iterable",
-        True, "NoneType", "type",
+        True,
+        "NoneType",
+        "type",
     ),
     (
         "python args.py",
         "TypeError: foo() takes 2 positional arguments but 3 were given",
-        True, "positional arguments", "type",
+        True,
+        "positional arguments",
+        "type",
     ),
     (
         "python sub.py",
         "TypeError: list indices must be integers or slices, not str",
-        True, "list indices", "type",
+        True,
+        "list indices",
+        "type",
     ),
     (
         "python call.py",
         "TypeError: 'int' object is not callable",
-        True, "not callable", "type",
+        True,
+        "not callable",
+        "type",
     ),
     (
         "python kw.py",
         "TypeError: __init__() got an unexpected keyword argument 'color'",
-        True, "unexpected keyword", "type",
+        True,
+        "unexpected keyword",
+        "type",
     ),
-
     # --- Attribute errors (6) ---
     (
         "python attr.py",
         "AttributeError: 'str' object has no attribute 'append'",
-        True, "append", "attribute",
+        True,
+        "append",
+        "attribute",
     ),
     (
         "python mod.py",
         "AttributeError: module 'os' has no attribute 'makedirss'",
-        True, "makedirss", "attribute",
+        True,
+        "makedirss",
+        "attribute",
     ),
     (
         "python none_attr.py",
         "AttributeError: 'NoneType' object has no attribute 'id'",
-        True, "NoneType", "attribute",
+        True,
+        "NoneType",
+        "attribute",
     ),
     (
         "python cls.py",
         "AttributeError: 'User' object has no attribute 'email_address'",
-        True, "email_address", "attribute",
+        True,
+        "email_address",
+        "attribute",
     ),
     (
         "python dict_attr.py",
         "AttributeError: 'dict' object has no attribute 'items_list'",
-        True, "items_list", "attribute",
+        True,
+        "items_list",
+        "attribute",
     ),
     (
         "python priv.py",
         "AttributeError: 'MyClass' object has no attribute '_private_method'",
-        True, "_private_method", "attribute",
+        True,
+        "_private_method",
+        "attribute",
     ),
-
     # --- Test failures (6) ---
     (
         "pytest tests/",
         "FAILED tests/test_auth.py::test_login - AssertionError\n2 failed, 8 passed in 3.2s",
-        True, "2 tests failed", "test",
+        True,
+        "2 tests failed",
+        "test",
     ),
     (
         "pytest tests/test_api.py",
         "tests/test_api.py::test_create FAILED\n1 failed, 5 passed, 1 warning",
-        True, "1 tests failed", "test",
+        True,
+        "1 tests failed",
+        "test",
     ),
     (
         "python -m unittest",
         "FAILURES\n======\ntest_something (tests.test_foo.TestFoo)\nAssertionError: 42 != 43",
-        True, "failed", "test",
+        True,
+        "failed",
+        "test",
     ),
     (
         "pytest",
         "10 failed, 2 error in 15.3s",
-        True, "10 tests failed", "test",
+        True,
+        "10 tests failed",
+        "test",
     ),
     (
         "pytest tests/unit/",
         "3 failed, 47 passed in 8.1s",
-        True, "3 tests failed", "test",
+        True,
+        "3 tests failed",
+        "test",
     ),
     (
         "pytest --tb=short",
         "FAILED tests/test_db.py::test_migrate\nAssertionError: migration failed\n1 failed, 20 passed",
-        True, "1 tests failed", "test",
+        True,
+        "1 tests failed",
+        "test",
     ),
-
     # --- Permission/connection errors (4) ---
     (
         "python write.py",
         "PermissionError: [Errno 13] Permission denied: '/etc/hosts'",
-        True, "Permission", "permission",
+        True,
+        "Permission",
+        "permission",
     ),
     (
         "python connect.py",
         "ConnectionRefusedError: [Errno 111] Connection refused",
-        True, "Connection", "connection",
+        True,
+        "Connection",
+        "connection",
     ),
     (
         "python db.py",
         "ConnectionError: Error connecting to PostgreSQL at localhost:5432",
-        True, "Connection", "connection",
+        True,
+        "Connection",
+        "connection",
     ),
     (
         "chmod 000 secret.txt && cat secret.txt",
         "cat: secret.txt: Permission denied",
-        True, "Permission", "permission",
+        True,
+        "Permission",
+        "permission",
     ),
-
     # --- Noise: should NOT capture (15) ---
     (
         "grep -r 'error' src/",
         "src/logger.py:    log.error('Request failed')\nsrc/handlers.py:    raise HTTPError(404)",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "cat build.log",
         "Building wheel for project... done\nInstalling collected packages: numpy, pandas\nSuccessfully installed numpy-1.24.0",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "echo hello",
         "",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "python -c 'print(1+1)'",
         "2",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "pytest tests/",
         "10 passed in 2.1s",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "ls -la",
         "total 48\ndrwxr-xr-x  5 user staff  160 Jan  1 00:00 .\ndrwxr-xr-x  3 user staff   96 Jan  1 00:00 ..",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "pip install requests",
         "Requirement already satisfied: requests in ./venv/lib/python3.10/site-packages",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "git status",
         "On branch main\nnothing to commit, working tree clean",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "python -c 'import warnings; warnings.warn(\"deprecation\")'",
-        "/tmp/test.py:1: UserWarning: deprecation\n  warnings.warn(\"deprecation\")",
-        False, "", "noise",
+        '/tmp/test.py:1: UserWarning: deprecation\n  warnings.warn("deprecation")',
+        False,
+        "",
+        "noise",
     ),
     (
         "grep 'TypeError' ERRORS.md",
         "- TypeError: missing argument in handler.py\n- TypeError: wrong return type in parser.py",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "find . -name '*.py' -exec grep -l 'Error' {} \\;",
         "./src/errors.py\n./src/handlers/error_handler.py\n./tests/test_errors.py",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "python build.py",
         "x" * 6000,  # > 5000 chars — should be skipped
-        False, "", "noise_large",
+        False,
+        "",
+        "noise_large",
     ),
     (
         "cat README.md",
         "# Error Handling\n\nThis module provides error handling utilities including TypeError and AttributeError wrappers.",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "python test.py",
         "WARNING: Using deprecated API\nAll checks passed.",
-        False, "", "noise",
+        False,
+        "",
+        "noise",
     ),
     (
         "make test",
         "Running tests...\n0 failed, 50 passed\nDone.",
-        True, "0 tests failed", "test",  # regex matches \d+ failed — this IS captured
+        True,
+        "0 tests failed",
+        "test",  # regex matches \d+ failed — this IS captured
     ),
 ]
 
@@ -349,7 +449,9 @@ def run_benchmark():
                     if expected_substr.lower() in result.lower():
                         description_hits += 1
                     else:
-                        print(f"  WEAK DESC [{category}] expected '{expected_substr}' in: {result[:60]}")
+                        print(
+                            f"  WEAK DESC [{category}] expected '{expected_substr}' in: {result[:60]}"
+                        )
 
             elif expect_capture and not captured:
                 fn += 1
@@ -397,7 +499,9 @@ def run_benchmark():
             dedup_ok = False
 
         print(f"  First submission: {'captured' if r1 else 'missed'}")
-        print(f"  Second submission: {'captured (duplicate!)' if r2 else 'suppressed (correct)'}")
+        print(
+            f"  Second submission: {'captured (duplicate!)' if r2 else 'suppressed (correct)'}"
+        )
         print(f"  Entries in file: {len(entries) if memory_file.exists() else 0}")
         print(f"  Deduplication: {'PASS' if dedup_ok else 'FAIL'}")
 
@@ -412,7 +516,9 @@ def run_benchmark():
     recall = tp / n_errors * 100 if n_errors else 0
     precision = tp / (tp + fp) * 100 if (tp + fp) else 0
     noise_rejection = tn / n_noise * 100 if n_noise else 0
-    desc_quality = description_hits / description_total * 100 if description_total else 0
+    desc_quality = (
+        description_hits / description_total * 100 if description_total else 0
+    )
 
     print(f"\n{'='*60}")
     print("RESULTS")
@@ -422,7 +528,9 @@ def run_benchmark():
     print(f"  Capture recall:     {recall:.0f}%")
     print(f"  Capture precision:  {precision:.0f}%")
     print(f"  Noise rejection:    {noise_rejection:.0f}%")
-    print(f"  Description quality: {desc_quality:.0f}% ({description_hits}/{description_total} contain key info)")
+    print(
+        f"  Description quality: {desc_quality:.0f}% ({description_hits}/{description_total} contain key info)"
+    )
     print(f"  Deduplication:      {'PASS' if dedup_ok else 'FAIL'}")
 
     print(f"\n  {'Category':<15} {'Recall':>8} {'FP Rate':>8}")

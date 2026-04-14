@@ -14,33 +14,39 @@ from ..schema import MiniClaudeResponse
 class OutputValidator:
     """Validate code and command outputs for signs of fake or broken results."""
 
-    def validate_code(self, code: str, context: str | None = None) -> MiniClaudeResponse:
+    def validate_code(
+        self, code: str, context: str | None = None
+    ) -> MiniClaudeResponse:
         """Check code for silent failures and fake patterns."""
         issues = []
 
         # Silent failure patterns
-        if re.search(r'except\s*:\s*pass', code):
+        if re.search(r"except\s*:\s*pass", code):
             issues.append("Bare 'except: pass' - silently swallows all errors")
-        if re.search(r'except\s+\w+(\s*,\s*\w+)*\s*:\s*pass', code):
+        if re.search(r"except\s+\w+(\s*,\s*\w+)*\s*:\s*pass", code):
             issues.append("Exception caught but silently ignored with pass")
 
         # Placeholder patterns
-        placeholders = ['TODO', 'FIXME', 'HACK', 'XXX', 'PLACEHOLDER', 'NotImplemented']
+        placeholders = ["TODO", "FIXME", "HACK", "XXX", "PLACEHOLDER", "NotImplemented"]
         for p in placeholders:
             if p in code:
                 issues.append(f"Found placeholder: '{p}'")
 
         # Fake/stub patterns
         # Only flag if return None appears many times AND there's no other return value
-        none_returns = len(re.findall(r'return\s+None\s*$', code, re.MULTILINE))
-        other_returns = len(re.findall(r'return\s+(?!None\s*$)\S', code, re.MULTILINE))
+        none_returns = len(re.findall(r"return\s+None\s*$", code, re.MULTILINE))
+        other_returns = len(re.findall(r"return\s+(?!None\s*$)\S", code, re.MULTILINE))
         if none_returns > 3 and other_returns == 0:
-            issues.append(f"Only 'return None' ({none_returns}x) with no other returns - possible stub implementation")
+            issues.append(
+                f"Only 'return None' ({none_returns}x) with no other returns - possible stub implementation"
+            )
         if re.search(r'print\(["\'].*(?:test|debug|hello)', code, re.I):
             issues.append("Debug/test print statement found")
 
         # Hardcoded secrets
-        if re.search(r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', code, re.I):
+        if re.search(
+            r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', code, re.I
+        ):
             issues.append("Possible hardcoded secret/credential")
 
         if issues:
@@ -70,8 +76,13 @@ class OutputValidator:
 
         # Check for fake/placeholder output
         fake_patterns = [
-            'lorem ipsum', 'foo bar', 'example.com', 'test@test',
-            'placeholder', 'sample data', 'dummy',
+            "lorem ipsum",
+            "foo bar",
+            "example.com",
+            "test@test",
+            "placeholder",
+            "sample data",
+            "dummy",
         ]
         output_lower = output.lower()
         for pattern in fake_patterns:

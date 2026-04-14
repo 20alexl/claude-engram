@@ -45,7 +45,11 @@ def discover_files(category, cache_dir):
         req = urllib.request.Request(api_url)
         with urllib.request.urlopen(req, timeout=15) as resp:
             files = json.loads(resp.read())
-            paths = [f["path"].split(f"{category}/")[1] for f in files if f["path"].endswith(".json")]
+            paths = [
+                f["path"].split(f"{category}/")[1]
+                for f in files
+                if f["path"].endswith(".json")
+            ]
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
             with open(cache_path, "w") as f:
                 json.dump(paths, f)
@@ -137,7 +141,8 @@ def run_benchmark(category="all", limit=50, top_k=10):
                 text = msg.get("text", "")
                 if text:
                     m.remember_discovery(
-                        project, text[:2000],
+                        project,
+                        text[:2000],
                         relevance=5,
                         source=f"msg_{msg_idx}",
                         auto_embed=False,
@@ -149,15 +154,59 @@ def run_benchmark(category="all", limit=50, top_k=10):
 
         # Query
         query_words = question.lower().split()
-        stop = {"what","who","where","when","how","did","does","is","was","the",
-                "a","an","in","on","at","to","for","of","with","and","or","that",
-                "this","it","from","by","about","do","has","have","had","i","you",
-                "me","my","your","they","we","she","he","her","him","us","our"}
+        stop = {
+            "what",
+            "who",
+            "where",
+            "when",
+            "how",
+            "did",
+            "does",
+            "is",
+            "was",
+            "the",
+            "a",
+            "an",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "and",
+            "or",
+            "that",
+            "this",
+            "it",
+            "from",
+            "by",
+            "about",
+            "do",
+            "has",
+            "have",
+            "had",
+            "i",
+            "you",
+            "me",
+            "my",
+            "your",
+            "they",
+            "we",
+            "she",
+            "he",
+            "her",
+            "him",
+            "us",
+            "our",
+        }
         keywords = [w for w in query_words if w not in stop and len(w) > 2]
 
         results = m.search_memories(project, query=" ".join(keywords[:5]), limit=top_k)
         vector_results = m.vector_search(project, question, limit=top_k)
-        scored = m.score_and_rank(project, {"file_path": "", "tags": keywords[:3]}, limit=top_k)
+        scored = m.score_and_rank(
+            project, {"file_path": "", "tags": keywords[:3]}, limit=top_k
+        )
 
         # Combine retrieved texts from all three strategies
         retrieved_texts = set()

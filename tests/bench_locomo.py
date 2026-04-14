@@ -32,7 +32,9 @@ def run_benchmark(data_path, limit=None, top_k=10):
         data = data[:limit]
 
     total_questions = sum(len(conv["qa"]) for conv in data)
-    print(f"Running LoCoMo: {len(data)} conversations, {total_questions} questions, top-k={top_k}")
+    print(
+        f"Running LoCoMo: {len(data)} conversations, {total_questions} questions, top-k={top_k}"
+    )
     print()
 
     m = MemoryStore()
@@ -49,7 +51,13 @@ def run_benchmark(data_path, limit=None, top_k=10):
         m.forget_project(project)
 
         # Extract sessions and store as memories
-        session_keys = sorted([k for k in conversation.keys() if k.startswith("session_") and not k.endswith("_date_time")])
+        session_keys = sorted(
+            [
+                k
+                for k in conversation.keys()
+                if k.startswith("session_") and not k.endswith("_date_time")
+            ]
+        )
 
         for sess_key in session_keys:
             sess_content = conversation[sess_key]
@@ -66,7 +74,8 @@ def run_benchmark(data_path, limit=None, top_k=10):
             date = conversation.get(date_key, "")
 
             m.remember_discovery(
-                project, f"[{date}] {content}",
+                project,
+                f"[{date}] {content}",
                 relevance=5,
                 tags=[sess_key],
                 source=sess_key,
@@ -95,15 +104,59 @@ def run_benchmark(data_path, limit=None, top_k=10):
 
             # Search
             query_words = question.lower().split()
-            stop = {"what","who","where","when","how","did","does","is","was","the",
-                    "a","an","in","on","at","to","for","of","with","and","or","that",
-                    "this","it","from","by","about","do","has","have","had","i","you",
-                    "me","my","your","they","we","she","he","her","him"}
+            stop = {
+                "what",
+                "who",
+                "where",
+                "when",
+                "how",
+                "did",
+                "does",
+                "is",
+                "was",
+                "the",
+                "a",
+                "an",
+                "in",
+                "on",
+                "at",
+                "to",
+                "for",
+                "of",
+                "with",
+                "and",
+                "or",
+                "that",
+                "this",
+                "it",
+                "from",
+                "by",
+                "about",
+                "do",
+                "has",
+                "have",
+                "had",
+                "i",
+                "you",
+                "me",
+                "my",
+                "your",
+                "they",
+                "we",
+                "she",
+                "he",
+                "her",
+                "him",
+            }
             keywords = [w for w in query_words if w not in stop and len(w) > 2]
 
-            results = m.search_memories(project, query=" ".join(keywords[:5]), limit=top_k)
+            results = m.search_memories(
+                project, query=" ".join(keywords[:5]), limit=top_k
+            )
             vector_results = m.vector_search(project, question, limit=top_k)
-            scored = m.score_and_rank(project, {"file_path": "", "tags": keywords[:3]}, limit=top_k)
+            scored = m.score_and_rank(
+                project, {"file_path": "", "tags": keywords[:3]}, limit=top_k
+            )
 
             # Combine: keyword first, then vector, then scored
             retrieved = []
@@ -128,7 +181,9 @@ def run_benchmark(data_path, limit=None, top_k=10):
             all_recall.append(r)
 
         avg_so_far = sum(all_recall) / len(all_recall) if all_recall else 0
-        print(f"  Conv {ci+1}/{len(data)}: {len(questions)} questions, running avg R@{top_k}={avg_so_far:.3f}")
+        print(
+            f"  Conv {ci+1}/{len(data)}: {len(questions)} questions, running avg R@{top_k}={avg_so_far:.3f}"
+        )
 
     m.forget_project(project)
 

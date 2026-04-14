@@ -4,8 +4,10 @@ Benchmark: Decision capture recall and precision.
 Tests the two-tier scoring system (semantic AllMiniLM + regex fallback)
 against a diverse set of decision and non-decision prompts.
 """
+
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_engram.hooks.remind import _score_decision_intent
@@ -21,7 +23,11 @@ DECISION_PROMPTS = [
     ("please replace the old auth middleware with passport.js", True, "please replace"),
     ("we should adopt the repository pattern for data access", True, "we should"),
     ("going forward prefer composition over inheritance", True, "going forward"),
-    ("I want to rewrite the API layer in Go instead of Python", True, "I want to rewrite"),
+    (
+        "I want to rewrite the API layer in Go instead of Python",
+        True,
+        "I want to rewrite",
+    ),
     ("stop using console.log for debugging, use the logger", True, "stop using"),
     ("just use redis for caching, it is simpler", True, "just use"),
     ("get rid of the old jQuery code and use vanilla JS", True, "get rid of"),
@@ -30,11 +36,14 @@ DECISION_PROMPTS = [
     ("always validate user input at the API boundary", True, "always validate"),
     ("drop Python 3.8 support, only support 3.10+", True, "drop support"),
     ("use dependency injection for all service classes", True, "use DI"),
-    ("keep the monorepo structure, don't split into separate repos", True, "keep/stick with"),
+    (
+        "keep the monorepo structure, don't split into separate repos",
+        True,
+        "keep/stick with",
+    ),
     ("refactor the auth module to use the strategy pattern", True, "refactor to"),
     ("avoid using any in TypeScript, use proper types", True, "avoid using"),
     ("replace moment.js with date-fns for date handling", True, "replace X with Y"),
-
     # NOT decisions — should NOT capture
     ("fix the bug in auth.py", False, "task"),
     ("what does this function do?", False, "question"),
@@ -93,7 +102,9 @@ def test_regex_scorer():
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
 
     print(f"\n  Decisions: {total_decisions} | Non-decisions: {total_non}")
-    print(f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}")
+    print(
+        f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}"
+    )
     print(f"  Recall:    {recall:.1f}%")
     print(f"  Precision: {precision:.1f}%")
     print(f"  F1 Score:  {f1:.1f}%")
@@ -105,16 +116,20 @@ def test_semantic_scorer():
     """Test the semantic AllMiniLM scorer if available."""
     try:
         from claude_engram.hooks.intent import score_decision_semantic
+
         # Try a quick score to see if model is available
         test_score, _ = score_decision_semantic("let's use PostgreSQL")
         if test_score == 0.0:
             # Check if it's genuinely 0 or server not available
             from claude_engram.hooks.scorer_server import PORT_FILE
+
             if not PORT_FILE.exists():
                 print("\n=== Semantic Scorer: SKIPPED (scorer server not running) ===")
                 return None, None, None
     except ImportError:
-        print("\n=== Semantic Scorer: SKIPPED (sentence-transformers not installed) ===")
+        print(
+            "\n=== Semantic Scorer: SKIPPED (sentence-transformers not installed) ==="
+        )
         return None, None, None
 
     print("\n=== Semantic Decision Scorer (AllMiniLM) ===\n")
@@ -149,7 +164,9 @@ def test_semantic_scorer():
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
 
     print(f"\n  Decisions: {total_decisions} | Non-decisions: {total_non}")
-    print(f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}")
+    print(
+        f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}"
+    )
     print(f"  Recall:    {recall:.1f}%")
     print(f"  Precision: {precision:.1f}%")
     print(f"  F1 Score:  {f1:.1f}%")
@@ -163,6 +180,7 @@ def test_combined_scorer():
 
     try:
         from claude_engram.hooks.intent import score_decision_semantic
+
         has_semantic = True
     except ImportError:
         has_semantic = False
@@ -206,7 +224,9 @@ def test_combined_scorer():
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
 
     print(f"\n  Decisions: {total_decisions} | Non-decisions: {total_non}")
-    print(f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}")
+    print(
+        f"  True pos: {true_pos} | False neg: {false_neg} | False pos: {false_pos} | True neg: {true_neg}"
+    )
     print(f"  Recall:    {recall:.1f}%")
     print(f"  Precision: {precision:.1f}%")
     print(f"  F1 Score:  {f1:.1f}%")

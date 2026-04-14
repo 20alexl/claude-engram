@@ -18,7 +18,8 @@ from typing import Optional
 @dataclass
 class CrossProjectInsight:
     """An insight derived from multiple projects."""
-    insight_type: str     # "error_pattern" | "struggle" | "workflow" | "tool_preference"
+
+    insight_type: str  # "error_pattern" | "struggle" | "workflow" | "tool_preference"
     description: str
     projects_affected: list[str] = field(default_factory=list)
     frequency: int = 0
@@ -28,6 +29,7 @@ class CrossProjectInsight:
 @dataclass
 class CrossProjectReport:
     """Aggregated insights across all projects."""
+
     total_projects: int = 0
     total_sessions: int = 0
     total_messages: int = 0
@@ -57,12 +59,12 @@ def analyze_cross_project(
     report.total_projects = len(projects)
 
     # Aggregate across all projects
-    all_errors: Counter = Counter()       # error_type -> count
-    error_projects: dict[str, set] = {}   # error_type -> set of project names
-    all_struggles: Counter = Counter()     # filename -> count
+    all_errors: Counter = Counter()  # error_type -> count
+    error_projects: dict[str, set] = {}  # error_type -> set of project names
+    all_struggles: Counter = Counter()  # filename -> count
     struggle_projects: dict[str, set] = {}
-    all_tools: Counter = Counter()        # tool -> count
-    all_file_types: Counter = Counter()   # extension -> count
+    all_tools: Counter = Counter()  # tool -> count
+    all_file_types: Counter = Counter()  # extension -> count
 
     for proj_path, proj_info in projects.items():
         proj_name = proj_info.get("name", Path(proj_path).name)
@@ -121,30 +123,36 @@ def analyze_cross_project(
     for error_type, count in all_errors.most_common(10):
         projs = error_projects.get(error_type, set())
         if len(projs) >= 2:
-            report.insights.append(CrossProjectInsight(
-                insight_type="error_pattern",
-                description=f"{error_type} occurs across {len(projs)} projects ({count} total)",
-                projects_affected=sorted(projs),
-                frequency=count,
-                confidence=min(len(projs) / report.total_projects, 1.0),
-            ))
-        report.common_errors.append({
-            "error_type": error_type,
-            "count": count,
-            "projects": sorted(projs),
-        })
+            report.insights.append(
+                CrossProjectInsight(
+                    insight_type="error_pattern",
+                    description=f"{error_type} occurs across {len(projs)} projects ({count} total)",
+                    projects_affected=sorted(projs),
+                    frequency=count,
+                    confidence=min(len(projs) / report.total_projects, 1.0),
+                )
+            )
+        report.common_errors.append(
+            {
+                "error_type": error_type,
+                "count": count,
+                "projects": sorted(projs),
+            }
+        )
 
     # Cross-project struggles (files that cause problems everywhere)
     for name, count in all_struggles.most_common(10):
         projs = struggle_projects.get(name, set())
         if len(projs) >= 2:
-            report.insights.append(CrossProjectInsight(
-                insight_type="struggle",
-                description=f"{name} involved in errors across {len(projs)} projects",
-                projects_affected=sorted(projs),
-                frequency=count,
-                confidence=min(len(projs) / report.total_projects, 1.0),
-            ))
+            report.insights.append(
+                CrossProjectInsight(
+                    insight_type="struggle",
+                    description=f"{name} involved in errors across {len(projs)} projects",
+                    projects_affected=sorted(projs),
+                    frequency=count,
+                    confidence=min(len(projs) / report.total_projects, 1.0),
+                )
+            )
 
     # Tool usage patterns
     report.tool_usage = dict(all_tools.most_common(20))
@@ -155,11 +163,13 @@ def analyze_cross_project(
     if reads > 0 and edits > 0:
         ratio = reads / edits
         if ratio > 3:
-            report.insights.append(CrossProjectInsight(
-                insight_type="workflow",
-                description=f"Read/Edit ratio is {ratio:.1f}:1 — lots of exploration before editing",
-                frequency=reads + edits,
-                confidence=0.8,
-            ))
+            report.insights.append(
+                CrossProjectInsight(
+                    insight_type="workflow",
+                    description=f"Read/Edit ratio is {ratio:.1f}:1 — lots of exploration before editing",
+                    frequency=reads + edits,
+                    confidence=0.8,
+                )
+            )
 
     return report

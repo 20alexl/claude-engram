@@ -26,6 +26,7 @@ def _is_pid_alive(pid: int) -> bool:
     try:
         if platform.system() == "Windows":
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             handle = kernel32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
             if handle:
@@ -125,10 +126,15 @@ def start_mining_background(
 
         subprocess.Popen(
             [
-                sys.executable, "-m", "claude_engram.mining.background",
-                "--project", project_path,
-                "--mode", mode,
-                "--storage", engram_storage_dir,
+                sys.executable,
+                "-m",
+                "claude_engram.mining.background",
+                "--project",
+                project_path,
+                "--mode",
+                mode,
+                "--storage",
+                engram_storage_dir,
             ],
             **kwargs,
         )
@@ -138,6 +144,7 @@ def start_mining_background(
 
 
 # ── Background worker entry point ────────────────────────────────────────
+
 
 def run_mining(project_path: str, mode: str, engram_storage_dir: str):
     """
@@ -149,26 +156,31 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         return
 
     try:
-        _write_status({
-            "status": "running",
-            "project": project_path,
-            "mode": mode,
-            "started": time.time(),
-            "phase": "indexing",
-        })
+        _write_status(
+            {
+                "status": "running",
+                "project": project_path,
+                "mode": mode,
+                "started": time.time(),
+                "phase": "indexing",
+            }
+        )
 
         # Phase 1: Build/update session index
         from claude_engram.mining.session_index import build_project_index
+
         index = build_project_index(project_path, engram_storage_dir)
 
         if not index:
-            _write_status({
-                "status": "completed",
-                "project": project_path,
-                "mode": mode,
-                "result": "no sessions found",
-                "completed": time.time(),
-            })
+            _write_status(
+                {
+                    "status": "completed",
+                    "project": project_path,
+                    "mode": mode,
+                    "result": "no sessions found",
+                    "completed": time.time(),
+                }
+            )
             return
 
         sessions_count = index.get_session_count()
@@ -177,17 +189,20 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         # Phase 2: Run extractors (if mode supports it)
         extraction_count = 0
         if mode in ("post_session", "bootstrap", "full"):
-            _write_status({
-                "status": "running",
-                "project": project_path,
-                "mode": mode,
-                "started": time.time(),
-                "phase": "extracting",
-                "sessions_indexed": sessions_count,
-            })
+            _write_status(
+                {
+                    "status": "running",
+                    "project": project_path,
+                    "mode": mode,
+                    "started": time.time(),
+                    "phase": "extracting",
+                    "sessions_indexed": sessions_count,
+                }
+            )
 
             try:
                 from claude_engram.mining.extractors import run_extraction_pipeline
+
                 extraction_count = run_extraction_pipeline(
                     project_path, index, engram_storage_dir
                 )
@@ -196,16 +211,19 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
 
         # Phase 3: Generate embeddings (if mode supports it)
         if mode in ("embed", "bootstrap", "full"):
-            _write_status({
-                "status": "running",
-                "project": project_path,
-                "mode": mode,
-                "started": time.time(),
-                "phase": "embedding",
-            })
+            _write_status(
+                {
+                    "status": "running",
+                    "project": project_path,
+                    "mode": mode,
+                    "started": time.time(),
+                    "phase": "embedding",
+                }
+            )
 
             try:
                 from claude_engram.mining.search import build_session_embeddings
+
                 build_session_embeddings(project_path, index, engram_storage_dir)
             except ImportError:
                 pass  # search not built yet (Phase 3)
@@ -214,6 +232,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         if mode in ("bootstrap", "full"):
             try:
                 from claude_engram.mining.patterns import detect_all_patterns
+
                 detect_all_patterns(project_path, index, engram_storage_dir)
             except ImportError:
                 pass
@@ -222,35 +241,41 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         if mode in ("post_session", "bootstrap", "full"):
             try:
                 from claude_engram.tools.memory import MemoryStore
+
                 store = MemoryStore(storage_dir=engram_storage_dir)
                 store.cleanup_memories(project_path, dry_run=False)
             except Exception:
                 pass
 
-        _write_status({
-            "status": "completed",
-            "project": project_path,
-            "mode": mode,
-            "sessions_indexed": sessions_count,
-            "total_messages": messages_count,
-            "extractions": extraction_count,
-            "completed": time.time(),
-        })
+        _write_status(
+            {
+                "status": "completed",
+                "project": project_path,
+                "mode": mode,
+                "sessions_indexed": sessions_count,
+                "total_messages": messages_count,
+                "extractions": extraction_count,
+                "completed": time.time(),
+            }
+        )
 
     except Exception as e:
-        _write_status({
-            "status": "error",
-            "project": project_path,
-            "mode": mode,
-            "error": str(e),
-            "completed": time.time(),
-        })
+        _write_status(
+            {
+                "status": "error",
+                "project": project_path,
+                "mode": mode,
+                "error": str(e),
+                "completed": time.time(),
+            }
+        )
     finally:
         _release_lock()
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Claude Engram session miner")
     parser.add_argument("--project", required=True, help="Project path")
     parser.add_argument("--mode", default="post_session", help="Mining mode")

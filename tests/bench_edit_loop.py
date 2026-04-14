@@ -19,7 +19,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def write_loop_state(loop_file: Path, edit_counts: dict, test_results: list, total_edits: int = 0):
+def write_loop_state(
+    loop_file: Path, edit_counts: dict, test_results: list, total_edits: int = 0
+):
     """Write a loop detector state file."""
     loop_file.parent.mkdir(parents=True, exist_ok=True)
     data = {
@@ -194,9 +196,15 @@ CASES = [
     {
         "name": "Total edits loop: 10+ across files",
         "actions": [
-            ("edit", f"{_P}/a.py"), ("edit", f"{_P}/b.py"), ("edit", f"{_P}/c.py"),
-            ("edit", f"{_P}/d.py"), ("edit", f"{_P}/e.py"), ("edit", f"{_P}/a.py"),
-            ("edit", f"{_P}/b.py"), ("edit", f"{_P}/c.py"), ("edit", f"{_P}/d.py"),
+            ("edit", f"{_P}/a.py"),
+            ("edit", f"{_P}/b.py"),
+            ("edit", f"{_P}/c.py"),
+            ("edit", f"{_P}/d.py"),
+            ("edit", f"{_P}/e.py"),
+            ("edit", f"{_P}/a.py"),
+            ("edit", f"{_P}/b.py"),
+            ("edit", f"{_P}/c.py"),
+            ("edit", f"{_P}/d.py"),
             ("edit", f"{_P}/e.py"),
         ],
         "expect_loop_at": 10,  # total_edits >= 10
@@ -330,7 +338,9 @@ def run_benchmark():
                 if "expect_loop_at" in case:
                     print(f"    Expected loop at: {case['expect_loop_at']}")
                 if "expect_warning_contains" in case:
-                    data = json.loads(loop_file.read_text()) if loop_file.exists() else {}
+                    data = (
+                        json.loads(loop_file.read_text()) if loop_file.exists() else {}
+                    )
                     counts = data.get("edit_counts", {})
                     count = counts.get(last_file, 0) if last_file else 0
                     print(f"    Warning: '{get_warning_text(count)}'")

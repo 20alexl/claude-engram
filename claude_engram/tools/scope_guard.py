@@ -19,6 +19,7 @@ from ..schema import MiniClaudeResponse, WorkLog
 @dataclass
 class ScopeDeclaration:
     """A declared scope for a task."""
+
     task_description: str
     in_scope_files: list[str]  # Files explicitly allowed to edit
     in_scope_patterns: list[str]  # Glob patterns (e.g., "src/auth/*")

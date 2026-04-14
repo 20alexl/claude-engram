@@ -19,9 +19,12 @@ from typing import Optional
 @dataclass
 class Insight:
     """A synthesized insight from reflecting on memories."""
-    content: str          # The insight text
-    insight_type: str     # "root_cause" | "pattern" | "recommendation" | "connection"
-    source_memories: list[str] = field(default_factory=list)  # Memory IDs that led to this
+
+    content: str  # The insight text
+    insight_type: str  # "root_cause" | "pattern" | "recommendation" | "connection"
+    source_memories: list[str] = field(
+        default_factory=list
+    )  # Memory IDs that led to this
     confidence: float = 0.0
     related_files: list[str] = field(default_factory=list)
 
@@ -66,10 +69,14 @@ def reflect_on_mistakes(
 
     # Group by error type (first word after "MISTAKE:")
     import re
+
     groups: dict[str, list[dict]] = {}
     for m in all_mistakes:
         content = m.get("content", "")
-        match = re.match(r"MISTAKE:\s*(\w+Error|Import error|Syntax error|Type error|Attribute error)", content)
+        match = re.match(
+            r"MISTAKE:\s*(\w+Error|Import error|Syntax error|Type error|Attribute error)",
+            content,
+        )
         if match:
             key = match.group(1)
         else:
@@ -109,13 +116,15 @@ Output ONLY the analysis, no preamble."""
         if result.get("success") and result.get("response"):
             response = result["response"].strip()
             if len(response) > 20:
-                insights.append(Insight(
-                    content=response[:500],
-                    insight_type="root_cause",
-                    source_memories=[m.get("id", "") for m in mistakes[:10]],
-                    confidence=min(len(mistakes) / 10, 1.0),
-                    related_files=sorted(files)[:10],
-                ))
+                insights.append(
+                    Insight(
+                        content=response[:500],
+                        insight_type="root_cause",
+                        source_memories=[m.get("id", "") for m in mistakes[:10]],
+                        confidence=min(len(mistakes) / 10, 1.0),
+                        related_files=sorted(files)[:10],
+                    )
+                )
 
     return insights
 
@@ -175,12 +184,14 @@ Output ONLY the analysis."""
         if result.get("success") and result.get("response"):
             response = result["response"].strip()
             if len(response) > 20:
-                insights.append(Insight(
-                    content=response[:500],
-                    insight_type="pattern",
-                    related_files=[s["file_path"] for s in struggles],
-                    confidence=0.7,
-                ))
+                insights.append(
+                    Insight(
+                        content=response[:500],
+                        insight_type="pattern",
+                        related_files=[s["file_path"] for s in struggles],
+                        confidence=0.7,
+                    )
+                )
 
     if correlations:
         corr_text = "\n".join(
@@ -199,11 +210,13 @@ Output ONLY the analysis."""
         if result.get("success") and result.get("response"):
             response = result["response"].strip()
             if len(response) > 20:
-                insights.append(Insight(
-                    content=response[:500],
-                    insight_type="connection",
-                    confidence=0.6,
-                ))
+                insights.append(
+                    Insight(
+                        content=response[:500],
+                        insight_type="connection",
+                        confidence=0.6,
+                    )
+                )
 
     return insights
 
@@ -243,8 +256,7 @@ def reflect_on_decisions(
         return []
 
     decision_texts = "\n".join(
-        f"- {d.get('content', '')[:150]}"
-        for d in all_decisions[:15]
+        f"- {d.get('content', '')[:150]}" for d in all_decisions[:15]
     )
 
     prompt = f"""These decisions have been made in this project:
@@ -259,12 +271,14 @@ Output ONLY the analysis."""
     if result.get("success") and result.get("response"):
         response = result["response"].strip()
         if len(response) > 20:
-            insights.append(Insight(
-                content=response[:500],
-                insight_type="recommendation",
-                source_memories=[d.get("id", "") for d in all_decisions[:15]],
-                confidence=0.6,
-            ))
+            insights.append(
+                Insight(
+                    content=response[:500],
+                    insight_type="recommendation",
+                    source_memories=[d.get("id", "") for d in all_decisions[:15]],
+                    confidence=0.6,
+                )
+            )
 
     return insights
 
@@ -321,6 +335,7 @@ def reflect_all(
 
     # Build one comprehensive prompt
     import re
+
     sections = []
 
     # Group mistakes by error type
@@ -344,13 +359,17 @@ def reflect_all(
         if struggles:
             sections.append("\nSTRUGGLE FILES:")
             for s in struggles:
-                sections.append(f"  - {s['file_path']}: {s['sessions_affected']} sessions, {s['errors_nearby']} errors")
+                sections.append(
+                    f"  - {s['file_path']}: {s['sessions_affected']} sessions, {s['errors_nearby']} errors"
+                )
 
         correlations = patterns_data.get("correlations", [])[:5]
         if correlations:
             sections.append("\nFILES ALWAYS EDITED TOGETHER:")
             for c in correlations:
-                sections.append(f"  - {c['file_a']} <-> {c['file_b']}: {c['strength']:.0%}")
+                sections.append(
+                    f"  - {c['file_a']} <-> {c['file_b']}: {c['strength']:.0%}"
+                )
 
     if all_decisions:
         sections.append("\nKEY DECISIONS:")
@@ -386,8 +405,9 @@ Be specific and actionable. Output ONLY the analysis, no preamble."""
 
     # Split response into sections by numbered headers or keywords
     import re as _re
+
     sections = _re.split(
-        r'\n\s*(?=\d+\.\s*\*?\*?(?:ROOT|ARCHITECTURE|DECISION))',
+        r"\n\s*(?=\d+\.\s*\*?\*?(?:ROOT|ARCHITECTURE|DECISION))",
         response,
         flags=_re.IGNORECASE,
     )
@@ -399,34 +419,49 @@ Be specific and actionable. Output ONLY the analysis, no preamble."""
 
         lower = section.lower()
         if "root cause" in lower or "error" in lower[:50]:
-            insights.append(Insight(
-                content=section[:500],
-                insight_type="root_cause",
-                source_memories=[m.get("id", "") for m in all_mistakes[:10]],
-                confidence=min(len(all_mistakes) / 10, 1.0),
-            ))
-        elif "architecture" in lower or "struggle" in lower[:50] or "correlation" in lower[:50]:
-            insights.append(Insight(
-                content=section[:500],
-                insight_type="pattern",
-                related_files=[s["file_path"] for s in (patterns_data or {}).get("struggles", [])[:5]],
-                confidence=0.7,
-            ))
+            insights.append(
+                Insight(
+                    content=section[:500],
+                    insight_type="root_cause",
+                    source_memories=[m.get("id", "") for m in all_mistakes[:10]],
+                    confidence=min(len(all_mistakes) / 10, 1.0),
+                )
+            )
+        elif (
+            "architecture" in lower
+            or "struggle" in lower[:50]
+            or "correlation" in lower[:50]
+        ):
+            insights.append(
+                Insight(
+                    content=section[:500],
+                    insight_type="pattern",
+                    related_files=[
+                        s["file_path"]
+                        for s in (patterns_data or {}).get("struggles", [])[:5]
+                    ],
+                    confidence=0.7,
+                )
+            )
         elif "decision" in lower or "contradict" in lower[:50]:
-            insights.append(Insight(
-                content=section[:500],
-                insight_type="recommendation",
-                source_memories=[d.get("id", "") for d in all_decisions[:10]],
-                confidence=0.6,
-            ))
+            insights.append(
+                Insight(
+                    content=section[:500],
+                    insight_type="recommendation",
+                    source_memories=[d.get("id", "") for d in all_decisions[:10]],
+                    confidence=0.6,
+                )
+            )
 
     # If parsing found nothing, store the whole response as one insight
     if not insights and len(response) > 20:
-        insights.append(Insight(
-            content=response[:500],
-            insight_type="root_cause",
-            confidence=0.5,
-        ))
+        insights.append(
+            Insight(
+                content=response[:500],
+                insight_type="root_cause",
+                confidence=0.5,
+            )
+        )
 
     return insights
 
@@ -435,6 +470,7 @@ def _get_llm():
     """Get Ollama LLM client. Returns None if unavailable."""
     try:
         from claude_engram.llm import LLMClient
+
         llm = LLMClient()
         health = llm.health_check()
         if health.get("healthy"):

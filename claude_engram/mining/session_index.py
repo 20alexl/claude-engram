@@ -33,6 +33,7 @@ from claude_engram.mining.jsonl_reader import (
 @dataclass
 class SessionMeta:
     """Metadata for a single session."""
+
     session_id: str = ""
     jsonl_file: str = ""
     file_size_bytes: int = 0
@@ -48,7 +49,9 @@ class SessionMeta:
     has_errors: bool = False
     error_count: int = 0
     compaction_count: int = 0
-    token_usage: dict[str, int] = field(default_factory=lambda: {"input": 0, "output": 0})
+    token_usage: dict[str, int] = field(
+        default_factory=lambda: {"input": 0, "output": 0}
+    )
     summary: str = ""
     last_user_message: str = ""
 
@@ -260,6 +263,7 @@ class SessionIndex:
         if last_ts:
             try:
                 from datetime import datetime, timezone
+
                 dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
                 age_secs = (datetime.now(timezone.utc) - dt).total_seconds()
                 if age_secs < 3600:

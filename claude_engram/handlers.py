@@ -77,9 +77,9 @@ class Handlers:
 
     def close(self):
         """Close all resources to prevent leaks."""
-        if hasattr(self, 'llm') and self.llm:
+        if hasattr(self, "llm") and self.llm:
             self.llm.close()
-        if hasattr(self, 'thinker') and self.thinker:
+        if hasattr(self, "thinker") and self.thinker:
             self.thinker.close()
 
     def __enter__(self):
@@ -121,33 +121,44 @@ class Handlers:
             if queue_stats["total_requests"] > 0:
                 queue_info.append(f"LLM requests: {queue_stats['total_requests']}")
                 if queue_stats["queued_requests"] > 0:
-                    queue_info.append(f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)")
+                    queue_info.append(
+                        f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)"
+                    )
 
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
                 reasoning="Claude Engram is ready. Did you call session_start yet?",
-                work_log=WorkLog(what_worked=[
-                    "LLM connection verified",
-                    f"Model '{self.llm.model}' is available",
-                    f"Memory tracking {stats['projects_tracked']} projects",
-                ] + queue_info),
+                work_log=WorkLog(
+                    what_worked=[
+                        "LLM connection verified",
+                        f"Model '{self.llm.model}' is available",
+                        f"Memory tracking {stats['projects_tracked']} projects",
+                    ]
+                    + queue_info
+                ),
                 data={
                     "model": self.llm.model,
                     "memory_stats": stats,
                     "queue_stats": queue_stats,
                 },
                 suggestions=suggestions,
-                warnings=["Remember: session_start loads memories + conventions in one call"],
+                warnings=[
+                    "Remember: session_start loads memories + conventions in one call"
+                ],
             )
         else:
             response = MiniClaudeResponse(
                 status="failed",
                 confidence="high",
                 reasoning=health.get("error", "Unknown error"),
-                work_log=WorkLog(what_failed=[health.get("error", "Health check failed")]),
+                work_log=WorkLog(
+                    what_failed=[health.get("error", "Health check failed")]
+                ),
                 suggestions=[health.get("suggestion", "Check Ollama installation")],
-                warnings=["Claude Engram cannot function without a working Ollama connection"],
+                warnings=[
+                    "Claude Engram cannot function without a working Ollama connection"
+                ],
             )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
@@ -156,14 +167,20 @@ class Handlers:
     # Scout - Search
     # -------------------------------------------------------------------------
 
-    async def search(self, query: str, directory: str, max_results: int) -> list[TextContent]:
+    async def search(
+        self, query: str, directory: str, max_results: int
+    ) -> list[TextContent]:
         """Handle search requests."""
         # Validate inputs
         if not query:
-            return self._needs_clarification("No query provided", "What would you like me to search for?")
+            return self._needs_clarification(
+                "No query provided", "What would you like me to search for?"
+            )
 
         if not directory:
-            return self._needs_clarification("No directory provided", "Which directory should I search in?")
+            return self._needs_clarification(
+                "No directory provided", "Which directory should I search in?"
+            )
 
         # Check if session was started
         session_warning = self._check_session(directory)
@@ -171,8 +188,7 @@ class Handlers:
         # Run search in thread pool to not block
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
-            None,
-            lambda: self.search_engine.search(query, directory, max_results)
+            None, lambda: self.search_engine.search(query, directory, max_results)
         )
 
         # Log to memory
@@ -198,10 +214,14 @@ class Handlers:
     async def analyze(self, code: str, question: str) -> list[TextContent]:
         """Handle code analysis requests."""
         if not code:
-            return self._needs_clarification("No code provided", "What code would you like me to analyze?")
+            return self._needs_clarification(
+                "No code provided", "What code would you like me to analyze?"
+            )
 
         if not question:
-            return self._needs_clarification("No question provided", "What would you like to know about this code?")
+            return self._needs_clarification(
+                "No question provided", "What would you like to know about this code?"
+            )
 
         # Analyze using LLM
         result = self.llm.analyze_code(code, question)
@@ -226,7 +246,10 @@ class Handlers:
                 confidence="high",
                 reasoning=f"Analysis failed: {result.get('error')}",
                 work_log=work_log,
-                suggestions=["Check if Ollama is running", "Try simplifying the question"],
+                suggestions=[
+                    "Check if Ollama is running",
+                    "Try simplifying the question",
+                ],
             )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
@@ -244,7 +267,9 @@ class Handlers:
     ) -> list[TextContent]:
         """Handle remember requests."""
         if not content:
-            return self._needs_clarification("No content provided", "What would you like me to remember?")
+            return self._needs_clarification(
+                "No content provided", "What would you like me to remember?"
+            )
 
         work_log = WorkLog()
         work_log.what_i_tried.append(f"Storing {category} memory")
@@ -271,18 +296,24 @@ class Handlers:
 
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    def _store_memory(self, content: str, category: str, project_path: str | None, relevance: int):
+    def _store_memory(
+        self, content: str, category: str, project_path: str | None, relevance: int
+    ):
         """Store memory based on category. Extracted for clarity."""
         if category == "priority":
             self.memory.add_priority(content, project_path, relevance)
         elif category == "discovery":
             if project_path:
-                self.memory.remember_discovery(project_path, content, relevance=relevance)
+                self.memory.remember_discovery(
+                    project_path, content, relevance=relevance
+                )
             else:
                 self.memory.add_priority(content, relevance=relevance)
         else:  # note
             if project_path:
-                self.memory.remember_discovery(project_path, content, relevance=relevance)
+                self.memory.remember_discovery(
+                    project_path, content, relevance=relevance
+                )
             else:
                 self.memory.add_priority(content, relevance=relevance)
 
@@ -324,7 +355,9 @@ class Handlers:
     async def forget(self, project_path: str) -> list[TextContent]:
         """Handle forget requests."""
         if not project_path:
-            return self._needs_clarification("No project path provided", "Which project should I forget?")
+            return self._needs_clarification(
+                "No project path provided", "Which project should I forget?"
+            )
 
         work_log = WorkLog()
         work_log.what_i_tried.append(f"Forgetting project: {project_path}")
@@ -363,7 +396,9 @@ class Handlers:
     ) -> list[TextContent]:
         """Handle memory cleanup requests."""
         if not project_path:
-            return self._needs_clarification("No project path provided", "Which project should I clean up?")
+            return self._needs_clarification(
+                "No project path provided", "Which project should I clean up?"
+            )
 
         work_log = WorkLog()
         work_log.what_i_tried.append(f"Cleaning up memories for: {project_path}")
@@ -416,12 +451,14 @@ class Handlers:
     ) -> list[TextContent]:
         """Handle contextual memory search requests."""
         if not project_path:
-            return self._needs_clarification("No project path provided", "Which project should I search?")
+            return self._needs_clarification(
+                "No project path provided", "Which project should I search?"
+            )
 
         if not file_path and not tags and not query:
             return self._needs_clarification(
                 "No search criteria provided",
-                "Provide file_path, tags, or query to search"
+                "Provide file_path, tags, or query to search",
             )
 
         work_log = WorkLog()
@@ -487,7 +524,9 @@ class Handlers:
     ) -> list[TextContent]:
         """Handle memory cluster view requests."""
         if not project_path:
-            return self._needs_clarification("No project path provided", "Which project's clusters should I show?")
+            return self._needs_clarification(
+                "No project path provided", "Which project's clusters should I show?"
+            )
 
         work_log = WorkLog()
         work_log.what_i_tried.append(
@@ -511,14 +550,22 @@ class Handlers:
                 )
             else:
                 if cluster_id:
-                    work_log.what_worked.append(f"Retrieved cluster: {result.get('cluster', {}).get('name', cluster_id)}")
+                    work_log.what_worked.append(
+                        f"Retrieved cluster: {result.get('cluster', {}).get('name', cluster_id)}"
+                    )
                 else:
-                    work_log.what_worked.append(f"Found {len(result.get('clusters', []))} clusters")
+                    work_log.what_worked.append(
+                        f"Found {len(result.get('clusters', []))} clusters"
+                    )
 
                 response = MiniClaudeResponse(
                     status="success",
                     confidence="high",
-                    reasoning="Memory clusters retrieved" if not cluster_id else f"Cluster {cluster_id} details",
+                    reasoning=(
+                        "Memory clusters retrieved"
+                        if not cluster_id
+                        else f"Cluster {cluster_id} details"
+                    ),
                     work_log=work_log,
                     data=result,
                 )
@@ -540,13 +587,14 @@ class Handlers:
     async def summarize(self, file_path: str, mode: str) -> list[TextContent]:
         """Handle file summarize requests."""
         if not file_path:
-            return self._needs_clarification("No file path provided", "Which file should I summarize?")
+            return self._needs_clarification(
+                "No file path provided", "Which file should I summarize?"
+            )
 
         # Run summarizer in thread pool
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
-            None,
-            lambda: self.summarizer.summarize(file_path, mode)
+            None, lambda: self.summarizer.summarize(file_path, mode)
         )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
@@ -564,15 +612,16 @@ class Handlers:
         """Handle dependency mapping requests."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file should I analyze dependencies for?"
+                "No file path provided", "Which file should I analyze dependencies for?"
             )
 
         # Run mapper in thread pool
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self.dependency_mapper.map_file(file_path, project_root, include_reverse)
+            lambda: self.dependency_mapper.map_file(
+                file_path, project_root, include_reverse
+            ),
         )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
@@ -598,6 +647,7 @@ class Handlers:
             # Create session marker for hooks to detect (in ~/.claude_engram/ for Windows)
             try:
                 from pathlib import Path
+
                 marker = Path.home() / ".claude_engram" / "session_active"
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text(project_path)
@@ -607,6 +657,7 @@ class Handlers:
             # Notify remind hook that session was started - resets warning counters
             try:
                 from .hooks.remind import mark_session_started
+
                 mark_session_started(project_path)
             except Exception:
                 pass  # Non-critical if hooks aren't available
@@ -632,13 +683,13 @@ class Handlers:
                     checkpoint_info += "HANDOFF FROM PREVIOUS SESSION:\n"
                     checkpoint_info += "=" * 50 + "\n"
                     checkpoint_info += f"Summary: {handoff.get('summary', 'N/A')}\n"
-                    if handoff.get('next_steps'):
+                    if handoff.get("next_steps"):
                         checkpoint_info += "Next steps:\n"
-                        for step in handoff['next_steps']:
+                        for step in handoff["next_steps"]:
                             checkpoint_info += f"  • {step}\n"
-                    if handoff.get('warnings'):
+                    if handoff.get("warnings"):
                         checkpoint_info += "Warnings:\n"
-                        for warn in handoff['warnings']:
+                        for warn in handoff["warnings"]:
                             checkpoint_info += f"  • {warn}\n"
         except Exception as e:
             checkpoint_info = f"\n\nCould not restore checkpoint: {e}"
@@ -728,6 +779,7 @@ class Handlers:
 
         # Session stats from hook state (reliable — hooks always fire)
         from claude_engram.hooks.remind import load_state
+
         hook_state = load_state()
 
         duration_mins = 0
@@ -754,7 +806,7 @@ class Handlers:
             lines.append("")
             lines.append("Recent actions:")
             for t in tools_used[-5:]:
-                ctx = t.get('context', '')[:40]
+                ctx = t.get("context", "")[:40]
                 lines.append(f"  - {t['tool']}" + (f": {ctx}" if ctx else ""))
 
         work_log.what_worked.append("Auto-captured session activity")
@@ -765,21 +817,25 @@ class Handlers:
             # First, persist any work tracker events
             save_response = self.work_tracker.persist_session_to_memory()
             if save_response.data:
-                memories_saved = save_response.data.get('memories_created', 0)
+                memories_saved = save_response.data.get("memories_created", 0)
 
             # Auto-generate compact session summary
             if project_path and (tools_used or files_edited):
                 summary_parts = []
-                duration = habit_stats.get('session_duration_minutes', 0)
+                duration = habit_stats.get("session_duration_minutes", 0)
                 if duration > 0:
                     summary_parts.append(f"{duration:.0f}min session")
                 if files_edited:
                     file_names = [Path(f).name for f in files_edited[:3]]
                     summary_parts.append(f"edited {', '.join(file_names)}")
                 if self.habit_tracker._session_decisions_logged > 0:
-                    summary_parts.append(f"{self.habit_tracker._session_decisions_logged} decisions")
+                    summary_parts.append(
+                        f"{self.habit_tracker._session_decisions_logged} decisions"
+                    )
                 if self.habit_tracker._session_mistakes_logged > 0:
-                    summary_parts.append(f"{self.habit_tracker._session_mistakes_logged} mistakes")
+                    summary_parts.append(
+                        f"{self.habit_tracker._session_mistakes_logged} mistakes"
+                    )
 
                 if summary_parts:
                     auto_summary = "SESSION: " + " | ".join(summary_parts)
@@ -809,6 +865,7 @@ class Handlers:
         # 4. Save last_session_files for curated context at next session_start
         try:
             from .hooks.remind import mark_session_ended
+
             mark_session_ended()
             lines.append("Saved session files for next session context")
         except Exception:
@@ -820,7 +877,9 @@ class Handlers:
 
         lines.append("")
         lines.append("=" * 50)
-        lines.append("All memories auto-saved. session_end is optional - just a nice summary.")
+        lines.append(
+            "All memories auto-saved. session_end is optional - just a nice summary."
+        )
         lines.append("Next session: Run session_start to restore context.")
         lines.append("=" * 50)
 
@@ -852,13 +911,12 @@ class Handlers:
         if not file_path:
             return self._needs_clarification(
                 "No file path provided",
-                "Which file do you want to analyze for change impact?"
+                "Which file do you want to analyze for change impact?",
             )
 
         if not project_root:
             return self._needs_clarification(
-                "No project root provided",
-                "What is the project root directory?"
+                "No project root provided", "What is the project root directory?"
             )
 
         # Check if session was started
@@ -868,7 +926,9 @@ class Handlers:
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self.impact_analyzer.analyze(file_path, project_root, proposed_changes)
+            lambda: self.impact_analyzer.analyze(
+                file_path, project_root, proposed_changes
+            ),
         )
 
         output = response.to_formatted_string()
@@ -969,8 +1029,7 @@ class Handlers:
         """Log a mistake for future reference."""
         if not description:
             return self._needs_clarification(
-                "No description provided",
-                "What went wrong?"
+                "No description provided", "What went wrong?"
             )
 
         self.work_tracker.log_mistake(description, file_path, how_to_avoid)
@@ -982,6 +1041,7 @@ class Handlers:
         # Notify hook that mistake was logged
         try:
             from .hooks.remind import mark_mistake_logged
+
             mark_mistake_logged()
         except Exception:
             pass
@@ -1005,8 +1065,7 @@ class Handlers:
         """Log an important decision."""
         if not decision or not reason:
             return self._needs_clarification(
-                "Need both decision and reason",
-                "What was decided and why?"
+                "Need both decision and reason", "What was decided and why?"
             )
 
         self.work_tracker.log_decision(decision, reason, alternatives)
@@ -1033,13 +1092,13 @@ class Handlers:
         """Check for relevant context before editing a file."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file are you about to edit?"
+                "No file path provided", "Which file are you about to edit?"
             )
 
         # Notify hook that pre-edit check was done
         try:
             from .hooks.remind import mark_pre_edit_check_done
+
             mark_pre_edit_check_done(file_path)
         except Exception:
             pass
@@ -1069,11 +1128,11 @@ class Handlers:
         """
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file are you about to edit?"
+                "No file path provided", "Which file are you about to edit?"
             )
 
         from pathlib import Path
+
         work_log = WorkLog()
         work_log.what_i_tried.append(f"Pre-edit check for {Path(file_path).name}")
 
@@ -1131,6 +1190,7 @@ class Handlers:
         # Notify hooks
         try:
             from .hooks.remind import mark_pre_edit_check_done
+
             mark_pre_edit_check_done(file_path)
         except Exception:
             pass
@@ -1176,8 +1236,7 @@ class Handlers:
         """Check code for structural quality issues."""
         if not code:
             return self._needs_clarification(
-                "No code provided",
-                "What code would you like me to check?"
+                "No code provided", "What code would you like me to check?"
             )
 
         response = self.code_quality.check(code, language)
@@ -1195,13 +1254,13 @@ class Handlers:
         """Record that a file was edited."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file was edited?"
+                "No file path provided", "Which file was edited?"
             )
 
         # Notify hook that edit was recorded
         try:
             from .hooks.remind import mark_loop_record_done
+
             mark_loop_record_done(file_path)
         except Exception:
             pass
@@ -1213,8 +1272,7 @@ class Handlers:
         """Check if editing a file might create a loop."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file are you about to edit?"
+                "No file path provided", "Which file are you about to edit?"
             )
 
         response = self.loop_detector.check_before_edit(file_path)
@@ -1231,6 +1289,7 @@ class Handlers:
         # Notify hook that test was recorded
         try:
             from .hooks.remind import mark_test_recorded
+
             mark_test_recorded()
         except Exception:
             pass
@@ -1263,19 +1322,18 @@ class Handlers:
         """Declare the scope for the current task."""
         if not task_description:
             return self._needs_clarification(
-                "No task description provided",
-                "What task are you working on?"
+                "No task description provided", "What task are you working on?"
             )
 
         if not in_scope_files:
             return self._needs_clarification(
-                "No files specified",
-                "Which files are you allowed to edit?"
+                "No files specified", "Which files are you allowed to edit?"
             )
 
         # Notify hook that scope was declared
         try:
             from .hooks.remind import mark_scope_declared
+
             mark_scope_declared()
         except Exception:
             pass
@@ -1293,8 +1351,7 @@ class Handlers:
         """Check if editing a file is within scope."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file do you want to check?"
+                "No file path provided", "Which file do you want to check?"
             )
 
         response = self.scope_guard.check_file(file_path)
@@ -1308,14 +1365,12 @@ class Handlers:
         """Expand the current scope."""
         if not files_to_add:
             return self._needs_clarification(
-                "No files provided",
-                "Which files do you want to add to scope?"
+                "No files provided", "Which files do you want to add to scope?"
             )
 
         if not reason:
             return self._needs_clarification(
-                "No reason provided",
-                "Why do you need to expand the scope?"
+                "No reason provided", "Why do you need to expand the scope?"
             )
 
         response = self.scope_guard.expand_scope(files_to_add, reason)
@@ -1353,8 +1408,7 @@ class Handlers:
         """Save a checkpoint of current task state with optional handoff info."""
         if not task_description:
             return self._needs_clarification(
-                "No task description",
-                "What task are you working on?"
+                "No task description", "What task are you working on?"
             )
 
         response = self.context_guard.save_checkpoint(
@@ -1394,8 +1448,7 @@ class Handlers:
         """Register a critical instruction that must not be forgotten."""
         if not instruction:
             return self._needs_clarification(
-                "No instruction provided",
-                "What instruction should never be forgotten?"
+                "No instruction provided", "What instruction should never be forgotten?"
             )
 
         response = self.context_guard.add_critical_instruction(
@@ -1418,8 +1471,7 @@ class Handlers:
         """Record a claim that a task is complete."""
         if not task:
             return self._needs_clarification(
-                "No task specified",
-                "What task are you claiming is complete?"
+                "No task specified", "What task are you claiming is complete?"
             )
 
         response = self.context_guard.claim_completion(task, evidence)
@@ -1433,14 +1485,12 @@ class Handlers:
         """Verify that claimed work was actually done."""
         if not task:
             return self._needs_clarification(
-                "No task specified",
-                "What task do you want to verify?"
+                "No task specified", "What task do you want to verify?"
             )
 
         if not verification_steps:
             return self._needs_clarification(
-                "No verification steps",
-                "How should the task be verified?"
+                "No verification steps", "How should the task be verified?"
             )
 
         response = self.context_guard.self_check(task, verification_steps)
@@ -1455,14 +1505,12 @@ class Handlers:
         """Unified completion verification: claim + verify in one step."""
         if not task:
             return self._needs_clarification(
-                "No task specified",
-                "What task are you claiming is complete?"
+                "No task specified", "What task are you claiming is complete?"
             )
 
         if not verification_steps:
             return self._needs_clarification(
-                "No verification steps",
-                "How should the task be verified?"
+                "No verification steps", "How should the task be verified?"
             )
 
         response = self.context_guard.verify_completion(
@@ -1483,14 +1531,12 @@ class Handlers:
         """Create a structured handoff for the next session."""
         if not summary:
             return self._needs_clarification(
-                "No summary provided",
-                "What's the summary of what was done?"
+                "No summary provided", "What's the summary of what was done?"
             )
 
         if not next_steps:
             return self._needs_clarification(
-                "No next steps provided",
-                "What should the next session work on?"
+                "No next steps provided", "What should the next session work on?"
             )
 
         response = self.context_guard.create_handoff(
@@ -1519,8 +1565,7 @@ class Handlers:
         """Validate code for signs of fake output or silent failure."""
         if not code:
             return self._needs_clarification(
-                "No code provided",
-                "What code should I validate?"
+                "No code provided", "What code should I validate?"
             )
 
         response = self.output_validator.validate_code(code, context)
@@ -1536,8 +1581,7 @@ class Handlers:
         """Validate command/function output for signs of fake results."""
         if not output:
             return self._needs_clarification(
-                "No output provided",
-                "What output should I validate?"
+                "No output provided", "What output should I validate?"
             )
 
         response = self.output_validator.validate_output(
@@ -1572,15 +1616,13 @@ class Handlers:
         """Audit a file for common issues and anti-patterns."""
         if not file_path:
             return self._needs_clarification(
-                "No file path provided",
-                "Which file should I audit?"
+                "No file path provided", "Which file should I audit?"
             )
 
         record_session_tool_use("think_audit", file_path[:50])
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.audit(file_path, focus_areas, min_severity)
+            None, lambda: self.thinker.audit(file_path, focus_areas, min_severity)
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -1597,14 +1639,13 @@ class Handlers:
         if not file_paths:
             return self._needs_clarification(
                 "No file paths provided",
-                "Which files should I audit? (supports glob patterns like 'src/**/*.py')"
+                "Which files should I audit? (supports glob patterns like 'src/**/*.py')",
             )
 
         record_session_tool_use("audit_batch", f"{len(file_paths)} files")
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
-            None,
-            lambda: self.thinker.audit_batch(file_paths, min_severity)
+            None, lambda: self.thinker.audit_batch(file_paths, min_severity)
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -1624,13 +1665,12 @@ class Handlers:
         if not issue_pattern:
             return self._needs_clarification(
                 "No pattern provided",
-                "What pattern should I search for? (e.g., 'except: pass', 'eval(')"
+                "What pattern should I search for? (e.g., 'except: pass', 'eval(')",
             )
 
         if not project_path:
             return self._needs_clarification(
-                "No project path provided",
-                "Which directory should I search in?"
+                "No project path provided", "Which directory should I search in?"
             )
 
         record_session_tool_use("find_similar_issues", issue_pattern[:30])
@@ -1638,8 +1678,12 @@ class Handlers:
         response = await loop.run_in_executor(
             None,
             lambda: self.thinker.find_similar_issues(
-                issue_pattern, project_path, file_extensions, exclude_paths, exclude_strings
-            )
+                issue_pattern,
+                project_path,
+                file_extensions,
+                exclude_paths,
+                exclude_strings,
+            ),
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -1656,19 +1700,18 @@ class Handlers:
         if not project_path:
             return self._needs_clarification(
                 "No project path provided",
-                "Which project's conventions should I check against?"
+                "Which project's conventions should I check against?",
             )
 
         if not code:
             return self._needs_clarification(
-                "No code provided",
-                "What code should I check?"
+                "No code provided", "What code should I check?"
             )
 
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self.conventions.check_code_with_llm(project_path, code, self.llm)
+            lambda: self.conventions.check_code_with_llm(project_path, code, self.llm),
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -1751,7 +1794,9 @@ class Handlers:
         elif operation == "list_rules":
             rules = self.memory.get_rules(project_path)
             if not rules:
-                return [TextContent(type="text", text="No rules defined for this project")]
+                return [
+                    TextContent(type="text", text="No rules defined for this project")
+                ]
             lines = [f"Rules for {project_path}:", ""]
             for r in rules:
                 lines.append(f"  [{r.id}] {r.content}")
@@ -1830,7 +1875,9 @@ class Handlers:
                     age_str = f"{age_mins // 60}h ago"
                 else:
                     age_str = f"{age_mins // 1440}d ago"
-                content_display = e.content[:57] + "..." if len(e.content) > 60 else e.content
+                content_display = (
+                    e.content[:57] + "..." if len(e.content) > 60 else e.content
+                )
                 lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {content_display}")
             response = MiniClaudeResponse(
                 status="success",
@@ -1874,14 +1921,20 @@ class Handlers:
             lines = ["Archived memories:", ""]
             for e in entries:
                 age_days = int((time.time() - (e.archived_at or e.created_at)) / 86400)
-                content_display = e.content[:57] + "..." if len(e.content) > 60 else e.content
-                lines.append(f"  [{e.id}] ({age_days}d archived) [{e.category}] {content_display}")
+                content_display = (
+                    e.content[:57] + "..." if len(e.content) > 60 else e.content
+                )
+                lines.append(
+                    f"  [{e.id}] ({age_days}d archived) [{e.category}] {content_display}"
+                )
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
                 data={"memories": [e.model_dump() for e in entries]},
-                suggestions=["Use memory(restore, memory_id='...') to bring one back to active"],
+                suggestions=[
+                    "Use memory(restore, memory_id='...') to bring one back to active"
+                ],
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "archive_status":
@@ -1903,7 +1956,9 @@ class Handlers:
             )
             if not results:
                 return [TextContent(type="text", text="No results")]
-            lines = [f"Found {len(results)} results (hybrid: keyword + scored + vector):"]
+            lines = [
+                f"Found {len(results)} results (hybrid: keyword + scored + vector):"
+            ]
             for entry, score in results:
                 lines.append(f"[{entry.id}] ({score:.3f}) {entry.content[:80]}")
             response = MiniClaudeResponse(
@@ -1918,13 +1973,17 @@ class Handlers:
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
-                reasoning=f"Embedded {count} memories" if count else "All memories already embedded (or scorer server not running)",
+                reasoning=(
+                    f"Embedded {count} memories"
+                    if count
+                    else "All memories already embedded (or scorer server not running)"
+                ),
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
-                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent, archive, restore, archive_search, archive_status"
+                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent, archive, restore, archive_search, archive_status",
             )
 
     async def handle_work(self, operation: str, args: dict) -> list[TextContent]:
@@ -1944,7 +2003,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown work operation: {operation}",
-                "Use: log_mistake or log_decision"
+                "Use: log_mistake or log_decision",
             )
 
     async def handle_scope(self, operation: str, args: dict) -> list[TextContent]:
@@ -1971,7 +2030,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown scope operation: {operation}",
-                "Use: declare, check, expand, status, or clear"
+                "Use: declare, check, expand, status, or clear",
             )
 
     async def handle_loop(self, operation: str, args: dict) -> list[TextContent]:
@@ -2001,7 +2060,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown loop operation: {operation}",
-                "Use: record_edit, record_test, check, status, or reset"
+                "Use: record_edit, record_test, check, status, or reset",
             )
 
     async def handle_context(self, operation: str, args: dict) -> list[TextContent]:
@@ -2051,7 +2110,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown context operation: {operation}",
-                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, or handoff_get"
+                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, or handoff_get",
             )
 
     # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead
@@ -2089,7 +2148,7 @@ class Handlers:
             if not rule_text:
                 return self._needs_clarification(
                     "No rule text provided",
-                    "Provide the rule text (or substring) to match for removal"
+                    "Provide the rule text (or substring) to match for removal",
                 )
             response = self.conventions.remove_convention(
                 project_path=project_path,
@@ -2099,7 +2158,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown convention operation: {operation}",
-                "Use: add, get, check, or remove"
+                "Use: add, get, check, or remove",
             )
 
     async def handle_output(self, operation: str, args: dict) -> list[TextContent]:
@@ -2119,7 +2178,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown output operation: {operation}",
-                "Use: validate_code or validate_result"
+                "Use: validate_code or validate_result",
             )
 
     # NOTE: handle_test REMOVED - use Claude Code's native Bash tool instead
@@ -2131,7 +2190,9 @@ class Handlers:
     # Helper Methods
     # -------------------------------------------------------------------------
 
-    async def handle_session_mine(self, operation: str, args: dict) -> list[TextContent]:
+    async def handle_session_mine(
+        self, operation: str, args: dict
+    ) -> list[TextContent]:
         """Route session mining operations."""
         import json as json_mod
         from dataclasses import asdict
@@ -2140,6 +2201,7 @@ class Handlers:
 
         if operation == "search":
             from claude_engram.mining.search import search_sessions
+
             results = search_sessions(
                 project_path,
                 query=args.get("query", ""),
@@ -2149,17 +2211,25 @@ class Handlers:
                 until=args.get("until", ""),
             )
             if not results:
-                return [TextContent(type="text", text="No results found. Run reindex(mode=bootstrap) to build search index.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="No results found. Run reindex(mode=bootstrap) to build search index.",
+                    )
+                ]
             lines = [f"Found {len(results)} results:"]
             for r in results:
                 lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
-                lines.append(f"    Session: {r.session_id[:12]} | {r.timestamp[:19]} | {r.msg_type}")
+                lines.append(
+                    f"    Session: {r.session_id[:12]} | {r.timestamp[:19]} | {r.msg_type}"
+                )
                 if r.related_files:
                     lines.append(f"    Files: {', '.join(r.related_files[:5])}")
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "decisions":
             from claude_engram.mining.search import find_decision
+
             results = find_decision(
                 project_path,
                 query=args.get("query", ""),
@@ -2178,13 +2248,16 @@ class Handlers:
 
         elif operation == "replay":
             from claude_engram.mining.search import find_file_discussions
+
             results = find_file_discussions(
                 project_path,
                 file_path=args.get("file_path", ""),
                 limit=args.get("limit", 10),
             )
             if not results:
-                return [TextContent(type="text", text="No discussions found for this file.")]
+                return [
+                    TextContent(type="text", text="No discussions found for this file.")
+                ]
             lines = [f"Found {len(results)} discussion(s):"]
             for r in results:
                 lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
@@ -2194,6 +2267,7 @@ class Handlers:
         elif operation == "struggles":
             from claude_engram.mining.patterns import detect_struggles
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
@@ -2208,10 +2282,13 @@ class Handlers:
         elif operation == "errors":
             from claude_engram.mining.patterns import detect_recurring_errors
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
-            errors = detect_recurring_errors(index.sessions, project_path, str(self.memory.storage_dir))
+            errors = detect_recurring_errors(
+                index.sessions, project_path, str(self.memory.storage_dir)
+            )
             if not errors:
                 return [TextContent(type="text", text="No recurring error patterns.")]
             lines = ["Recurring errors:"]
@@ -2222,20 +2299,29 @@ class Handlers:
         elif operation == "correlations":
             from claude_engram.mining.patterns import detect_edit_correlations
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
             corrs = detect_edit_correlations(index.sessions)
             if not corrs:
-                return [TextContent(type="text", text="No edit correlations found (need 2+ sessions).")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="No edit correlations found (need 2+ sessions).",
+                    )
+                ]
             lines = ["Files often edited together:"]
             for c in corrs[:15]:
-                lines.append(f"  {c.file_a} ↔ {c.file_b} ({c.strength:.0%} correlation, {c.co_occurrence} sessions)")
+                lines.append(
+                    f"  {c.file_a} ↔ {c.file_b} ({c.strength:.0%} correlation, {c.co_occurrence} sessions)"
+                )
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "timeline":
             from claude_engram.mining.timeline import build_timeline
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
@@ -2244,16 +2330,21 @@ class Handlers:
                 return [TextContent(type="text", text="No timeline events.")]
             lines = ["Project timeline:"]
             for e in events[-20:]:  # Most recent 20
-                lines.append(f"  [{e.timestamp[:10]}] {e.event_type}: {e.description[:120]}")
+                lines.append(
+                    f"  [{e.timestamp[:10]}] {e.event_type}: {e.description[:120]}"
+                )
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "summaries":
             from claude_engram.mining.timeline import generate_session_summaries
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
-            summaries = generate_session_summaries(index, project_path, str(self.memory.storage_dir))
+            summaries = generate_session_summaries(
+                index, project_path, str(self.memory.storage_dir)
+            )
             lines = [f"{len(summaries)} sessions:"]
             for s in summaries[:10]:
                 files_str = ", ".join(s.files_edited[:5])
@@ -2266,6 +2357,7 @@ class Handlers:
         elif operation == "overview":
             from claude_engram.mining.timeline import get_project_overview
             from claude_engram.mining.session_index import resolve_project_index
+
             index = resolve_project_index(project_path)
             if not index:
                 return [TextContent(type="text", text="No session data found.")]
@@ -2284,11 +2376,14 @@ class Handlers:
         elif operation == "status":
             from claude_engram.mining.session_index import resolve_project_index
             from claude_engram.mining.background import get_mining_status
+
             index = resolve_project_index(project_path)
             status = get_mining_status()
             lines = []
             if index:
-                lines.append(f"Indexed: {index.get_session_count()} sessions, {index.get_total_messages()} messages")
+                lines.append(
+                    f"Indexed: {index.get_session_count()} sessions, {index.get_total_messages()} messages"
+                )
             else:
                 lines.append("No index built yet.")
             lines.append(f"Miner: {status.get('status', 'unknown')}")
@@ -2296,34 +2391,62 @@ class Handlers:
 
         elif operation == "reindex":
             from claude_engram.mining.background import start_mining_background
+
             mode = args.get("mode", "full")
             started = start_mining_background(project_path, mode=mode)
             if started:
-                return [TextContent(type="text", text=f"Background mining started (mode={mode}). Check status with session_mine(operation='status').")]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Background mining started (mode={mode}). Check status with session_mine(operation='status').",
+                    )
+                ]
             else:
-                return [TextContent(type="text", text="Mining already running. Check status with session_mine(operation='status').")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="Mining already running. Check status with session_mine(operation='status').",
+                    )
+                ]
 
         elif operation == "predict":
-            from claude_engram.mining.predictive import predict_for_file, format_prediction
+            from claude_engram.mining.predictive import (
+                predict_for_file,
+                format_prediction,
+            )
+
             pred = predict_for_file(
                 file_path=args.get("file_path", ""),
                 project_path=project_path,
             )
             formatted = format_prediction(pred)
             if not formatted:
-                return [TextContent(type="text", text=f"No predictions for {pred.target_file} yet (patterns build up over sessions).")]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"No predictions for {pred.target_file} yet (patterns build up over sessions).",
+                    )
+                ]
             lines = [f"Predictions for {pred.target_file}:"]
             lines.append(formatted)
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "reflect":
             from claude_engram.mining.reflect import reflect_all
+
             insights = reflect_all(project_path, str(self.memory.storage_dir))
             if not insights:
-                return [TextContent(type="text", text="No insights generated. Needs Ollama running + 3+ recurring mistakes or patterns.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="No insights generated. Needs Ollama running + 3+ recurring mistakes or patterns.",
+                    )
+                ]
             lines = [f"Reflected on {len(insights)} patterns:"]
             for ins in insights:
-                lines.append(f"\n[{ins.insight_type}] (confidence: {ins.confidence:.0%})")
+                lines.append(
+                    f"\n[{ins.insight_type}] (confidence: {ins.confidence:.0%})"
+                )
                 lines.append(f"  {ins.content}")
                 if ins.related_files:
                     lines.append(f"  Files: {', '.join(ins.related_files[:5])}")
@@ -2331,6 +2454,7 @@ class Handlers:
 
         elif operation == "cross_project":
             from claude_engram.mining.cross_project import analyze_cross_project
+
             report = analyze_cross_project(str(self.memory.storage_dir))
             lines = [
                 f"Cross-project analysis: {report.total_projects} projects, {report.total_sessions} sessions",
@@ -2340,18 +2464,24 @@ class Handlers:
                 for ins in report.insights[:10]:
                     lines.append(f"  [{ins.insight_type}] {ins.description}")
                     if ins.projects_affected:
-                        lines.append(f"    Projects: {', '.join(ins.projects_affected)}")
+                        lines.append(
+                            f"    Projects: {', '.join(ins.projects_affected)}"
+                        )
             if report.tool_usage:
                 top_tools = list(report.tool_usage.items())[:5]
-                lines.append(f"\nTop tools: {', '.join(f'{t}:{c}' for t, c in top_tools)}")
+                lines.append(
+                    f"\nTop tools: {', '.join(f'{t}:{c}' for t, c in top_tools)}"
+                )
             if not report.insights:
-                lines.append("\nNo cross-project patterns yet (need 2+ projects with session indexes).")
+                lines.append(
+                    "\nNo cross-project patterns yet (need 2+ projects with session indexes)."
+                )
             return [TextContent(type="text", text="\n".join(lines))]
 
         else:
             return self._needs_clarification(
                 f"Unknown session_mine operation: {operation}",
-                "Use: search, decisions, replay, struggles, errors, correlations, timeline, summaries, overview, status, reindex, predict, cross_project"
+                "Use: search, decisions, replay, struggles, errors, correlations, timeline, summaries, overview, status, reindex, predict, cross_project",
             )
 
     # -------------------------------------------------------------------------

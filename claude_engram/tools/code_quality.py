@@ -20,25 +20,74 @@ from ..schema import MiniClaudeResponse, WorkLog
 
 # Names that are too vague/generic
 VAGUE_NAMES = {
-    "data", "result", "temp", "tmp", "var", "val", "value",
-    "item", "items", "thing", "things", "obj", "object",
-    "handle", "process", "do", "run", "execute", "perform",
-    "manage", "helper", "util", "utils", "misc", "stuff",
-    "foo", "bar", "baz", "test", "x", "y", "z", "i", "j", "k",
-    "info", "details", "params", "args", "kwargs", "options",
-    "input", "output", "ret", "res", "response", "request",
+    "data",
+    "result",
+    "temp",
+    "tmp",
+    "var",
+    "val",
+    "value",
+    "item",
+    "items",
+    "thing",
+    "things",
+    "obj",
+    "object",
+    "handle",
+    "process",
+    "do",
+    "run",
+    "execute",
+    "perform",
+    "manage",
+    "helper",
+    "util",
+    "utils",
+    "misc",
+    "stuff",
+    "foo",
+    "bar",
+    "baz",
+    "test",
+    "x",
+    "y",
+    "z",
+    "i",
+    "j",
+    "k",
+    "info",
+    "details",
+    "params",
+    "args",
+    "kwargs",
+    "options",
+    "input",
+    "output",
+    "ret",
+    "res",
+    "response",
+    "request",
 }
 
 # Prefixes that often indicate vague naming
 VAGUE_PREFIXES = [
-    "do_", "handle_", "process_", "manage_", "run_",
-    "perform_", "execute_", "my_", "the_", "get_data",
+    "do_",
+    "handle_",
+    "process_",
+    "manage_",
+    "run_",
+    "perform_",
+    "execute_",
+    "my_",
+    "the_",
+    "get_data",
 ]
 
 
 @dataclass
 class QualityIssue:
     """A single code quality issue."""
+
     severity: str  # "error", "warning", "info"
     category: str  # "naming", "length", "complexity", "structure"
     message: str
@@ -158,11 +207,15 @@ class CodeQualityChecker:
                 },
             },
             warnings=warning_messages[:10],  # Top 10 issues
-            suggestions=[
-                "Break long functions into smaller, focused ones",
-                "Use descriptive names that explain WHAT and WHY",
-                "Consider if this function is doing too many things",
-            ] if issues else [],
+            suggestions=(
+                [
+                    "Break long functions into smaller, focused ones",
+                    "Use descriptive names that explain WHAT and WHY",
+                    "Consider if this function is doing too many things",
+                ]
+                if issues
+                else []
+            ),
         )
 
     def _check_function_length(
@@ -175,14 +228,14 @@ class CodeQualityChecker:
 
         # Pattern to find function definitions
         if language in ("python",):
-            pattern = r'^(\s*)(def|async def)\s+(\w+)\s*\('
+            pattern = r"^(\s*)(def|async def)\s+(\w+)\s*\("
         elif language in ("javascript", "typescript", "js", "ts"):
-            pattern = r'^\s*(async\s+)?function\s+(\w+)\s*\(|^\s*(const|let|var)\s+(\w+)\s*=\s*(async\s*)?\([^)]*\)\s*=>'
+            pattern = r"^\s*(async\s+)?function\s+(\w+)\s*\(|^\s*(const|let|var)\s+(\w+)\s*=\s*(async\s*)?\([^)]*\)\s*=>"
         else:
             # Generic - look for function-like patterns
-            pattern = r'^\s*(def|function|fn|func)\s+(\w+)'
+            pattern = r"^\s*(def|function|fn|func)\s+(\w+)"
 
-        lines = code.split('\n')
+        lines = code.split("\n")
         i = 0
         while i < len(lines):
             match = re.match(pattern, lines[i], re.MULTILINE)
@@ -190,7 +243,17 @@ class CodeQualityChecker:
                 # Extract function name
                 func_name = None
                 for group in match.groups():
-                    if group and group not in ('def', 'async def', 'function', 'async', 'const', 'let', 'var', 'fn', 'func'):
+                    if group and group not in (
+                        "def",
+                        "async def",
+                        "function",
+                        "async",
+                        "const",
+                        "let",
+                        "var",
+                        "fn",
+                        "func",
+                    ):
                         func_name = group
                         break
 
@@ -203,14 +266,20 @@ class CodeQualityChecker:
                 func_lines = self._count_function_lines(lines, i, language)
 
                 if func_lines > self.max_function_lines:
-                    severity = "error" if func_lines > self.max_function_lines * 2 else "warning"
-                    issues.append(QualityIssue(
-                        severity=severity,
-                        category="length",
-                        message=f"Function '{func_name}' is {func_lines} lines (max: {self.max_function_lines})",
-                        line=start_line + 1,
-                        suggestion=f"Break into {func_lines // 20 + 1} smaller functions",
-                    ))
+                    severity = (
+                        "error"
+                        if func_lines > self.max_function_lines * 2
+                        else "warning"
+                    )
+                    issues.append(
+                        QualityIssue(
+                            severity=severity,
+                            category="length",
+                            message=f"Function '{func_name}' is {func_lines} lines (max: {self.max_function_lines})",
+                            line=start_line + 1,
+                            suggestion=f"Break into {func_lines // 20 + 1} smaller functions",
+                        )
+                    )
 
                 i += func_lines
             else:
@@ -240,7 +309,7 @@ class CodeQualityChecker:
                 stripped = line.strip()
 
                 # Skip empty lines and comments
-                if not stripped or stripped.startswith('#'):
+                if not stripped or stripped.startswith("#"):
                     count += 1
                     continue
 
@@ -264,10 +333,10 @@ class CodeQualityChecker:
                 count += 1
 
                 for char in line:
-                    if char == '{':
+                    if char == "{":
                         brace_count += 1
                         started = True
-                    elif char == '}':
+                    elif char == "}":
                         brace_count -= 1
 
                 if started and brace_count == 0:
@@ -285,9 +354,11 @@ class CodeQualityChecker:
 
         # Find function/method names
         if language == "python":
-            func_pattern = r'def\s+(\w+)\s*\('
+            func_pattern = r"def\s+(\w+)\s*\("
         else:
-            func_pattern = r'function\s+(\w+)\s*\(|(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>'
+            func_pattern = (
+                r"function\s+(\w+)\s*\(|(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>"
+            )
 
         for match in re.finditer(func_pattern, code):
             name = match.group(1) or match.group(2)
@@ -299,47 +370,62 @@ class CodeQualityChecker:
 
             # Exact match to vague name
             if name_lower in VAGUE_NAMES:
-                issues.append(QualityIssue(
-                    severity="warning",
-                    category="naming",
-                    message=f"Function name '{name}' is too vague",
-                    suggestion="Name should describe WHAT it does specifically",
-                ))
+                issues.append(
+                    QualityIssue(
+                        severity="warning",
+                        category="naming",
+                        message=f"Function name '{name}' is too vague",
+                        suggestion="Name should describe WHAT it does specifically",
+                    )
+                )
 
             # Starts with vague prefix
             for prefix in VAGUE_PREFIXES:
                 if name_lower.startswith(prefix):
-                    issues.append(QualityIssue(
-                        severity="info",
-                        category="naming",
-                        message=f"Function '{name}' has vague prefix '{prefix}'",
-                        suggestion="Consider more specific name like 'validate_user_email' instead of 'handle_email'",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            severity="info",
+                            category="naming",
+                            message=f"Function '{name}' has vague prefix '{prefix}'",
+                            suggestion="Consider more specific name like 'validate_user_email' instead of 'handle_email'",
+                        )
+                    )
                     break
 
             # Too short (single letter or two letters)
-            if len(name) <= 2 and name_lower not in ('id', 'ok'):
-                issues.append(QualityIssue(
-                    severity="warning",
-                    category="naming",
-                    message=f"Function name '{name}' is too short",
-                    suggestion="Use a descriptive name",
-                ))
+            if len(name) <= 2 and name_lower not in ("id", "ok"):
+                issues.append(
+                    QualityIssue(
+                        severity="warning",
+                        category="naming",
+                        message=f"Function name '{name}' is too short",
+                        suggestion="Use a descriptive name",
+                    )
+                )
 
         # Check variable names in assignments (only actual assignments, not kwargs)
-        var_pattern = r'^[ \t]*(\w+)\s*=[^=]'
+        var_pattern = r"^[ \t]*(\w+)\s*=[^=]"
         for match in re.finditer(var_pattern, code, re.MULTILINE):
             name = match.group(1)
             name_lower = name.lower()
 
-            if name_lower in VAGUE_NAMES and name_lower not in ('i', 'j', 'k', 'x', 'y', 'z'):
+            if name_lower in VAGUE_NAMES and name_lower not in (
+                "i",
+                "j",
+                "k",
+                "x",
+                "y",
+                "z",
+            ):
                 # Only flag if not a common loop variable
-                issues.append(QualityIssue(
-                    severity="info",
-                    category="naming",
-                    message=f"Variable '{name}' is vague",
-                    suggestion="What kind of data/result/value is this?",
-                ))
+                issues.append(
+                    QualityIssue(
+                        severity="info",
+                        category="naming",
+                        message=f"Variable '{name}' is vague",
+                        suggestion="What kind of data/result/value is this?",
+                    )
+                )
 
         return issues
 
@@ -353,9 +439,9 @@ class CodeQualityChecker:
 
         # Find function signatures
         if language == "python":
-            pattern = r'def\s+(\w+)\s*\(([^)]*)\)'
+            pattern = r"def\s+(\w+)\s*\(([^)]*)\)"
         else:
-            pattern = r'function\s+(\w+)\s*\(([^)]*)\)|(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>'
+            pattern = r"function\s+(\w+)\s*\(([^)]*)\)|(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>"
 
         for match in re.finditer(pattern, code, re.DOTALL):
             groups = match.groups()
@@ -366,22 +452,24 @@ class CodeQualityChecker:
                 continue
 
             # Count parameters (split by comma, filter empty)
-            params = [p.strip() for p in params_str.split(',') if p.strip()]
+            params = [p.strip() for p in params_str.split(",") if p.strip()]
 
             # Don't count self/cls in Python
             if language == "python":
-                params = [p for p in params if p not in ('self', 'cls')]
+                params = [p for p in params if p not in ("self", "cls")]
 
             # Don't count *args, **kwargs
-            params = [p for p in params if not p.startswith('*')]
+            params = [p for p in params if not p.startswith("*")]
 
             if len(params) > self.max_parameters:
-                issues.append(QualityIssue(
-                    severity="warning",
-                    category="structure",
-                    message=f"Function '{name}' has {len(params)} parameters (max: {self.max_parameters})",
-                    suggestion="Consider using a config object or dataclass",
-                ))
+                issues.append(
+                    QualityIssue(
+                        severity="warning",
+                        category="structure",
+                        message=f"Function '{name}' has {len(params)} parameters (max: {self.max_parameters})",
+                        suggestion="Consider using a config object or dataclass",
+                    )
+                )
 
         return issues
 
@@ -392,7 +480,7 @@ class CodeQualityChecker:
     ) -> list[QualityIssue]:
         """Check for deeply nested code."""
         issues = []
-        lines = code.split('\n')
+        lines = code.split("\n")
 
         for i, line in enumerate(lines):
             if not line.strip():
@@ -411,18 +499,24 @@ class CodeQualityChecker:
                 # Other: count leading braces/keywords up to this point
                 nesting = 0
                 for prev_line in lines[:i]:
-                    nesting += prev_line.count('{') - prev_line.count('}')
+                    nesting += prev_line.count("{") - prev_line.count("}")
 
             if nesting > self.max_nesting_depth:
                 # Only report once per deeply nested block
-                if i == 0 or self._get_nesting(lines[i-1], language) <= self.max_nesting_depth:
-                    issues.append(QualityIssue(
-                        severity="warning",
-                        category="complexity",
-                        message=f"Code is nested {nesting} levels deep at line {i+1}",
-                        line=i + 1,
-                        suggestion="Extract nested logic into separate functions",
-                    ))
+                if (
+                    i == 0
+                    or self._get_nesting(lines[i - 1], language)
+                    <= self.max_nesting_depth
+                ):
+                    issues.append(
+                        QualityIssue(
+                            severity="warning",
+                            category="complexity",
+                            message=f"Code is nested {nesting} levels deep at line {i+1}",
+                            line=i + 1,
+                            suggestion="Extract nested logic into separate functions",
+                        )
+                    )
 
         return issues
 
@@ -441,17 +535,19 @@ class CodeQualityChecker:
         """Check for lines that are too long."""
         issues = []
 
-        for i, line in enumerate(code.split('\n')):
+        for i, line in enumerate(code.split("\n")):
             if len(line) > self.max_line_length:
                 # Only report egregious violations
                 if len(line) > self.max_line_length * 1.5:
-                    issues.append(QualityIssue(
-                        severity="info",
-                        category="structure",
-                        message=f"Line {i+1} is {len(line)} characters",
-                        line=i + 1,
-                        suggestion="Break into multiple lines",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            severity="info",
+                            category="structure",
+                            message=f"Line {i+1} is {len(line)} characters",
+                            line=i + 1,
+                            suggestion="Break into multiple lines",
+                        )
+                    )
 
         return issues
 
@@ -464,30 +560,34 @@ class CodeQualityChecker:
         issues = []
 
         # Count conditionals in a function
-        if_count = len(re.findall(r'\bif\b', code))
-        elif_count = len(re.findall(r'\belif\b|\belse if\b', code))
+        if_count = len(re.findall(r"\bif\b", code))
+        elif_count = len(re.findall(r"\belif\b|\belse if\b", code))
 
         # Rough cyclomatic complexity indicator
         complexity = if_count + elif_count
 
         if complexity > 10:
-            issues.append(QualityIssue(
-                severity="warning",
-                category="complexity",
-                message=f"High cyclomatic complexity ({complexity} branches)",
-                suggestion="Consider breaking into smaller functions or using early returns",
-            ))
+            issues.append(
+                QualityIssue(
+                    severity="warning",
+                    category="complexity",
+                    message=f"High cyclomatic complexity ({complexity} branches)",
+                    suggestion="Consider breaking into smaller functions or using early returns",
+                )
+            )
 
         # Check for god functions (doing too many things)
         # Indicators: many different operations, lots of comments explaining sections
-        section_comments = len(re.findall(r'#\s*-+|#\s*\w+:', code))
+        section_comments = len(re.findall(r"#\s*-+|#\s*\w+:", code))
         if section_comments > 3:
-            issues.append(QualityIssue(
-                severity="info",
-                category="structure",
-                message="Multiple section comments suggest this function does many things",
-                suggestion="Each section could be its own function",
-            ))
+            issues.append(
+                QualityIssue(
+                    severity="info",
+                    category="structure",
+                    message="Multiple section comments suggest this function does many things",
+                    suggestion="Each section could be its own function",
+                )
+            )
 
         return issues
 
@@ -506,7 +606,7 @@ class CodeQualityChecker:
             if name_lower.startswith(prefix):
                 return f"'{name}' has vague prefix - be more specific"
 
-        if len(name) <= 2 and name_lower not in ('id', 'ok', 'db', 'io'):
+        if len(name) <= 2 and name_lower not in ("id", "ok", "db", "io"):
             return f"'{name}' is too short - use a descriptive name"
 
         return None

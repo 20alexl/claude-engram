@@ -26,92 +26,312 @@ CORPUS = [
     # ========================================================================
     # DECISIONS (120+) — should be captured
     # ========================================================================
-
     # --- Clear switches (20) ---
-    ("let's use PostgreSQL instead of SQLite for the database", True, "clear_switch", "classic switch"),
+    (
+        "let's use PostgreSQL instead of SQLite for the database",
+        True,
+        "clear_switch",
+        "classic switch",
+    ),
     ("switch to TypeScript for the frontend", True, "clear_switch", "switch to"),
-    ("let's use pnpm instead of yarn for package management", True, "clear_switch", "pnpm over yarn"),
-    ("switch to Vitest instead of Jest for the test runner", True, "clear_switch", "vitest over jest"),
-    ("let's move to FastAPI instead of Flask", True, "clear_switch", "fastapi over flask"),
-    ("replace moment.js with date-fns for date handling", True, "clear_switch", "replace X with Y"),
+    (
+        "let's use pnpm instead of yarn for package management",
+        True,
+        "clear_switch",
+        "pnpm over yarn",
+    ),
+    (
+        "switch to Vitest instead of Jest for the test runner",
+        True,
+        "clear_switch",
+        "vitest over jest",
+    ),
+    (
+        "let's move to FastAPI instead of Flask",
+        True,
+        "clear_switch",
+        "fastapi over flask",
+    ),
+    (
+        "replace moment.js with date-fns for date handling",
+        True,
+        "clear_switch",
+        "replace X with Y",
+    ),
     ("swap the YAML config for TOML", True, "clear_switch", "swap to"),
     ("migrate from REST to GraphQL for the API", True, "clear_switch", "migrate"),
     ("convert the class components to hooks", True, "clear_switch", "convert to"),
     ("upgrade from Node 16 to Node 20", True, "clear_switch", "upgrade to"),
-    ("move to Docker Compose instead of manual scripts", True, "clear_switch", "move to"),
-    ("change to using async/await instead of callbacks", True, "clear_switch", "change to"),
+    (
+        "move to Docker Compose instead of manual scripts",
+        True,
+        "clear_switch",
+        "move to",
+    ),
+    (
+        "change to using async/await instead of callbacks",
+        True,
+        "clear_switch",
+        "change to",
+    ),
     ("rewrite the CLI in Rust instead of Python", True, "clear_switch", "rewrite in"),
     ("let's go with SQLAlchemy over raw SQL", True, "clear_switch", "go with X over Y"),
     ("switch the cache from Redis to Memcached", True, "clear_switch", "switch cache"),
     ("adopt Tailwind instead of CSS modules", True, "clear_switch", "adopt"),
     ("replace the custom ORM with Prisma", True, "clear_switch", "replace custom"),
-    ("let's use uv instead of pip for dependency management", True, "clear_switch", "uv over pip"),
-    ("migrate the test suite from unittest to pytest", True, "clear_switch", "migrate tests"),
-    ("switch to using pathlib instead of os.path", True, "clear_switch", "pathlib over os.path"),
-
+    (
+        "let's use uv instead of pip for dependency management",
+        True,
+        "clear_switch",
+        "uv over pip",
+    ),
+    (
+        "migrate the test suite from unittest to pytest",
+        True,
+        "clear_switch",
+        "migrate tests",
+    ),
+    (
+        "switch to using pathlib instead of os.path",
+        True,
+        "clear_switch",
+        "pathlib over os.path",
+    ),
     # --- Convention/rule declarations (20) ---
-    ("from now on always use strict mode in TypeScript files", True, "convention", "from now on always"),
-    ("going forward prefer composition over inheritance", True, "convention", "going forward prefer"),
-    ("always validate user input at the API boundary", True, "convention", "always validate"),
-    ("from now on use named exports in TypeScript", True, "convention", "named exports"),
-    ("going forward prefer early returns over nested ifs", True, "convention", "early returns"),
+    (
+        "from now on always use strict mode in TypeScript files",
+        True,
+        "convention",
+        "from now on always",
+    ),
+    (
+        "going forward prefer composition over inheritance",
+        True,
+        "convention",
+        "going forward prefer",
+    ),
+    (
+        "always validate user input at the API boundary",
+        True,
+        "convention",
+        "always validate",
+    ),
+    (
+        "from now on use named exports in TypeScript",
+        True,
+        "convention",
+        "named exports",
+    ),
+    (
+        "going forward prefer early returns over nested ifs",
+        True,
+        "convention",
+        "early returns",
+    ),
     ("always add type hints to public functions", True, "convention", "type hints"),
     ("from now on every PR needs a test", True, "convention", "PR tests"),
-    ("always use structured logging, not print statements", True, "convention", "structured logging"),
-    ("going forward all errors must include a stack trace", True, "convention", "stack traces"),
+    (
+        "always use structured logging, not print statements",
+        True,
+        "convention",
+        "structured logging",
+    ),
+    (
+        "going forward all errors must include a stack trace",
+        True,
+        "convention",
+        "stack traces",
+    ),
     ("always wrap database calls in transactions", True, "convention", "transactions"),
-    ("from now on use dataclasses instead of plain dicts", True, "convention", "dataclasses"),
-    ("always pin dependency versions in requirements.txt", True, "convention", "pin deps"),
-    ("going forward put business logic in services not routes", True, "convention", "service layer"),
+    (
+        "from now on use dataclasses instead of plain dicts",
+        True,
+        "convention",
+        "dataclasses",
+    ),
+    (
+        "always pin dependency versions in requirements.txt",
+        True,
+        "convention",
+        "pin deps",
+    ),
+    (
+        "going forward put business logic in services not routes",
+        True,
+        "convention",
+        "service layer",
+    ),
     ("always use UTC for timestamps", True, "convention", "UTC timestamps"),
-    ("from now on commit messages follow conventional commits", True, "convention", "commit messages"),
+    (
+        "from now on commit messages follow conventional commits",
+        True,
+        "convention",
+        "commit messages",
+    ),
     ("always use constants instead of magic numbers", True, "convention", "constants"),
-    ("going forward all configs should come from environment variables", True, "convention", "env config"),
+    (
+        "going forward all configs should come from environment variables",
+        True,
+        "convention",
+        "env config",
+    ),
     ("always write docstrings for public APIs", True, "convention", "docstrings"),
     ("from now on use snake_case for Python file names", True, "convention", "naming"),
-    ("always check return values, don't ignore errors", True, "convention", "error checking"),
-
+    (
+        "always check return values, don't ignore errors",
+        True,
+        "convention",
+        "error checking",
+    ),
     # --- Negation constraints (20) ---
-    ("don't use var anymore, use const and let instead", True, "negation", "don't use var"),
-    ("stop using console.log for debugging, use the logger", True, "negation", "stop console.log"),
-    ("never import from the internal package directly", True, "negation", "never import"),
+    (
+        "don't use var anymore, use const and let instead",
+        True,
+        "negation",
+        "don't use var",
+    ),
+    (
+        "stop using console.log for debugging, use the logger",
+        True,
+        "negation",
+        "stop console.log",
+    ),
+    (
+        "never import from the internal package directly",
+        True,
+        "negation",
+        "never import",
+    ),
     ("avoid using any in TypeScript, use proper types", True, "negation", "avoid any"),
-    ("don't use global state, pass dependencies explicitly", True, "negation", "no global state"),
+    (
+        "don't use global state, pass dependencies explicitly",
+        True,
+        "negation",
+        "no global state",
+    ),
     ("stop doing inline SQL, use the query builder", True, "negation", "no inline SQL"),
     ("never commit secrets to the repo", True, "negation", "no secrets"),
     ("don't use sleep in tests, use proper waits", True, "negation", "no sleep"),
-    ("avoid mutable default arguments in Python", True, "negation", "no mutable defaults"),
-    ("stop importing everything with wildcard imports", True, "negation", "no wildcard"),
+    (
+        "avoid mutable default arguments in Python",
+        True,
+        "negation",
+        "no mutable defaults",
+    ),
+    (
+        "stop importing everything with wildcard imports",
+        True,
+        "negation",
+        "no wildcard",
+    ),
     ("don't use bare except clauses", True, "negation", "no bare except"),
     ("never hardcode URLs, use config", True, "negation", "no hardcoded URLs"),
     ("stop using string concatenation for SQL", True, "negation", "no SQL concat"),
-    ("don't add type: ignore without a comment explaining why", True, "negation", "typed ignore"),
+    (
+        "don't add type: ignore without a comment explaining why",
+        True,
+        "negation",
+        "typed ignore",
+    ),
     ("avoid circular imports by restructuring", True, "negation", "no circular"),
     ("never use eval() on user input", True, "negation", "no eval"),
     ("don't catch exceptions and silently pass", True, "negation", "no silent catch"),
     ("stop using os.system, use subprocess", True, "negation", "no os.system"),
-    ("get rid of the old jQuery code and use vanilla JS", True, "negation", "get rid of"),
+    (
+        "get rid of the old jQuery code and use vanilla JS",
+        True,
+        "negation",
+        "get rid of",
+    ),
     ("remove the deprecated API endpoints", True, "negation", "remove deprecated"),
-
     # --- Architecture decisions (15) ---
-    ("use the repository pattern for data access", True, "architecture", "repository pattern"),
-    ("implement event sourcing for the order service", True, "architecture", "event sourcing"),
-    ("use the saga pattern for the checkout flow", True, "architecture", "saga pattern"),
+    (
+        "use the repository pattern for data access",
+        True,
+        "architecture",
+        "repository pattern",
+    ),
+    (
+        "implement event sourcing for the order service",
+        True,
+        "architecture",
+        "event sourcing",
+    ),
+    (
+        "use the saga pattern for the checkout flow",
+        True,
+        "architecture",
+        "saga pattern",
+    ),
     ("implement CQRS for the reporting module", True, "architecture", "CQRS"),
     ("use dependency injection for all service classes", True, "architecture", "DI"),
-    ("implement a message queue between the services", True, "architecture", "message queue"),
-    ("use the adapter pattern for third-party integrations", True, "architecture", "adapter pattern"),
-    ("refactor the auth module to use the strategy pattern", True, "architecture", "strategy pattern"),
-    ("keep the monorepo structure, don't split into separate repos", True, "architecture", "monorepo"),
-    ("implement a circuit breaker for external API calls", True, "architecture", "circuit breaker"),
-    ("use the mediator pattern for component communication", True, "architecture", "mediator"),
-    ("implement caching at the service layer not the route", True, "architecture", "cache layer"),
-    ("use a factory for creating database connections", True, "architecture", "factory"),
-    ("implement the outbox pattern for reliable messaging", True, "architecture", "outbox"),
-    ("use a gateway API instead of direct service calls", True, "architecture", "gateway"),
-
+    (
+        "implement a message queue between the services",
+        True,
+        "architecture",
+        "message queue",
+    ),
+    (
+        "use the adapter pattern for third-party integrations",
+        True,
+        "architecture",
+        "adapter pattern",
+    ),
+    (
+        "refactor the auth module to use the strategy pattern",
+        True,
+        "architecture",
+        "strategy pattern",
+    ),
+    (
+        "keep the monorepo structure, don't split into separate repos",
+        True,
+        "architecture",
+        "monorepo",
+    ),
+    (
+        "implement a circuit breaker for external API calls",
+        True,
+        "architecture",
+        "circuit breaker",
+    ),
+    (
+        "use the mediator pattern for component communication",
+        True,
+        "architecture",
+        "mediator",
+    ),
+    (
+        "implement caching at the service layer not the route",
+        True,
+        "architecture",
+        "cache layer",
+    ),
+    (
+        "use a factory for creating database connections",
+        True,
+        "architecture",
+        "factory",
+    ),
+    (
+        "implement the outbox pattern for reliable messaging",
+        True,
+        "architecture",
+        "outbox",
+    ),
+    (
+        "use a gateway API instead of direct service calls",
+        True,
+        "architecture",
+        "gateway",
+    ),
     # --- Implicit decisions (15) ---
-    ("the API should return 404 not 400 for missing resources", True, "implicit", "status code"),
+    (
+        "the API should return 404 not 400 for missing resources",
+        True,
+        "implicit",
+        "status code",
+    ),
     ("errors go to stderr, not stdout", True, "implicit", "stderr"),
     ("the default timeout should be 30 seconds", True, "implicit", "timeout"),
     ("passwords need at least 12 characters", True, "implicit", "password policy"),
@@ -119,52 +339,153 @@ CORPUS = [
     ("the batch size should be 1000 rows", True, "implicit", "batch size"),
     ("the log format should be JSON", True, "implicit", "log format"),
     ("only admin users can delete records", True, "implicit", "permissions"),
-    ("the response needs to include pagination metadata", True, "implicit", "pagination"),
+    (
+        "the response needs to include pagination metadata",
+        True,
+        "implicit",
+        "pagination",
+    ),
     ("rate limit at 100 requests per minute per user", True, "implicit", "rate limit"),
     ("cache TTL should be 5 minutes for user data", True, "implicit", "cache TTL"),
-    ("the health check endpoint should be at /health", True, "implicit", "health check"),
+    (
+        "the health check endpoint should be at /health",
+        True,
+        "implicit",
+        "health check",
+    ),
     ("connection pool size should be 20", True, "implicit", "pool size"),
-    ("all timestamps in the API should be ISO 8601", True, "implicit", "timestamp format"),
+    (
+        "all timestamps in the API should be ISO 8601",
+        True,
+        "implicit",
+        "timestamp format",
+    ),
     ("keep the token expiry at 1 hour", True, "implicit", "token expiry"),
-
     # --- Multi-sentence with embedded decision (15) ---
-    ("I've been looking at the performance and the current approach is too slow. Replace the N+1 queries with a batch loader.", True, "multi_sentence", "perf fix"),
-    ("After thinking about it, I want to use Redis for caching. The in-memory approach won't scale.", True, "multi_sentence", "redis caching"),
-    ("The team discussed it yesterday. Let's go with microservices for the payment module.", True, "multi_sentence", "microservices"),
-    ("I read the Flask vs FastAPI comparison. Switch to FastAPI for the new endpoints.", True, "multi_sentence", "flask to fastapi"),
-    ("SQLite is fine for dev but production needs Postgres. Use PostgreSQL going forward.", True, "multi_sentence", "postgres for prod"),
-    ("The old auth is a security risk. Rewrite it using the passport.js middleware.", True, "multi_sentence", "auth rewrite"),
-    ("We've been fighting with webpack for weeks. Move to Vite for the build system.", True, "multi_sentence", "vite"),
-    ("After benchmarking both options, adopt Rust for the hot path. Python stays for orchestration.", True, "multi_sentence", "rust hot path"),
-    ("The monolith is getting unmaintainable. Let's split the user service out first.", True, "multi_sentence", "service split"),
-    ("I checked with ops and they can support it. Use Kubernetes for the deployment.", True, "multi_sentence", "kubernetes"),
-    ("The current setup leaks memory under load. Replace the custom pool with pgbouncer.", True, "multi_sentence", "pgbouncer"),
-    ("Tests are too slow at 15 minutes. Switch to parallel test execution with pytest-xdist.", True, "multi_sentence", "parallel tests"),
-    ("The REST API is getting bloated with versions. Move to GraphQL for the mobile clients.", True, "multi_sentence", "graphql mobile"),
-    ("Docker images are 2GB. Use multi-stage builds to get them under 200MB.", True, "multi_sentence", "multi-stage"),
-    ("After reviewing the options, implement OpenTelemetry for distributed tracing.", True, "multi_sentence", "otel"),
-
+    (
+        "I've been looking at the performance and the current approach is too slow. Replace the N+1 queries with a batch loader.",
+        True,
+        "multi_sentence",
+        "perf fix",
+    ),
+    (
+        "After thinking about it, I want to use Redis for caching. The in-memory approach won't scale.",
+        True,
+        "multi_sentence",
+        "redis caching",
+    ),
+    (
+        "The team discussed it yesterday. Let's go with microservices for the payment module.",
+        True,
+        "multi_sentence",
+        "microservices",
+    ),
+    (
+        "I read the Flask vs FastAPI comparison. Switch to FastAPI for the new endpoints.",
+        True,
+        "multi_sentence",
+        "flask to fastapi",
+    ),
+    (
+        "SQLite is fine for dev but production needs Postgres. Use PostgreSQL going forward.",
+        True,
+        "multi_sentence",
+        "postgres for prod",
+    ),
+    (
+        "The old auth is a security risk. Rewrite it using the passport.js middleware.",
+        True,
+        "multi_sentence",
+        "auth rewrite",
+    ),
+    (
+        "We've been fighting with webpack for weeks. Move to Vite for the build system.",
+        True,
+        "multi_sentence",
+        "vite",
+    ),
+    (
+        "After benchmarking both options, adopt Rust for the hot path. Python stays for orchestration.",
+        True,
+        "multi_sentence",
+        "rust hot path",
+    ),
+    (
+        "The monolith is getting unmaintainable. Let's split the user service out first.",
+        True,
+        "multi_sentence",
+        "service split",
+    ),
+    (
+        "I checked with ops and they can support it. Use Kubernetes for the deployment.",
+        True,
+        "multi_sentence",
+        "kubernetes",
+    ),
+    (
+        "The current setup leaks memory under load. Replace the custom pool with pgbouncer.",
+        True,
+        "multi_sentence",
+        "pgbouncer",
+    ),
+    (
+        "Tests are too slow at 15 minutes. Switch to parallel test execution with pytest-xdist.",
+        True,
+        "multi_sentence",
+        "parallel tests",
+    ),
+    (
+        "The REST API is getting bloated with versions. Move to GraphQL for the mobile clients.",
+        True,
+        "multi_sentence",
+        "graphql mobile",
+    ),
+    (
+        "Docker images are 2GB. Use multi-stage builds to get them under 200MB.",
+        True,
+        "multi_sentence",
+        "multi-stage",
+    ),
+    (
+        "After reviewing the options, implement OpenTelemetry for distributed tracing.",
+        True,
+        "multi_sentence",
+        "otel",
+    ),
     # --- Edge cases (15) ---
     ("use postgres", True, "edge_case", "ultra short"),
     ("nuke the old cache layer and use Redis", True, "edge_case", "slang nuke"),
     ("just yeet the jQuery and go native", True, "edge_case", "slang yeet"),
     ("please use `pydantic` for all models", True, "edge_case", "backtick code"),
-    ("use:\n- FastAPI for routes\n- SQLAlchemy for ORM\n- Alembic for migrations", True, "edge_case", "markdown list"),
+    (
+        "use:\n- FastAPI for routes\n- SQLAlchemy for ORM\n- Alembic for migrations",
+        True,
+        "edge_case",
+        "markdown list",
+    ),
     ("I want you to use black for formatting", True, "edge_case", "I want you to"),
     ("go ahead and use ruff instead of flake8", True, "edge_case", "go ahead"),
     ("let's just stick with the current database", True, "edge_case", "stick with"),
     ("drop Python 3.8 support, only support 3.10+", True, "edge_case", "drop support"),
-    ("please adopt conventional commits for this repo", True, "edge_case", "please adopt"),
+    (
+        "please adopt conventional commits for this repo",
+        True,
+        "edge_case",
+        "please adopt",
+    ),
     ("we're going with Option B from the RFC", True, "edge_case", "going with option"),
     ("lock in React 18 for the frontend stack", True, "edge_case", "lock in"),
     ("pick Celery over RQ for the task queue", True, "edge_case", "pick X over Y"),
     ("commit to using TypeScript for all new files", True, "edge_case", "commit to"),
-    ("prefer functional components, no more class components", True, "edge_case", "prefer X no more Y"),
-
+    (
+        "prefer functional components, no more class components",
+        True,
+        "edge_case",
+        "prefer X no more Y",
+    ),
     # ========================================================================
     # NON-DECISIONS (100+) — should NOT be captured
     # ========================================================================
-
     # --- Tasks/instructions (15) ---
     ("fix the bug in auth.py", False, "task", "fix bug"),
     ("add error handling to the parser", False, "task", "add error handling"),
@@ -181,7 +502,6 @@ CORPUS = [
     ("split this file into smaller modules", False, "task", "split file"),
     ("increase the test coverage for auth", False, "task", "coverage"),
     ("update the error messages to be more helpful", False, "task", "update messages"),
-
     # --- Questions (15) ---
     ("what does this function do?", False, "question", "what does"),
     ("should we use Redis or Memcached?", False, "question", "should we"),
@@ -198,24 +518,47 @@ CORPUS = [
     ("is this the right approach?", False, "question", "is this right"),
     ("would GraphQL be better here?", False, "question", "would X be"),
     ("are there any known issues with this library?", False, "question", "are there"),
-
     # --- Exploratory/tentative (15) ---
     ("how about we try a different approach?", False, "exploratory", "how about"),
     ("maybe we could use GraphQL instead?", False, "exploratory", "maybe we could"),
     ("what if we switched to MongoDB?", False, "exploratory", "what if"),
     ("I wonder if Redis would be faster here", False, "exploratory", "I wonder"),
-    ("it might be worth trying a different approach", False, "exploratory", "might be worth"),
-    ("we could potentially use WebSockets for this", False, "exploratory", "could potentially"),
-    ("I'm thinking about whether to use Rust for this", False, "exploratory", "thinking about"),
+    (
+        "it might be worth trying a different approach",
+        False,
+        "exploratory",
+        "might be worth",
+    ),
+    (
+        "we could potentially use WebSockets for this",
+        False,
+        "exploratory",
+        "could potentially",
+    ),
+    (
+        "I'm thinking about whether to use Rust for this",
+        False,
+        "exploratory",
+        "thinking about",
+    ),
     ("perhaps a queue would help with the load", False, "exploratory", "perhaps"),
     ("what do you think about using gRPC?", False, "exploratory", "what do you think"),
-    ("we should think about whether to split this", False, "exploratory", "should think about"),
+    (
+        "we should think about whether to split this",
+        False,
+        "exploratory",
+        "should think about",
+    ),
     ("it's worth considering a cache layer", False, "exploratory", "worth considering"),
     ("have you considered using Kafka?", False, "exploratory", "have you considered"),
     ("not sure if we need a service mesh yet", False, "exploratory", "not sure if"),
     ("I'm torn between Redis and Memcached", False, "exploratory", "torn between"),
-    ("there are a few options we could explore", False, "exploratory", "options to explore"),
-
+    (
+        "there are a few options we could explore",
+        False,
+        "exploratory",
+        "options to explore",
+    ),
     # --- Status/praise/approval (10) ---
     ("looks good, ship it", False, "praise_status", "approval"),
     ("nice work on the refactor", False, "praise_status", "praise"),
@@ -227,7 +570,6 @@ CORPUS = [
     ("the performance numbers look good", False, "praise_status", "perf status"),
     ("that fixed the memory leak", False, "praise_status", "fix status"),
     ("everything is working in staging", False, "praise_status", "staging status"),
-
     # --- Commands (10) ---
     ("/commit", False, "command", "slash command"),
     ("run the tests please", False, "command", "run tests"),
@@ -239,33 +581,71 @@ CORPUS = [
     ("check the error logs", False, "command", "check logs"),
     ("revert the last commit", False, "command", "revert"),
     ("open a PR for this", False, "command", "open PR"),
-
     # --- Bug reports/info (15) ---
     ("I'm getting a TypeError on line 42", False, "bug_report", "type error"),
     ("the API returns 500 when the body is empty", False, "bug_report", "500 error"),
-    ("there's a memory leak in the connection pool", False, "bug_report", "memory leak"),
+    (
+        "there's a memory leak in the connection pool",
+        False,
+        "bug_report",
+        "memory leak",
+    ),
     ("the import fails with ModuleNotFoundError", False, "bug_report", "import error"),
     ("users are seeing stale data after updates", False, "bug_report", "stale data"),
     ("the response time jumped to 3 seconds", False, "bug_report", "slow response"),
-    ("the migration is timing out on large tables", False, "bug_report", "migration timeout"),
+    (
+        "the migration is timing out on large tables",
+        False,
+        "bug_report",
+        "migration timeout",
+    ),
     ("the login page crashes on mobile", False, "bug_report", "crash report"),
-    ("there's a race condition in the queue processor", False, "bug_report", "race condition"),
-    ("the websocket connection drops after 30 seconds", False, "bug_report", "ws disconnect"),
-    ("the test is flaky, passes sometimes fails sometimes", False, "bug_report", "flaky test"),
+    (
+        "there's a race condition in the queue processor",
+        False,
+        "bug_report",
+        "race condition",
+    ),
+    (
+        "the websocket connection drops after 30 seconds",
+        False,
+        "bug_report",
+        "ws disconnect",
+    ),
+    (
+        "the test is flaky, passes sometimes fails sometimes",
+        False,
+        "bug_report",
+        "flaky test",
+    ),
     ("CSS is broken on the checkout page", False, "bug_report", "CSS broken"),
     ("the cron job didn't run last night", False, "bug_report", "cron failure"),
     ("the search endpoint returns wrong results", False, "bug_report", "wrong results"),
     ("I noticed the disk usage is at 90%", False, "bug_report", "disk usage"),
-
     # --- Ambiguous near-misses (20) ---
     ("I used PostgreSQL for the last project", False, "ambiguous", "past tense"),
     ("we should think about whether to use Redis", False, "ambiguous", "think about"),
     ("can you switch to the other branch?", False, "ambiguous", "git switch"),
-    ("I prefer Python for scripting personally", False, "ambiguous", "personal opinion"),
+    (
+        "I prefer Python for scripting personally",
+        False,
+        "ambiguous",
+        "personal opinion",
+    ),
     ("some teams use microservices for this", False, "ambiguous", "others use"),
     ("the old code used to use Flask", False, "ambiguous", "used to use"),
-    ("Redis is faster than Memcached for this use case", False, "ambiguous", "fact statement"),
-    ("TypeScript has better tooling than JavaScript", False, "ambiguous", "comparison fact"),
+    (
+        "Redis is faster than Memcached for this use case",
+        False,
+        "ambiguous",
+        "fact statement",
+    ),
+    (
+        "TypeScript has better tooling than JavaScript",
+        False,
+        "ambiguous",
+        "comparison fact",
+    ),
     ("we talked about using GraphQL last week", False, "ambiguous", "talked about"),
     ("the docs recommend using async/await", False, "ambiguous", "docs recommend"),
     ("some people prefer tabs over spaces", False, "ambiguous", "some prefer"),
@@ -273,7 +653,12 @@ CORPUS = [
     ("the benchmarks show Rust is faster", False, "ambiguous", "benchmarks show"),
     ("most projects use Docker these days", False, "ambiguous", "most use"),
     ("the industry is moving toward serverless", False, "ambiguous", "industry trend"),
-    ("we were going to use Kafka but ran out of time", False, "ambiguous", "were going to"),
+    (
+        "we were going to use Kafka but ran out of time",
+        False,
+        "ambiguous",
+        "were going to",
+    ),
     ("I tried using Redis but it was overkill", False, "ambiguous", "tried using"),
     ("React is the most popular framework", False, "ambiguous", "popularity"),
     ("our competitors use GraphQL", False, "ambiguous", "competitors use"),
@@ -298,7 +683,9 @@ def run_scorer(scorer_fn, name, threshold=0.45):
         captured = score >= threshold
 
         if category not in cat_tp:
-            cat_tp[category] = cat_fp[category] = cat_fn[category] = cat_tn[category] = 0
+            cat_tp[category] = cat_fp[category] = cat_fn[category] = cat_tn[
+                category
+            ] = 0
 
         if is_decision and captured:
             total_tp += 1
@@ -340,7 +727,9 @@ def run_scorer(scorer_fn, name, threshold=0.45):
         cat_fpr = cat_fp.get(cat, 0) / cat_total_neg * 100 if cat_total_neg else 0
         count = cat_total_pos + cat_total_neg
         indicator = "+" if cat_total_pos > 0 else "-"
-        print(f"  {indicator} {cat:<18} {cat_recall:>7.0f}% {cat_fpr:>7.0f}% {count:>5}")
+        print(
+            f"  {indicator} {cat:<18} {cat_recall:>7.0f}% {cat_fpr:>7.0f}% {count:>5}"
+        )
 
     return recall, precision, f1
 
@@ -359,14 +748,19 @@ def threshold_sweep(scorer_fn, name):
         for prompt, is_decision, _, _ in CORPUS:
             score, _ = scorer_fn(prompt)
             captured = score >= t
-            if is_decision and captured: tp += 1
-            elif is_decision and not captured: fn += 1
-            elif not is_decision and captured: fp += 1
+            if is_decision and captured:
+                tp += 1
+            elif is_decision and not captured:
+                fn += 1
+            elif not is_decision and captured:
+                fp += 1
 
         n_dec = sum(1 for _, d, _, _ in CORPUS if d)
         recall = tp / n_dec * 100 if n_dec else 0
         precision = tp / (tp + fp) * 100 if (tp + fp) else 0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
+        f1 = (
+            2 * precision * recall / (precision + recall) if (precision + recall) else 0
+        )
 
         marker = " <--" if f1 > best_f1 else ""
         print(f"  {t:>10.2f} {recall:>7.1f}% {precision:>9.1f}% {f1:>7.1f}%{marker}")
@@ -400,9 +794,12 @@ def main():
     r2 = p2 = f1_s = None
     try:
         from claude_engram.hooks.intent import score_decision_semantic
+
         test_score, _ = score_decision_semantic("let's use PostgreSQL")
         if test_score > 0:
-            r2, p2, f1_s = run_scorer(score_decision_semantic, "Semantic Scorer (AllMiniLM)", args.threshold)
+            r2, p2, f1_s = run_scorer(
+                score_decision_semantic, "Semantic Scorer (AllMiniLM)", args.threshold
+            )
     except ImportError:
         print("\n=== Semantic Scorer: SKIPPED (not installed) ===")
 
@@ -410,6 +807,7 @@ def main():
     r3 = p3 = f1_c = None
     try:
         from claude_engram.hooks.intent import score_decision_semantic
+
         has_semantic = True
     except ImportError:
         has_semantic = False
@@ -426,7 +824,9 @@ def main():
             best, best_text = s, t
         return best, best_text
 
-    r3, p3, f1_c = run_scorer(combined_scorer, "Combined (Semantic + Regex)", args.threshold)
+    r3, p3, f1_c = run_scorer(
+        combined_scorer, "Combined (Semantic + Regex)", args.threshold
+    )
 
     # Threshold sweep
     if args.sweep:

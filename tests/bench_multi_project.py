@@ -74,34 +74,90 @@ def create_workspace(tmpdir: str) -> dict:
             "frontend_utils": str(frontend / "src" / "utils.ts"),
             "shared_utils": str(shared / "utils.py"),
             "deploy_script": str(scripts / "deploy.sh"),
-        }
+        },
     }
 
 
 def seed_memories(m: MemoryStore, paths: dict):
     """Store memories at different project levels."""
     # Workspace-level memories (visible to all)
-    m.remember_discovery(paths["root"], "Always run linter before committing", category="rule", relevance=9)
-    m.remember_discovery(paths["root"], "MISTAKE: committed .env with production secrets", category="mistake", relevance=10)
-    m.remember_discovery(paths["root"], "Project uses monorepo with turborepo", category="discovery", relevance=4)
+    m.remember_discovery(
+        paths["root"],
+        "Always run linter before committing",
+        category="rule",
+        relevance=9,
+    )
+    m.remember_discovery(
+        paths["root"],
+        "MISTAKE: committed .env with production secrets",
+        category="mistake",
+        relevance=10,
+    )
+    m.remember_discovery(
+        paths["root"],
+        "Project uses monorepo with turborepo",
+        category="discovery",
+        relevance=4,
+    )
 
     # Backend memories
-    m.remember_discovery(paths["backend"], "Backend uses FastAPI", category="discovery", relevance=7,
-                         related_files=["main.py"], tags=["backend", "api"])
-    m.remember_discovery(paths["backend"], "MISTAKE: migration broke prod database", category="mistake", relevance=9,
-                         related_files=["db/migrations.py"], tags=["backend", "database"])
-    m.remember_discovery(paths["backend"], "Database uses PostgreSQL with pgbouncer", category="discovery", relevance=6,
-                         related_files=["db/pool.py"], tags=["backend", "database"])
-    m.remember_discovery(paths["backend"], "Auth uses JWT tokens", category="discovery", relevance=7,
-                         related_files=["auth/handler.py"], tags=["backend", "auth"])
+    m.remember_discovery(
+        paths["backend"],
+        "Backend uses FastAPI",
+        category="discovery",
+        relevance=7,
+        related_files=["main.py"],
+        tags=["backend", "api"],
+    )
+    m.remember_discovery(
+        paths["backend"],
+        "MISTAKE: migration broke prod database",
+        category="mistake",
+        relevance=9,
+        related_files=["db/migrations.py"],
+        tags=["backend", "database"],
+    )
+    m.remember_discovery(
+        paths["backend"],
+        "Database uses PostgreSQL with pgbouncer",
+        category="discovery",
+        relevance=6,
+        related_files=["db/pool.py"],
+        tags=["backend", "database"],
+    )
+    m.remember_discovery(
+        paths["backend"],
+        "Auth uses JWT tokens",
+        category="discovery",
+        relevance=7,
+        related_files=["auth/handler.py"],
+        tags=["backend", "auth"],
+    )
 
     # Frontend memories
-    m.remember_discovery(paths["frontend"], "Frontend uses React 18 with TypeScript", category="discovery", relevance=6,
-                         related_files=["src/App.tsx"], tags=["frontend", "react"])
-    m.remember_discovery(paths["frontend"], "DECISION: use Tailwind instead of CSS modules", category="decision", relevance=7,
-                         tags=["frontend", "css"])
-    m.remember_discovery(paths["frontend"], "MISTAKE: forgot SSR hydration mismatch", category="mistake", relevance=8,
-                         related_files=["src/App.tsx"], tags=["frontend"])
+    m.remember_discovery(
+        paths["frontend"],
+        "Frontend uses React 18 with TypeScript",
+        category="discovery",
+        relevance=6,
+        related_files=["src/App.tsx"],
+        tags=["frontend", "react"],
+    )
+    m.remember_discovery(
+        paths["frontend"],
+        "DECISION: use Tailwind instead of CSS modules",
+        category="decision",
+        relevance=7,
+        tags=["frontend", "css"],
+    )
+    m.remember_discovery(
+        paths["frontend"],
+        "MISTAKE: forgot SSR hydration mismatch",
+        category="mistake",
+        relevance=8,
+        related_files=["src/App.tsx"],
+        tags=["frontend"],
+    )
 
 
 # ============================================================================
@@ -121,31 +177,36 @@ RESOLUTION_TESTS = [
 SCOPING_TESTS = [
     # (file_key, project_key, must_contain, must_not_contain, description)
     (
-        "backend_auth", "backend",
+        "backend_auth",
+        "backend",
         ["JWT", "linter"],  # backend + workspace rule
         ["React", "Tailwind"],  # NOT frontend
         "backend sees own + workspace, not frontend",
     ),
     (
-        "frontend_app", "frontend",
+        "frontend_app",
+        "frontend",
         ["React", "linter"],  # frontend + workspace rule
         ["FastAPI", "PostgreSQL", "migration"],  # NOT backend
         "frontend sees own + workspace, not backend",
     ),
     (
-        "shared_utils", "root",
+        "shared_utils",
+        "root",
         ["linter"],  # workspace memories
         ["JWT", "React"],  # NOT sub-project specific
         "shared sees workspace only",
     ),
     (
-        "backend_auth", "backend",
+        "backend_auth",
+        "backend",
         ["committed .env"],  # workspace mistake cascades
         [],
         "workspace mistake visible in backend",
     ),
     (
-        "frontend_app", "frontend",
+        "frontend_app",
+        "frontend",
         ["committed .env"],  # workspace mistake cascades
         [],
         "workspace mistake visible in frontend",
@@ -196,7 +257,13 @@ def run_benchmark():
 
         scope_passed = 0
 
-        for file_key, project_key, must_contain, must_not_contain, desc in SCOPING_TESTS:
+        for (
+            file_key,
+            project_key,
+            must_contain,
+            must_not_contain,
+            desc,
+        ) in SCOPING_TESTS:
             project_path = paths[project_key]
 
             # Get scored memories for this project+file

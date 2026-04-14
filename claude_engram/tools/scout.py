@@ -21,18 +21,62 @@ from ..schema import MiniClaudeResponse, SearchResult, WorkLog
 
 # File extensions we care about for code search
 CODE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs",
-    ".c", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
-    ".kt", ".scala", ".vue", ".svelte", ".html", ".css", ".scss",
-    ".json", ".yaml", ".yml", ".toml", ".xml", ".md", ".sql",
-    ".sh", ".bash", ".zsh", ".dockerfile", ".prisma", ".graphql"
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".vue",
+    ".svelte",
+    ".html",
+    ".css",
+    ".scss",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".md",
+    ".sql",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".dockerfile",
+    ".prisma",
+    ".graphql",
 }
 
 # Directories to skip
 SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".venv", "venv",
-    "dist", "build", ".next", ".nuxt", "target", "coverage",
-    ".pytest_cache", ".mypy_cache", ".tox", "eggs", "*.egg-info"
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    "target",
+    "coverage",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".tox",
+    "eggs",
+    "*.egg-info",
 }
 
 
@@ -85,7 +129,7 @@ class SearchEngine:
                 confidence="high",
                 reasoning="No code files found in directory",
                 work_log=work_log,
-                suggestions=["Check if the directory path is correct"]
+                suggestions=["Check if the directory path is correct"],
             )
 
         work_log.what_worked.append(f"found {len(files)} code files")
@@ -99,19 +143,25 @@ class SearchEngine:
         literal_results = self._literal_search(query, files, directory)
         if literal_results:
             findings.extend(literal_results)
-            work_log.what_worked.append(f"literal search found {len(literal_results)} matches")
+            work_log.what_worked.append(
+                f"literal search found {len(literal_results)} matches"
+            )
 
         # Strategy 2: Semantic search using LLM
         if use_llm and len(findings) < max_results:
             work_log.what_i_tried.append("semantic search with LLM")
-            semantic_results = self._semantic_search(query, files, directory, max_results - len(findings))
+            semantic_results = self._semantic_search(
+                query, files, directory, max_results - len(findings)
+            )
             if semantic_results:
                 # Deduplicate
                 existing_files = {f.file for f in findings}
                 for result in semantic_results:
                     if result.file not in existing_files:
                         findings.append(result)
-                work_log.what_worked.append(f"semantic search added {len(semantic_results)} results")
+                work_log.what_worked.append(
+                    f"semantic search added {len(semantic_results)} results"
+                )
 
         # Analyze connections between findings
         connections = None
@@ -129,7 +179,9 @@ class SearchEngine:
             confidence = "medium"
         else:
             confidence = "low"
-            questions.append("Could you be more specific about what you're looking for?")
+            questions.append(
+                "Could you be more specific about what you're looking for?"
+            )
 
         work_log.time_taken_ms = int((time.time() - start_time) * 1000)
 
@@ -188,7 +240,7 @@ class SearchEngine:
                     if matches:
                         # Find line number of first match
                         first_match = matches[0]
-                        line_num = content[:first_match.start()].count("\n") + 1
+                        line_num = content[: first_match.start()].count("\n") + 1
 
                         # Get snippet around match
                         lines = content.split("\n")
@@ -196,13 +248,15 @@ class SearchEngine:
                         end_line = min(len(lines), line_num + 2)
                         snippet = "\n".join(lines[start_line:end_line])
 
-                        results.append(SearchResult(
-                            file=rel_path,
-                            line=line_num,
-                            relevance="high" if len(matches) > 1 else "medium",
-                            summary=f"Found '{term}' ({len(matches)} occurrences)",
-                            snippet=snippet[:300],
-                        ))
+                        results.append(
+                            SearchResult(
+                                file=rel_path,
+                                line=line_num,
+                                relevance="high" if len(matches) > 1 else "medium",
+                                summary=f"Found '{term}' ({len(matches)} occurrences)",
+                                snippet=snippet[:300],
+                            )
+                        )
                         break  # One result per file
 
             except Exception:
@@ -226,8 +280,21 @@ class SearchEngine:
         terms.extend(identifiers)
 
         # Common code-related keywords
-        code_keywords = ["auth", "login", "user", "api", "route", "model", "controller",
-                        "service", "middleware", "handler", "util", "helper", "config"]
+        code_keywords = [
+            "auth",
+            "login",
+            "user",
+            "api",
+            "route",
+            "model",
+            "controller",
+            "service",
+            "middleware",
+            "handler",
+            "util",
+            "helper",
+            "config",
+        ]
         for word in query.lower().split():
             if word in code_keywords:
                 terms.append(word)
@@ -258,11 +325,22 @@ class SearchEngine:
             for i, line in enumerate(lines):
                 stripped = line.strip()
                 # Capture class and function definitions
-                if stripped.startswith(("class ", "def ", "function ", "const ", "export ")):
+                if stripped.startswith(
+                    ("class ", "def ", "function ", "const ", "export ")
+                ):
                     key_patterns.append(f"L{i+1}: {stripped[:80]}")
                 # Capture imports (first 5)
                 elif stripped.startswith(("import ", "from ", "require(", "#include")):
-                    if len([p for p in key_patterns if "import" in p.lower() or "from" in p.lower()]) < 5:
+                    if (
+                        len(
+                            [
+                                p
+                                for p in key_patterns
+                                if "import" in p.lower() or "from" in p.lower()
+                            ]
+                        )
+                        < 5
+                    ):
                         key_patterns.append(f"L{i+1}: {stripped[:60]}")
 
             preview = "\n".join(preview_lines)
@@ -296,10 +374,14 @@ class SearchEngine:
             file_list.append(rel_path)
             preview_result = self._get_file_preview(filepath, max_lines=15)
             if preview_result["error"]:
-                file_previews.append(f"=== {rel_path} ===\n({preview_result['error']})\n")
+                file_previews.append(
+                    f"=== {rel_path} ===\n({preview_result['error']})\n"
+                )
                 read_errors.append(f"{rel_path}: {preview_result['error']}")
             elif preview_result["content"]:
-                file_previews.append(f"=== {rel_path} ===\n{preview_result['content']}\n")
+                file_previews.append(
+                    f"=== {rel_path} ===\n{preview_result['content']}\n"
+                )
             else:
                 file_previews.append(f"=== {rel_path} ===\n(empty file)\n")
 
@@ -339,17 +421,21 @@ List ONLY the file paths, one per line. No explanations."""
                 summary_response = self.llm.summarize_file(content, rel_path)
 
                 if summary_response.get("success"):
-                    results.append(SearchResult(
-                        file=rel_path,
-                        relevance="medium",
-                        summary=summary_response["response"].strip()[:200],
-                    ))
+                    results.append(
+                        SearchResult(
+                            file=rel_path,
+                            relevance="medium",
+                            summary=summary_response["response"].strip()[:200],
+                        )
+                    )
             except Exception:
                 continue
 
         return results
 
-    def _analyze_connections(self, findings: list[SearchResult], query: str) -> Optional[str]:
+    def _analyze_connections(
+        self, findings: list[SearchResult], query: str
+    ) -> Optional[str]:
         """Analyze how the findings relate to each other."""
         if len(findings) < 2:
             return None

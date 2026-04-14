@@ -16,15 +16,17 @@ from typing import Optional
 @dataclass
 class Prediction:
     """A context prediction for a file edit."""
+
     prediction_type: str  # "related_file" | "likely_error" | "relevant_memory"
     content: str
     confidence: float = 0.0
-    source: str = ""      # What data backed this prediction
+    source: str = ""  # What data backed this prediction
 
 
 @dataclass
 class EditPrediction:
     """Predictions for an upcoming file edit."""
+
     target_file: str
     related_files: list[Prediction] = field(default_factory=list)
     likely_errors: list[Prediction] = field(default_factory=list)
@@ -96,12 +98,14 @@ def _predict_related_files(
 
         if other:
             strength = corr.get("strength", 0)
-            prediction.related_files.append(Prediction(
-                prediction_type="related_file",
-                content=other,
-                confidence=strength,
-                source=f"co-edited in {corr.get('co_occurrence', 0)} sessions",
-            ))
+            prediction.related_files.append(
+                Prediction(
+                    prediction_type="related_file",
+                    content=other,
+                    confidence=strength,
+                    source=f"co-edited in {corr.get('co_occurrence', 0)} sessions",
+                )
+            )
 
     prediction.related_files.sort(key=lambda p: -p.confidence)
 
@@ -133,12 +137,14 @@ def _predict_errors(
             continue
 
     for error_key, count in sorted(error_counts.items(), key=lambda x: -x[1])[:5]:
-        prediction.likely_errors.append(Prediction(
-            prediction_type="likely_error",
-            content=error_key,
-            confidence=min(count / 3, 1.0),  # 3+ occurrences = high confidence
-            source=f"occurred {count} times with this file",
-        ))
+        prediction.likely_errors.append(
+            Prediction(
+                prediction_type="likely_error",
+                content=error_key,
+                confidence=min(count / 3, 1.0),  # 3+ occurrences = high confidence
+                source=f"occurred {count} times with this file",
+            )
+        )
 
 
 def _predict_tips(
@@ -170,9 +176,7 @@ def _predict_tips(
     # Suggest related files
     if prediction.related_files:
         names = [p.content for p in prediction.related_files[:3]]
-        prediction.tips.append(
-            f"Usually edited with: {', '.join(names)}"
-        )
+        prediction.tips.append(f"Usually edited with: {', '.join(names)}")
 
 
 def format_prediction(pred: EditPrediction) -> str:
