@@ -216,9 +216,10 @@ def build_session_embeddings(
             combined = np.array(valid_embeddings, dtype=np.float32)
 
         # Atomic save via temp file
-        tmp_path = emb_path.with_suffix(".npy.tmp")
-        np.save(str(tmp_path), combined)
-        tmp_path.replace(emb_path)
+        # np.save auto-appends .npy, so use stem without extension
+        tmp_stem = emb_path.parent / "session_embeddings_tmp"
+        np.save(str(tmp_stem), combined)  # creates session_embeddings_tmp.npy
+        (emb_path.parent / "session_embeddings_tmp.npy").replace(emb_path)
     except ImportError:
         # No numpy — store as JSON fallback
         emb_json_path = hash_dir / "session_embeddings.json"
