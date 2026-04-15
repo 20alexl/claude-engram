@@ -52,6 +52,7 @@ class SessionMeta:
     token_usage: dict[str, int] = field(
         default_factory=lambda: {"input": 0, "output": 0}
     )
+    subagent_count: int = 0
     summary: str = ""
     last_user_message: str = ""
 
@@ -151,6 +152,14 @@ def build_index_for_session(
     meta.tools_used = tools_used
     # Store file size as processed offset to indicate "fully processed"
     meta.processed_offset = jsonl_path.stat().st_size
+
+    # Count subagents (metadata only — fast, no JSONL parsing)
+    session_dir = jsonl_path.parent / jsonl_path.stem
+    subagents_dir = session_dir / "subagents"
+    if subagents_dir.exists():
+        meta_files = list(subagents_dir.glob("*.meta.json"))
+        if meta_files:
+            meta.subagent_count = len(meta_files)
 
     return meta
 
