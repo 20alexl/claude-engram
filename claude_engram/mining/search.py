@@ -207,13 +207,18 @@ def build_session_embeddings(
         import numpy as np
 
         if emb_path.exists() and existing_chunks:
-            old_matrix = np.load(str(emb_path), mmap_mode="r")
+            # Don't use mmap — we're overwriting this file, and Windows
+            # throws Errno 22 if you np.save to a mmap'd file
+            old_matrix = np.load(str(emb_path))
             new_matrix = np.array(valid_embeddings, dtype=np.float32)
             combined = np.vstack([old_matrix, new_matrix])
         else:
             combined = np.array(valid_embeddings, dtype=np.float32)
 
-        np.save(str(emb_path), combined)
+        # Atomic save via temp file
+        tmp_path = emb_path.with_suffix(".npy.tmp")
+        np.save(str(tmp_path), combined)
+        tmp_path.replace(emb_path)
     except ImportError:
         # No numpy — store as JSON fallback
         emb_json_path = hash_dir / "session_embeddings.json"
