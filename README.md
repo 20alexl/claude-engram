@@ -16,11 +16,12 @@ Zero manual effort. Works with any MCP-compatible client.
 - Mines your session history in the background after every session
 
 **Session Mining (automatic, background):**
-- Parses Claude Code's full conversation logs (JSONL) after every session
+- Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
 - Extracts decisions, mistakes, approaches, and user corrections using structural analysis + AllMiniLM semantic scoring (typo-tolerant)
-- Builds a searchable index across all past conversations
+- Builds a searchable index across all past conversations (20k+ chunks with subagents)
 - Detects recurring struggles, error patterns, and file edit correlations
 - Predicts what files and context you'll need before edits
+- Reflects on patterns using local LLM to synthesize root causes and architectural insights
 - On first install, retroactively mines your entire session history
 
 **On-demand (MCP tools):**
