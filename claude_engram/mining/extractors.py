@@ -683,10 +683,18 @@ def run_extraction_pipeline(
         if not jsonl_file.exists():
             continue
 
-        # Collect messages
+        # Collect messages from main session + subagents
         messages = []
         for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
             messages.append(msg)
+
+        # Include subagent conversations
+        session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(".jsonl", "")
+        subagents_dir = session_dir / "subagents"
+        if subagents_dir.exists():
+            for sub_jsonl in subagents_dir.glob("*.jsonl"):
+                for _, msg in iter_messages(sub_jsonl, types={"user", "assistant"}):
+                    messages.append(msg)
 
         if not messages:
             # Write empty extraction to prevent re-processing

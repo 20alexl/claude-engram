@@ -148,6 +148,33 @@ def build_session_embeddings(
                 new_chunks.append(chunk)
                 new_texts.append(text[:500])
 
+        # Also scan subagent conversations for this session
+        session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(".jsonl", "")
+        subagents_dir = session_dir / "subagents"
+        if subagents_dir.exists():
+            for sub_jsonl in subagents_dir.glob("*.jsonl"):
+                sub_msg_idx = 0
+                for _, msg in iter_messages(sub_jsonl, types={"user", "assistant"}):
+                    sub_msg_idx += 1
+                    ts = get_timestamp(msg)
+
+                    # Only assistant text from subagents (their findings/analysis)
+                    for text in extract_assistant_text(msg):
+                        if len(text) < 50 or text.startswith("```") or text.startswith("{"):
+                            continue
+                        files = extract_file_edits(msg)
+                        chunk = ChunkIndex(
+                            session_id=session_id,
+                            jsonl_file=sub_jsonl.name,
+                            msg_offset=sub_msg_idx,
+                            timestamp=ts,
+                            msg_type="subagent",
+                            preview=text[:200],
+                            related_files=[Path(f).name for f in files[:5]],
+                        )
+                        new_chunks.append(chunk)
+                        new_texts.append(text[:500])
+
     if not new_texts:
         return 0
 
