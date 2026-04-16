@@ -808,24 +808,38 @@ def get_checkpoint_data() -> dict:
         return {}
 
 
-def get_handoff_data() -> dict:
-    """Load the latest handoff data if it exists."""
-    handoff_file = (
+def get_handoff_data(project_dir: str = "") -> dict:
+    """Load the latest handoff data — per-project first, then global fallback."""
+    candidates = []
+
+    # Per-project handoff (preferred)
+    if project_dir:
+        norm = _normalize_path(project_dir)
+        manifest = _get_manifest()
+        proj_info = manifest.get("projects", {}).get(norm)
+        if proj_info:
+            pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+            candidates.append(pdir / "latest_handoff.json")
+
+    # Global fallback (legacy)
+    candidates.append(
         Path.home() / ".claude_engram" / "checkpoints" / "latest_handoff.json"
     )
-    if not handoff_file.exists():
-        return {}
-    try:
-        data = json.loads(handoff_file.read_text())
-        # Check age - only return if less than 48 hours old
-        age_hours = (
-            time.time() - data.get("created", data.get("created_at", 0))
-        ) / 3600
-        if age_hours < 48:
-            return data
-        return {}
-    except Exception:
-        return {}
+
+    for handoff_file in candidates:
+        if not handoff_file.exists():
+            continue
+        try:
+            data = json.loads(handoff_file.read_text())
+            age_hours = (
+                time.time() - data.get("created", data.get("created_at", 0))
+            ) / 3600
+            if age_hours < 48:
+                return data
+        except Exception:
+            continue
+
+    return {}
 
 
 # NOTE: detect_complex_task REMOVED - too many false positives
@@ -1193,7 +1207,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
 
         # AUTO-LOAD CHECKPOINT/HANDOFF
         checkpoint = get_checkpoint_data()
-        handoff = get_handoff_data()
+        handoff = get_handoff_data(project_dir)
 
         if checkpoint or handoff:
             lines.append("---")
@@ -2964,7 +2978,7 @@ def main():
 
             # Check for checkpoint/handoff to restore
             checkpoint = get_checkpoint_data()
-            handoff = get_handoff_data()
+            handoff = get_handoff_data(project_dir)
             if checkpoint:
                 age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
                 lines.append(
@@ -3156,6 +3170,19 @@ def main():
                         "files_in_progress": files_edited[:10],
                     }
 
+                    # Save per-project (preferred) + global fallback
+                    norm = _normalize_path(project_dir)
+                    manifest = _get_manifest()
+                    proj_info = manifest.get("projects", {}).get(norm)
+                    if proj_info:
+                        pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+                        pdir.mkdir(parents=True, exist_ok=True)
+                        hf = pdir / "latest_handoff.json"
+                        temp = hf.with_suffix(".json.tmp")
+                        temp.write_text(json_module.dumps(handoff, indent=2))
+                        temp.replace(hf)
+
+                    # Also save global for legacy compatibility
                     handoff_file = checkpoint_dir / "latest_handoff.json"
                     temp = handoff_file.with_suffix(".json.tmp")
                     temp.write_text(json_module.dumps(handoff, indent=2))

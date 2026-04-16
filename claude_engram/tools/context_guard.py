@@ -740,7 +740,23 @@ class ContextGuard:
             "project_path": project_path,
         }
 
-        # Save to disk
+        # Save per-project (preferred) + global fallback
+        if project_path:
+            try:
+                from claude_engram.hooks.remind import _normalize_path, _get_manifest
+                norm = _normalize_path(project_path)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
+                    pdir.mkdir(parents=True, exist_ok=True)
+                    hf = pdir / "latest_handoff.json"
+                    with open(hf, "w") as f:
+                        json.dump(handoff, f, indent=2)
+            except Exception:
+                pass
+
+        # Global fallback
         handoff_file = self.storage_dir / "latest_handoff.json"
         with open(handoff_file, "w") as f:
             json.dump(handoff, f, indent=2)
