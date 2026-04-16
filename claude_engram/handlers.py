@@ -801,13 +801,18 @@ class Handlers:
             for f in files_edited[:10]:
                 lines.append(f"  - {Path(f).name}")
 
-        # Show last 5 tool calls for context
-        if tools_used:
-            lines.append("")
-            lines.append("Recent actions:")
-            for t in tools_used[-5:]:
-                ctx = t.get("context", "")[:40]
-                lines.append(f"  - {t['tool']}" + (f": {ctx}" if ctx else ""))
+        # Tool usage from hook state
+        tool_usage = hook_state.get("tool_usage", {})
+        if tool_usage:
+            top_tools = sorted(
+                ((k, v) for k, v in tool_usage.items() if v > 0),
+                key=lambda x: -x[1],
+            )[:5]
+            if top_tools:
+                lines.append("")
+                lines.append("Tool usage:")
+                for name, count in top_tools:
+                    lines.append(f"  - {name}: {count}")
 
         work_log.what_worked.append("Auto-captured session activity")
 
@@ -820,22 +825,13 @@ class Handlers:
                 memories_saved = save_response.data.get("memories_created", 0)
 
             # Auto-generate compact session summary
-            if project_path and (tools_used or files_edited):
+            if project_path and files_edited:
                 summary_parts = []
-                duration = habit_stats.get("session_duration_minutes", 0)
-                if duration > 0:
-                    summary_parts.append(f"{duration:.0f}min session")
+                if duration_mins > 0:
+                    summary_parts.append(f"{duration_mins:.0f}min session")
                 if files_edited:
                     file_names = [Path(f).name for f in files_edited[:3]]
                     summary_parts.append(f"edited {', '.join(file_names)}")
-                if self.habit_tracker._session_decisions_logged > 0:
-                    summary_parts.append(
-                        f"{self.habit_tracker._session_decisions_logged} decisions"
-                    )
-                if self.habit_tracker._session_mistakes_logged > 0:
-                    summary_parts.append(
-                        f"{self.habit_tracker._session_mistakes_logged} mistakes"
-                    )
 
                 if summary_parts:
                     auto_summary = "SESSION: " + " | ".join(summary_parts)

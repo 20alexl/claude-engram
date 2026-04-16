@@ -2843,7 +2843,7 @@ Output ONLY the consolidated memory text (no explanation):"""
         return {
             "id": new_entry.id,
             "content": new_entry.content[:100] + "...",
-            "removed_count": len(old_ids),
+            "removed_count": len(remove_ids),
         }
 
 
