@@ -480,9 +480,11 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
     with tempfile.TemporaryDirectory() as storage_dir:
         store = MemoryStore(storage_dir=storage_dir)
 
-        # Seed memories
+        # Seed memories — rules always pass, but mistakes/discoveries need
+        # file-relevance to inject (prevents generic noise)
         store.remember_discovery(
-            root, "Vault convention: always use wikilinks", category="discovery"
+            root, "Vault convention: always use wikilinks", category="discovery",
+            related_files=[paths["project_note"]],
         )
         store.add_rule(root, "Link notes bidirectionally")
         store.remember_discovery(
@@ -490,6 +492,7 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
             "MISTAKE: broke wikilinks by renaming without updating backlinks",
             category="mistake",
             relevance=9,
+            related_files=[paths["project_note"]],
         )
 
         # HotMemoryReader should find them
