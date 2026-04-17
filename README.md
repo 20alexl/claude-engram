@@ -116,7 +116,9 @@ python install.py               # Configure hooks, MCP server, and /engram skill
 python install.py --setup /path/to/your/project
 ```
 
-Or copy `.mcp.json` and `CLAUDE.md` to your project root.
+Or copy `.mcp.json` to your project root.
+
+**Note:** The `CLAUDE.md` in this repo is engram-specific documentation — it's not required for engram to work. Hooks fire automatically and the `/engram` skill provides a quick reference on demand. If you already have a `CLAUDE.md` for your project, keep it as-is and don't copy ours over it. If you want engram docs alongside your project rules, rename it to `CLAUDE-ENGRAM.md` (or similar) so it doesn't clobber your existing file — Claude will see it when relevant.
 
 ### Updating
 
