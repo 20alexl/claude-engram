@@ -439,16 +439,16 @@ def create_project_mcp_config(target_dir: Path):
 
 
 def copy_claude_md(target_dir: Path):
-    """Copy CLAUDE.md template to target project."""
+    """Copy engram docs as CLAUDE-ENGRAM.md (won't clobber user's CLAUDE.md)."""
     script_dir = Path(__file__).parent.resolve()
     source = script_dir / "CLAUDE.md"
-    target = target_dir / "CLAUDE.md"
+    target = target_dir / "CLAUDE-ENGRAM.md"
 
     if not source.exists():
         return False, "CLAUDE.md not found in claude_engram repo"
 
     if target.exists():
-        return False, "CLAUDE.md already exists in target (not overwriting)"
+        return False, "CLAUDE-ENGRAM.md already exists (not overwriting)"
 
     try:
         content = source.read_text()
@@ -633,7 +633,7 @@ def main():
 
     print("\nOption 2: Run setup command")
     print("  python install.py --setup /path/to/your/project")
-    print("  This creates .mcp.json and copies CLAUDE.md template.")
+    print("  This creates .mcp.json and copies engram docs as CLAUDE-ENGRAM.md.")
 
     print("\nOption 3: Create .mcp.json manually")
     print("  Create a file named .mcp.json in your project root with:")
