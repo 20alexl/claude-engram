@@ -1515,26 +1515,36 @@ def reminder_for_bash(
                     is_full_suite = True
                 break
 
-    # Inline tests: `python tests/foo.py`, `python bench_X.py`, `python test_X.py`
-    if not is_full_suite and first_cmd.startswith(("python ", "py ", "python3 ")):
-        # Extract target file
-        parts = first_cmd.split(maxsplit=1)
-        if len(parts) > 1:
-            target = parts[1].split()[0] if parts[1] else ""
-            name = target.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
-            is_inline_test = (
-                name.startswith(("test_", "bench_", "run_"))
-                or name.endswith(("_test.py", "_tests.py"))
-                or "/tests/" in target.replace("\\", "/")
-                or "/test/" in target.replace("\\", "/")
-            )
-            if is_inline_test:
-                is_full_suite = True
-
     # Custom runners: make check, make tests, ./run_tests.sh, etc.
     if not is_full_suite:
         custom_runners = ["make check", "make tests", "./run_tests", "run_tests.sh"]
         if any(p in first_cmd for p in custom_runners):
+            is_full_suite = True
+
+    # Detect inline tests by OUTPUT, not command.
+    # A "test run" is any command whose output has test markers:
+    # - "X passed" / "X failed" / "X errors"
+    # - "OK" (unittest)
+    # - "PASS" / "FAIL" headers
+    # - "AssertionError" with line number pattern
+    # - "collected N items" (pytest)
+    # This catches: python bench_X.py, python -m tests.run, python script.py
+    # that contains assertions, etc. Skips probes like `python -c "print(...)"`.
+    if not is_full_suite and output:
+        output_lower = output.lower()
+        test_markers = [
+            re.search(r"\d+ passed", output_lower),
+            re.search(r"\d+ failed", output_lower),
+            re.search(r"\d+ errors?\b", output_lower),
+            re.search(r"collected \d+ items?", output_lower),
+            re.search(r"\nok\s*$", output_lower),
+            "assertionerror" in output_lower,
+            "=== failures ===" in output_lower,
+            "test session starts" in output_lower,
+            re.search(r"\[pass\]|\[fail\]", output_lower),
+            re.search(r"^\s*ran \d+ tests?", output_lower, re.M),
+        ]
+        if any(test_markers):
             is_full_suite = True
 
     if is_full_suite:
