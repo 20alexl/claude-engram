@@ -848,12 +848,12 @@ def get_handoff_data(project_dir: str = "") -> dict:
 
 def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
     """
-    Check if we're in a loop (editing same file repeatedly).
+    Check if we're in a death spiral (editing same file, tests failing).
 
-    SMART DETECTION:
-    - If tests are PASSING: 3+ edits = iterative improvement (not a loop)
-    - If tests are FAILING: 3+ edits = death spiral (LOOP!)
-    - No test data: 3+ edits = potential loop (warn)
+    Only warns when there's evidence of actual trouble:
+    - Tests have run AND are failing AND file edited 3+ times = spiral
+    - No tests run yet but file edited 8+ times = high edit count, warn
+    - Otherwise silent
 
     Returns:
         (in_loop, edit_count)
@@ -862,25 +862,26 @@ def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
     file_edits = loop_status.get("file_edit_counts", {})
     test_results = loop_status.get("recent_test_results", [])
 
-    if file_path and file_path in file_edits:
-        count = file_edits[file_path]
-        if count >= 3:
-            # SMART: Check test context
-            # If last 2 tests passed, this is iterative improvement, not a loop
-            if len(test_results) >= 2:
-                last_two_passed = all(t.get("passed") for t in test_results[-2:])
-                if last_two_passed:
-                    # Tests passing = iterative improvement, not a loop
-                    return (False, count)
-                else:
-                    # Tests failing = death spiral!
-                    return (True, count)
-            # No test data = assume potential loop
-            return (True, count)
+    if not file_path or file_path not in file_edits:
+        return (False, 0)
 
-    # Loop detection is per-file only. Editing many different files
-    # during a refactor is normal, not a loop.
-    return (False, 0)
+    count = file_edits[file_path]
+
+    # Only warn with evidence of trouble
+    if len(test_results) >= 1:
+        # Tests have run. Check if any recent failures.
+        recent = test_results[-3:]
+        last_failing = not recent[-1].get("passed", True)
+        if last_failing and count >= 3:
+            return (True, count)  # Death spiral — tests failing, still editing
+        # Tests passing or mixed = iterative work, not a spiral
+        return (False, count)
+
+    # No test runs yet. Only warn if edit count is very high (building without testing).
+    if count >= 8:
+        return (True, count)
+
+    return (False, count)
 
 
 # NOTE: check_risky_file and check_recent_thinker_usage REMOVED
@@ -925,13 +926,23 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
         if file_pattern.search(mistake["content"].lower()):
             results["past_mistakes"].append(mistake["content"])
 
-    # Check loop detector
+    # Check loop detector — use test-aware check (not just edit count)
     loop_status = get_loop_status()
     edits = loop_status.get("edit_counts", {})
     edit_count = edits.get(file_path, 0) or edits.get(file_name, 0)
+    test_results = loop_status.get("recent_test_results", [])
 
-    if edit_count >= 5:
-        results["loop_warnings"].append(f"{edit_count} edits without passing tests")
+    # Only warn with evidence of trouble
+    if test_results:
+        last_failing = not test_results[-1].get("passed", True)
+        if last_failing and edit_count >= 3:
+            results["loop_warnings"].append(
+                f"{edit_count} edits to {file_name}, tests still failing"
+            )
+    elif edit_count >= 8:
+        results["loop_warnings"].append(
+            f"{edit_count} edits to {file_name} without running tests"
+        )
 
     # Check scope guard
     scope_status = get_scope_status()
@@ -1492,8 +1503,6 @@ def reminder_for_bash(
         ]
         for cmd in test_commands:
             if first_cmd.startswith(cmd):
-                # If command is just "pytest" or "pytest -v" etc (no path), it's full suite
-                # But "pytest tests/test_foo.py" is targeted
                 parts = first_cmd.split()
                 cmd_parts = cmd.split()
                 remaining = parts[len(cmd_parts) :]
@@ -1505,6 +1514,28 @@ def reminder_for_bash(
                 if not has_path:
                     is_full_suite = True
                 break
+
+    # Inline tests: `python tests/foo.py`, `python bench_X.py`, `python test_X.py`
+    if not is_full_suite and first_cmd.startswith(("python ", "py ", "python3 ")):
+        # Extract target file
+        parts = first_cmd.split(maxsplit=1)
+        if len(parts) > 1:
+            target = parts[1].split()[0] if parts[1] else ""
+            name = target.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+            is_inline_test = (
+                name.startswith(("test_", "bench_", "run_"))
+                or name.endswith(("_test.py", "_tests.py"))
+                or "/tests/" in target.replace("\\", "/")
+                or "/test/" in target.replace("\\", "/")
+            )
+            if is_inline_test:
+                is_full_suite = True
+
+    # Custom runners: make check, make tests, ./run_tests.sh, etc.
+    if not is_full_suite:
+        custom_runners = ["make check", "make tests", "./run_tests", "run_tests.sh"]
+        if any(p in first_cmd for p in custom_runners):
+            is_full_suite = True
 
     if is_full_suite:
         passed = exit_code == "0"
