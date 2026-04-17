@@ -2895,8 +2895,40 @@ def main():
             temp = latest.with_suffix(".json.tmp")
             temp.write_text(json_module.dumps(checkpoint, indent=2))
             temp.replace(latest)
-            # PreCompact has no hookSpecificOutput in Claude Code's schema
-            # The value is the checkpoint file saved above
+
+            # Also save a per-project handoff so SessionStart after compaction
+            # picks up the right context (not stale handoff from different project)
+            handoff = {
+                "created": time.time(),
+                "summary": f"Context compacted ({trigger}). {len(files_edited)} files were being edited: "
+                           + ", ".join(Path(f).name for f in files_edited[:5]),
+                "next_steps": ["Continue work from before compaction"],
+                "context_needed": [],
+                "warnings": [],
+                "project_path": project_dir,
+                "files_in_progress": files_edited[:10],
+                "trigger": trigger,
+            }
+
+            try:
+                norm = _normalize_path(project_dir)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+                    pdir.mkdir(parents=True, exist_ok=True)
+                    hf = pdir / "latest_handoff.json"
+                    temp = hf.with_suffix(".json.tmp")
+                    temp.write_text(json_module.dumps(handoff, indent=2))
+                    temp.replace(hf)
+            except Exception:
+                pass
+
+            # Global fallback
+            hf = checkpoint_dir / "latest_handoff.json"
+            temp = hf.with_suffix(".json.tmp")
+            temp.write_text(json_module.dumps(handoff, indent=2))
+            temp.replace(hf)
         except Exception:
             pass
 

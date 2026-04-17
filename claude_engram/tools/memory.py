@@ -3017,14 +3017,19 @@ class HotMemoryReader:
                 if has_file_match or has_content_match:
                     file_relevant.append(entry)
 
-            # Prioritize file-relevant memories, then add rules to fill
-            # Cap rules at 2 to avoid flooding every edit with 5 rules
-            result = file_relevant[:limit]
-            remaining = limit - len(result)
-            if remaining > 0:
-                result.extend(rules[: min(remaining, 2)])
+            # Only show rules when there's something file-specific to go with
+            # them. Dumping generic rules on every unrelated edit is noise —
+            # rules were already shown at SessionStart.
+            if file_relevant:
+                result = file_relevant[:limit]
+                # Add at most 1 rule as a gentle reminder alongside file context
+                remaining = limit - len(result)
+                if remaining > 0 and rules:
+                    result.extend(rules[:1])
+                return result
 
-            return result
+            # No file-relevant memories — return nothing (silent)
+            return []
 
         return [e for e, _ in scored[:limit]]
 
