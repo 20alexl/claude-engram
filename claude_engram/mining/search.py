@@ -1,8 +1,13 @@
 """
 Cross-session search — find conversations, decisions, and context across sessions.
 
-Builds a lightweight embedding index over conversation chunks (user messages +
-assistant text blocks). Stored as session_embeddings.npy + session_embeddings_index.json.
+Builds an embedding index over conversation chunks:
+  - User messages (questions, directives)
+  - Assistant text blocks (explanations, decisions)
+  - Tool content: bash commands + output, edit summaries, error tracebacks, file reads
+  - Subagent conversations (Explore, Plan, code-reviewer, etc.)
+
+Stored as session_embeddings.npy + session_embeddings_index.json.
 
 Search modes:
   - semantic: AllMiniLM cosine similarity (typo-tolerant)
@@ -21,7 +26,10 @@ from claude_engram.mining.jsonl_reader import (
     iter_messages,
     extract_user_text,
     extract_assistant_text,
+    extract_tool_uses,
+    extract_tool_results,
     extract_file_edits,
+    extract_bash_commands,
     get_timestamp,
     get_session_id,
 )
@@ -35,7 +43,7 @@ class SearchResult:
     score: float  # Relevance score (0-1)
     session_id: str = ""
     timestamp: str = ""
-    msg_type: str = ""  # "user" | "assistant"
+    msg_type: str = ""  # "user" | "assistant" | "subagent" | "tool" | "subagent_tool"
     surrounding: list[str] = field(default_factory=list)  # Context messages
     related_files: list[str] = field(default_factory=list)
 
@@ -51,6 +59,161 @@ class ChunkIndex:
     msg_type: str  # "user" | "assistant"
     preview: str  # First 200 chars of text
     related_files: list[str] = field(default_factory=list)
+
+
+def _extract_tool_chunks(
+    prev_msg: dict,
+    curr_msg: dict,
+    session_id: str,
+    jsonl_file: str,
+    msg_offset: int,
+    ts: str,
+) -> list[tuple["ChunkIndex", str]]:
+    """
+    Extract searchable chunks from tool_use (prev_msg) + tool_result (curr_msg) pairs.
+
+    Returns list of (ChunkIndex, embed_text) tuples.
+    """
+    chunks = []
+
+    # Get tool uses from the assistant message
+    tool_uses = extract_tool_uses(prev_msg) if prev_msg else []
+    if not tool_uses:
+        return chunks
+
+    # Get tool results from the current user message
+    tool_results = extract_tool_results(curr_msg)
+
+    # Build result text (stderr, stdout, error content)
+    result_text = ""
+    is_error = False
+    for tr in tool_results:
+        if isinstance(tr, dict):
+            if tr.get("is_error"):
+                is_error = True
+            content = tr.get("content", "")
+            if isinstance(content, str):
+                result_text = content
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        result_text = block.get("content", "") or block.get("text", "")
+                        if block.get("is_error"):
+                            is_error = True
+                        if result_text:
+                            break
+
+    # Also check toolUseResult field (bash results have stdout/stderr)
+    tur = curr_msg.get("toolUseResult", {})
+    if isinstance(tur, dict):
+        stdout = tur.get("stdout", "")
+        stderr = tur.get("stderr", "")
+        if stderr:
+            result_text = stderr
+            is_error = True
+        elif stdout and not result_text:
+            result_text = stdout
+
+    for tool in tool_uses:
+        name = tool["name"]
+        inp = tool.get("input", {})
+
+        if name == "Bash":
+            cmd = inp.get("command", "")
+            if not cmd or len(cmd) < 5:
+                continue
+            # Truncate command to first meaningful line
+            cmd_short = cmd.split("\n")[0][:150]
+
+            if is_error and result_text:
+                # Error output — high value, index the error
+                error_lines = result_text.strip().split("\n")
+                # Take first + last few lines (traceback pattern)
+                if len(error_lines) > 8:
+                    summary = "\n".join(error_lines[:3] + ["..."] + error_lines[-3:])
+                else:
+                    summary = "\n".join(error_lines[:8])
+                preview = f"[bash error] {cmd_short}\n{summary}"
+            elif result_text:
+                # Normal output — take first and last lines
+                out_lines = result_text.strip().split("\n")
+                if len(out_lines) > 6:
+                    summary = "\n".join(out_lines[:3] + ["..."] + out_lines[-2:])
+                else:
+                    summary = "\n".join(out_lines[:5])
+                preview = f"[bash] {cmd_short}\n{summary}"
+            else:
+                preview = f"[bash] {cmd_short}"
+
+            if len(preview) < 20:
+                continue
+
+            chunks.append((
+                ChunkIndex(
+                    session_id=session_id,
+                    jsonl_file=jsonl_file,
+                    msg_offset=msg_offset,
+                    timestamp=ts,
+                    msg_type="tool",
+                    preview=preview[:300],
+                ),
+                preview[:500],
+            ))
+
+        elif name in ("Edit", "Write"):
+            fp = inp.get("file_path", "")
+            if not fp:
+                continue
+            fname = Path(fp).name
+            old = inp.get("old_string", "")
+            new = inp.get("new_string", "")
+            content = inp.get("content", "")
+
+            if old and new:
+                # Edit — summarize what changed
+                preview = f"[edit] {fname}: replaced {old[:80]} → {new[:80]}"
+            elif content:
+                # Write — first meaningful line
+                first_lines = content.strip().split("\n")[:3]
+                preview = f"[write] {fname}: {' '.join(first_lines)[:120]}"
+            else:
+                preview = f"[edit] {fname}"
+
+            if is_error and result_text:
+                preview += f"\n  ERROR: {result_text[:100]}"
+
+            chunks.append((
+                ChunkIndex(
+                    session_id=session_id,
+                    jsonl_file=jsonl_file,
+                    msg_offset=msg_offset,
+                    timestamp=ts,
+                    msg_type="tool",
+                    preview=preview[:300],
+                    related_files=[fname],
+                ),
+                preview[:500],
+            ))
+
+        elif name == "Read":
+            fp = inp.get("file_path", "")
+            if fp:
+                fname = Path(fp).name
+                preview = f"[read] {fname}"
+                chunks.append((
+                    ChunkIndex(
+                        session_id=session_id,
+                        jsonl_file=jsonl_file,
+                        msg_offset=msg_offset,
+                        timestamp=ts,
+                        msg_type="tool",
+                        preview=preview,
+                        related_files=[fname],
+                    ),
+                    preview,
+                ))
+
+    return chunks
 
 
 def build_session_embeddings(
@@ -109,6 +272,8 @@ def build_session_embeddings(
             continue
 
         msg_idx = 0
+        prev_msg = None
+        jfile = session_meta.get("jsonl_file", "")
         for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
             msg_idx += 1
             ts = get_timestamp(msg)
@@ -118,7 +283,7 @@ def build_session_embeddings(
             if user_text and 15 < len(user_text) < 1000:
                 chunk = ChunkIndex(
                     session_id=session_id,
-                    jsonl_file=session_meta.get("jsonl_file", ""),
+                    jsonl_file=jfile,
                     msg_offset=msg_idx,
                     timestamp=ts,
                     msg_type="user",
@@ -131,14 +296,13 @@ def build_session_embeddings(
             for text in extract_assistant_text(msg):
                 if len(text) < 50:
                     continue
-                # Skip boilerplate (tool results, code blocks dominate)
                 if text.startswith("```") or text.startswith("{"):
                     continue
 
                 files = extract_file_edits(msg)
                 chunk = ChunkIndex(
                     session_id=session_id,
-                    jsonl_file=session_meta.get("jsonl_file", ""),
+                    jsonl_file=jfile,
                     msg_offset=msg_idx,
                     timestamp=ts,
                     msg_type="assistant",
@@ -148,17 +312,28 @@ def build_session_embeddings(
                 new_chunks.append(chunk)
                 new_texts.append(text[:500])
 
+            # Tool chunks: pair previous assistant (tool_use) with current user (tool_result)
+            if prev_msg and msg.get("type") == "user":
+                for tool_chunk, tool_text in _extract_tool_chunks(
+                    prev_msg, msg, session_id, jfile, msg_idx, ts,
+                ):
+                    new_chunks.append(tool_chunk)
+                    new_texts.append(tool_text)
+
+            prev_msg = msg
+
         # Also scan subagent conversations for this session
-        session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(".jsonl", "")
+        session_dir = jsonl_dir / jfile.replace(".jsonl", "")
         subagents_dir = session_dir / "subagents"
         if subagents_dir.exists():
             for sub_jsonl in subagents_dir.glob("*.jsonl"):
                 sub_msg_idx = 0
+                sub_prev_msg = None
                 for _, msg in iter_messages(sub_jsonl, types={"user", "assistant"}):
                     sub_msg_idx += 1
                     ts = get_timestamp(msg)
 
-                    # Only assistant text from subagents (their findings/analysis)
+                    # Assistant text from subagents (their findings/analysis)
                     for text in extract_assistant_text(msg):
                         if len(text) < 50 or text.startswith("```") or text.startswith("{"):
                             continue
@@ -174,6 +349,17 @@ def build_session_embeddings(
                         )
                         new_chunks.append(chunk)
                         new_texts.append(text[:500])
+
+                    # Tool chunks from subagents too
+                    if sub_prev_msg and msg.get("type") == "user":
+                        for tool_chunk, tool_text in _extract_tool_chunks(
+                            sub_prev_msg, msg, session_id, sub_jsonl.name, sub_msg_idx, ts,
+                        ):
+                            tool_chunk.msg_type = "subagent_tool"
+                            new_chunks.append(tool_chunk)
+                            new_texts.append(tool_text)
+
+                    sub_prev_msg = msg
 
     if not new_texts:
         return 0
