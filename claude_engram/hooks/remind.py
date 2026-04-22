@@ -790,6 +790,46 @@ def get_scope_status() -> dict:
         return {}
 
 
+def _get_session_context_for_handoff(project_dir: str) -> dict:
+    """Pull recent decisions and mistakes from memory for richer handoffs."""
+    context = {"decisions": [], "mistakes": [], "prompts": 0, "tests": 0}
+    try:
+        state = load_state()
+        context["prompts"] = state.get("prompts_this_session", 0)
+        context["tests"] = state.get("test_runs_this_session", 0)
+
+        session_start = state.get("last_session_start", 0)
+        if not session_start:
+            return context
+
+        norm = _normalize_path(project_dir)
+        manifest = _get_manifest()
+        proj_info = manifest.get("projects", {}).get(norm)
+        if not proj_info:
+            return context
+
+        pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+        mem_file = pdir / "memory.json"
+        if not mem_file.exists():
+            return context
+
+        import json as json_mod
+        memories = json_mod.loads(mem_file.read_text()).get("entries", [])
+        for m in memories:
+            created = m.get("created_at", 0)
+            if created < session_start:
+                continue
+            cat = m.get("category", "")
+            content = m.get("content", "")[:150]
+            if cat == "decision" and len(context["decisions"]) < 5:
+                context["decisions"].append(content)
+            elif cat == "mistake" and len(context["mistakes"]) < 3:
+                context["mistakes"].append(content)
+    except Exception:
+        pass
+    return context
+
+
 def get_checkpoint_data() -> dict:
     """Load the latest checkpoint data if it exists."""
     checkpoint_file = (
@@ -2937,17 +2977,35 @@ def main():
             temp.write_text(json_module.dumps(checkpoint, indent=2))
             temp.replace(latest)
 
-            # Also save a per-project handoff so SessionStart after compaction
-            # picks up the right context (not stale handoff from different project)
+            # Build rich handoff with session context
+            ctx = _get_session_context_for_handoff(project_dir)
+            summary_parts = [f"Context compacted ({trigger})."]
+            if files_edited:
+                summary_parts.append(
+                    f"{len(files_edited)} files being edited: "
+                    + ", ".join(Path(f).name for f in files_edited[:5])
+                )
+            if ctx["decisions"]:
+                summary_parts.append(
+                    f"Decisions this session: " + "; ".join(ctx["decisions"])
+                )
+            if ctx["mistakes"]:
+                summary_parts.append(
+                    f"Errors hit: " + "; ".join(ctx["mistakes"])
+                )
+            if ctx["prompts"]:
+                summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests this session.")
+
             handoff = {
                 "created": time.time(),
-                "summary": f"Context compacted ({trigger}). {len(files_edited)} files were being edited: "
-                           + ", ".join(Path(f).name for f in files_edited[:5]),
+                "summary": " ".join(summary_parts),
                 "next_steps": ["Continue work from before compaction"],
                 "context_needed": [],
                 "warnings": [],
                 "project_path": project_dir,
                 "files_in_progress": files_edited[:10],
+                "decisions": ctx["decisions"],
+                "mistakes": ctx["mistakes"],
                 "trigger": trigger,
             }
 
@@ -3001,6 +3059,18 @@ def main():
                 lines.append(
                     f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
                 )
+
+            # Show auto-saved handoff context
+            handoff = get_handoff_data(project_dir)
+            if handoff:
+                decisions = handoff.get("decisions", [])
+                files = handoff.get("files_in_progress", [])
+                if files:
+                    lines.append(
+                        f"Files in progress: {', '.join(Path(f).name for f in files[:5])}"
+                    )
+                if decisions:
+                    lines.append(f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}")
 
             # PostCompact has no hookSpecificOutput in Claude Code's schema.
             # Print as plain stdout — Claude Code shows this as hook output.
@@ -3226,13 +3296,21 @@ def main():
                 files_edited = state.get("files_edited_this_session", [])
 
                 if files_edited or last_message:
-                    # Save a lightweight handoff for next session
                     checkpoint_dir = Path.home() / ".claude_engram" / "checkpoints"
                     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
+                    ctx = _get_session_context_for_handoff(project_dir)
+                    summary_parts = [f"Session stopped. {len(files_edited)} files edited."]
+                    if ctx["decisions"]:
+                        summary_parts.append(
+                            "Decisions: " + "; ".join(ctx["decisions"])
+                        )
+                    if ctx["prompts"]:
+                        summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests.")
+
                     handoff = {
                         "created": time.time(),
-                        "summary": f"Session stopped. {len(files_edited)} files edited.",
+                        "summary": " ".join(summary_parts),
                         "next_steps": ["Review what was in progress"],
                         "context_needed": [],
                         "warnings": [],
@@ -3241,6 +3319,8 @@ def main():
                             last_message[:300] if last_message else ""
                         ),
                         "files_in_progress": files_edited[:10],
+                        "decisions": ctx["decisions"],
+                        "mistakes": ctx["mistakes"],
                     }
 
                     # Save per-project (preferred) + global fallback

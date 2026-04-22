@@ -360,7 +360,7 @@ def search_sessions(
         else:
             score = keyword_scores[i]
 
-        if score > 0.1:
+        if score > 0.2:
             results.append(
                 SearchResult(
                     chunk_text=chunk.get("preview", ""),
