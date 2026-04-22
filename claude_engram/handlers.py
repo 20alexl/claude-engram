@@ -1965,12 +1965,13 @@ class Handlers:
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "embed_all":
-            count = self.memory.embed_all_memories(project_path)
+            force = arguments.get("force", False)
+            count = self.memory.embed_all_memories(project_path, force=force)
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
                 reasoning=(
-                    f"Embedded {count} memories"
+                    f"{'Rebuilt' if force else 'Embedded'} {count} memories"
                     if count
                     else "All memories already embedded (or scorer server not running)"
                 ),
