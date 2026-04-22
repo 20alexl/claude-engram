@@ -535,7 +535,7 @@ def test_tool_chunk_extraction() -> list[tuple[str, bool, str]]:
             chunks[0][0].preview[:80],
         ))
 
-    # Read tool (just file path)
+    # Read tool — should be skipped (low search value)
     read_assistant = json.loads(_assistant_msg(
         "Reading config.", session_id,
         tool_use={"name": "Read", "input": {"file_path": "/project/config.yaml"}},
@@ -543,16 +543,10 @@ def test_tool_chunk_extraction() -> list[tuple[str, bool, str]]:
     read_result = json.loads(_tool_result_msg("key: value", session_id))
     chunks = _extract_tool_chunks(read_assistant, read_result, session_id, "test.jsonl", 4, _ts())
     results.append((
-        f"Read chunk extracted: {len(chunks)}",
-        len(chunks) == 1,
-        "",
+        "Read tool skipped (no chunk)",
+        len(chunks) == 0,
+        f"got {len(chunks)}" if chunks else "",
     ))
-    if chunks:
-        results.append((
-            "Read preview is [read] filename",
-            chunks[0][0].preview == "[read] config.yaml",
-            chunks[0][0].preview,
-        ))
 
     # Non-tool message pair should produce nothing
     plain_user = json.loads(_user_msg("Just a question", session_id))

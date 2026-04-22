@@ -195,23 +195,8 @@ def _extract_tool_chunks(
                 preview[:500],
             ))
 
-        elif name == "Read":
-            fp = inp.get("file_path", "")
-            if fp:
-                fname = Path(fp).name
-                preview = f"[read] {fname}"
-                chunks.append((
-                    ChunkIndex(
-                        session_id=session_id,
-                        jsonl_file=jsonl_file,
-                        msg_offset=msg_offset,
-                        timestamp=ts,
-                        msg_type="tool",
-                        preview=preview,
-                        related_files=[fname],
-                    ),
-                    preview,
-                ))
+        # Read tools skipped — "[read] filename" has near-zero search value
+        # and bloats the index. File paths are captured in related_files on edits.
 
     return chunks
 
