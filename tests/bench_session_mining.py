@@ -458,6 +458,114 @@ def test_incremental_processing() -> list[tuple[str, bool, str]]:
     return results
 
 
+def test_tool_chunk_extraction() -> list[tuple[str, bool, str]]:
+    """Test that tool_use/tool_result pairs produce searchable chunks."""
+    results = []
+
+    from claude_engram.mining.search import _extract_tool_chunks
+
+    session_id = _make_session_id()
+
+    # Bash command with output
+    assistant = json.loads(_assistant_msg(
+        "Running tests.", session_id,
+        tool_use={"name": "Bash", "input": {"command": "pytest tests/ -v"}},
+    ))
+    user_result = json.loads(_tool_result_msg(
+        "PASSED: 5 tests\nFAILED: 2 tests\ntest_auth.py::test_login FAILED",
+        session_id,
+    ))
+    chunks = _extract_tool_chunks(assistant, user_result, session_id, "test.jsonl", 1, _ts())
+    results.append((
+        f"Bash chunk extracted: {len(chunks)}",
+        len(chunks) == 1,
+        f"got {len(chunks)}" if len(chunks) != 1 else "",
+    ))
+    if chunks:
+        preview = chunks[0][0].preview
+        results.append((
+            "Bash preview has command",
+            "pytest" in preview,
+            preview[:80],
+        ))
+        results.append((
+            "Bash chunk type is 'tool'",
+            chunks[0][0].msg_type == "tool",
+            "",
+        ))
+
+    # Bash error
+    error_result = json.loads(_tool_result_msg(
+        "TypeError: expected str got int\n  File auth.py, line 42\n  in validate_token",
+        session_id, is_error=True,
+    ))
+    chunks = _extract_tool_chunks(assistant, error_result, session_id, "test.jsonl", 2, _ts())
+    if chunks:
+        results.append((
+            "Error preview captured",
+            "TypeError" in chunks[0][0].preview,
+            "",
+        ))
+
+    # Edit tool
+    edit_assistant = json.loads(_assistant_msg(
+        "Fixing auth.", session_id,
+        tool_use={"name": "Edit", "input": {
+            "file_path": "/project/src/auth.py",
+            "old_string": "def validate(token):",
+            "new_string": "def validate(token: str) -> bool:",
+        }},
+    ))
+    edit_result = json.loads(_tool_result_msg("File edited.", session_id))
+    chunks = _extract_tool_chunks(edit_assistant, edit_result, session_id, "test.jsonl", 3, _ts())
+    results.append((
+        f"Edit chunk extracted: {len(chunks)}",
+        len(chunks) == 1,
+        "",
+    ))
+    if chunks:
+        results.append((
+            "Edit has file in related_files",
+            "auth.py" in chunks[0][0].related_files,
+            "",
+        ))
+        results.append((
+            "Edit preview has old→new",
+            "validate" in chunks[0][0].preview,
+            chunks[0][0].preview[:80],
+        ))
+
+    # Read tool (just file path)
+    read_assistant = json.loads(_assistant_msg(
+        "Reading config.", session_id,
+        tool_use={"name": "Read", "input": {"file_path": "/project/config.yaml"}},
+    ))
+    read_result = json.loads(_tool_result_msg("key: value", session_id))
+    chunks = _extract_tool_chunks(read_assistant, read_result, session_id, "test.jsonl", 4, _ts())
+    results.append((
+        f"Read chunk extracted: {len(chunks)}",
+        len(chunks) == 1,
+        "",
+    ))
+    if chunks:
+        results.append((
+            "Read preview is [read] filename",
+            chunks[0][0].preview == "[read] config.yaml",
+            chunks[0][0].preview,
+        ))
+
+    # Non-tool message pair should produce nothing
+    plain_user = json.loads(_user_msg("Just a question", session_id))
+    chunks = _extract_tool_chunks(plain_user, plain_user, session_id, "test.jsonl", 5, _ts())
+    results.append((
+        "Non-tool pair produces no chunks",
+        len(chunks) == 0,
+        "",
+    ))
+
+    return results
+
+
 def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
     """Test that test failures link to recently-edited files."""
     results = []
@@ -538,7 +646,8 @@ def main():
         ("7. Session Index", test_session_index),
         ("8. Index Performance", test_index_performance),
         ("9. Incremental Processing", test_incremental_processing),
-        ("10. Post-Test File Linking", test_post_test_file_linking),
+        ("10. Tool Chunk Extraction", test_tool_chunk_extraction),
+        ("11. Post-Test File Linking", test_post_test_file_linking),
     ]
 
     for suite_name, test_fn in test_suites:
