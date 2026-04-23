@@ -47,6 +47,32 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 | decision | No | Auto from prompts + session mining |
 | discovery | No | Manual |
 
+## Context Protection
+- `context(checkpoint_save, ...)` — save task state for compaction/session recovery
+- `context(checkpoint_restore)` — restore last checkpoint
+- `context(handoff_create, ...)` — create handoff for next session
+- `context(handoff_get)` — retrieve latest handoff
+
+**IMPORTANT: Array parameters must be actual arrays, not stringified JSON.**
+
+Correct:
+```
+context(
+  operation="checkpoint_save",
+  task_description="Fixing auth module",
+  current_step="Step 3: token validation",
+  completed_steps=["Step 1: added middleware", "Step 2: wrote tests"],
+  pending_steps=["Step 3: token validation", "Step 4: deploy"],
+  files_involved=["auth.py", "middleware.py"],
+  project_path="/path/to/project"
+)
+```
+
+Wrong (will fail):
+```
+completed_steps="[\"Step 1\", \"Step 2\"]"   # string, not array!
+```
+
 ## Key Behaviors
 - Rules cascade from workspace to sub-projects
 - Only file-relevant memories inject before edits (no generic noise)

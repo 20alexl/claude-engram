@@ -93,10 +93,34 @@ work(operation="log_decision", decision="What you chose", reason="Why", alternat
 
 ### Context Protection
 
+**Array parameters must be actual JSON arrays, not stringified JSON strings.**
+
 ```python
-context(operation="checkpoint_save", task_description="...", pending_steps=["..."])
-context(operation="handoff_create", handoff_summary="...", next_steps=["..."])
-context(operation="verify_completion", task="...", verification_steps=["..."])
+# Checkpoint — save task state before compaction or session end
+context(
+    operation="checkpoint_save",
+    task_description="Migrating auth to OAuth2",
+    current_step="Step 3: token refresh",
+    completed_steps=["Step 1: added provider config", "Step 2: login flow"],
+    pending_steps=["Step 3: token refresh", "Step 4: tests"],
+    files_involved=["auth.py", "oauth.py"],
+    project_path="/path/to/project"
+)
+
+# Restore last checkpoint
+context(operation="checkpoint_restore")
+
+# Handoff — richer session transition
+context(
+    operation="handoff_create",
+    handoff_summary="OAuth2 migration 60% done, token refresh next",
+    next_steps=["Implement refresh_token()", "Add integration tests"],
+    handoff_context_needed=["OAuth provider docs at docs/oauth.md"],
+    handoff_warnings=["Don't touch legacy auth.py — still used by mobile"]
+)
+
+# Verify completion
+context(operation="verify_completion", task="OAuth2 migration", verification_steps=["All tests pass", "Login flow works"])
 ```
 
 ## Memory System
