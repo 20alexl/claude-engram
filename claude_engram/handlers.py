@@ -2060,21 +2060,40 @@ class Handlers:
                 "Use: record_edit, record_test, check, status, or reset",
             )
 
+    @staticmethod
+    def _coerce_list(val) -> list:
+        """Coerce a value to a list — handles stringified JSON arrays from Claude."""
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str):
+            val = val.strip()
+            if val.startswith("["):
+                try:
+                    import json
+                    parsed = json.loads(val)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+            if val:
+                return [val]
+        return []
+
     async def handle_context(self, operation: str, args: dict) -> list[TextContent]:
         """Route context operations to existing handlers."""
         if operation == "checkpoint_save":
             return await self.context_checkpoint_save(
                 task_description=args.get("task_description", ""),
                 current_step=args.get("current_step", ""),
-                completed_steps=args.get("completed_steps", []),
-                pending_steps=args.get("pending_steps", []),
-                files_involved=args.get("files_involved", []),
+                completed_steps=self._coerce_list(args.get("completed_steps", [])),
+                pending_steps=self._coerce_list(args.get("pending_steps", [])),
+                files_involved=self._coerce_list(args.get("files_involved", [])),
                 key_decisions=args.get("key_decisions"),
                 blockers=args.get("blockers"),
                 project_path=args.get("project_path"),
                 handoff_summary=args.get("handoff_summary"),
-                handoff_context_needed=args.get("handoff_context_needed"),
-                handoff_warnings=args.get("handoff_warnings"),
+                handoff_context_needed=self._coerce_list(args.get("handoff_context_needed")),
+                handoff_warnings=self._coerce_list(args.get("handoff_warnings")),
             )
         elif operation == "checkpoint_restore":
             return await self.context_checkpoint_restore(args.get("task_id"))
@@ -2083,8 +2102,8 @@ class Handlers:
         elif operation == "verify_completion":
             return await self.verify_completion(
                 task=args.get("task", ""),
-                verification_steps=args.get("verification_steps", []),
-                evidence=args.get("evidence"),
+                verification_steps=self._coerce_list(args.get("verification_steps", [])),
+                evidence=self._coerce_list(args.get("evidence")),
             )
         elif operation == "instruction_add":
             return await self.context_instruction_add(
@@ -2097,9 +2116,9 @@ class Handlers:
         elif operation == "handoff_create":
             return await self.context_handoff_create(
                 summary=args.get("handoff_summary", ""),
-                next_steps=args.get("next_steps") or args.get("pending_steps", []),
-                context_needed=args.get("handoff_context_needed", []),
-                warnings=args.get("handoff_warnings"),
+                next_steps=self._coerce_list(args.get("next_steps") or args.get("pending_steps", [])),
+                context_needed=self._coerce_list(args.get("handoff_context_needed", [])),
+                warnings=self._coerce_list(args.get("handoff_warnings")),
                 project_path=args.get("project_path"),
             )
         elif operation == "handoff_get":
