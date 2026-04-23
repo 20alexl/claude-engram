@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from claude_engram.mining.session_index import build_project_index
+from claude_engram.mining.session_index import build_project_index, resolve_project_index
 from claude_engram.mining.search import build_session_embeddings
 
 
@@ -35,10 +35,30 @@ def main():
             (h / "session_embeddings.npy").unlink(missing_ok=True)
             print("Cleared existing index")
 
+    # Ensure scorer server is running (loads AllMiniLM model)
+    try:
+        from claude_engram.hooks.scorer_server import start_server_background, embed_via_server
+
+        start_server_background()
+        # Wait for server to be ready
+        for _ in range(30):
+            if embed_via_server("test"):
+                break
+            time.sleep(0.5)
+        else:
+            print("Scorer server failed to start")
+            return 1
+    except ImportError:
+        print("sentence-transformers not installed — needed for embeddings")
+        return 1
+
     t0 = time.time()
+    # Try direct build first, then workspace inheritance for sub-projects
     index = build_project_index(project_path)
     if not index:
-        print("No sessions found")
+        index = resolve_project_index(project_path)
+    if not index:
+        print("No sessions found (checked parent workspaces too)")
         return 1
 
     count = build_session_embeddings(project_path, index)
