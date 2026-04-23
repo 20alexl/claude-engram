@@ -93,8 +93,6 @@ work(operation="log_decision", decision="What you chose", reason="Why", alternat
 
 ### Context Protection
 
-**Array parameters must be actual JSON arrays, not stringified JSON strings.**
-
 ```python
 # Checkpoint — save task state before compaction or session end
 context(

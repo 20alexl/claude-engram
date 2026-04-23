@@ -53,9 +53,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `context(handoff_create, ...)` — create handoff for next session
 - `context(handoff_get)` — retrieve latest handoff
 
-**IMPORTANT: Array parameters must be actual arrays, not stringified JSON.**
-
-Correct:
+Example:
 ```
 context(
   operation="checkpoint_save",
@@ -66,11 +64,6 @@ context(
   files_involved=["auth.py", "middleware.py"],
   project_path="/path/to/project"
 )
-```
-
-Wrong (will fail):
-```
-completed_steps="[\"Step 1\", \"Step 2\"]"   # string, not array!
 ```
 
 ## Key Behaviors
