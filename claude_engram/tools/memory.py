@@ -217,6 +217,15 @@ class MemoryStore:
                 proj_data = json.loads(mem_file.read_text())
                 proj_data["project_path"] = norm_path
                 proj = ProjectMemory(**proj_data)
+                # Backfill any entries missing IDs (legacy data)
+                dirty = False
+                for entry in proj.entries:
+                    if not entry.id:
+                        entry.id = self._generate_entry_id(entry.content, project_path=norm_path)
+                        dirty = True
+                if dirty:
+                    self._projects[norm_path] = proj
+                    self._save_project(norm_path)
                 # Merge pending embeddings on load
                 self._merge_pending_embeddings(norm_path)
                 return proj
