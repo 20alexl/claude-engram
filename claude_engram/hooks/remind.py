@@ -2495,11 +2495,20 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 content += f" - Fix: {how_to_avoid}"
 
             # Extract entities: files, classes, functions from traceback
-            related_files = []
             tags = ["mistake", "bugfix"]
-            file_match = re.search(r'File ["\']([^"\']+\.py)["\']', output)
-            if file_match:
-                related_files.append(file_match.group(1))
+            # Extract ALL project files from traceback (not site-packages/venv)
+            related_files = []
+            seen_files = set()
+            for fm in re.finditer(r'File ["\']([^"\']+\.py)["\']', output):
+                fpath = fm.group(1)
+                if fpath.startswith("<"):
+                    continue
+                if re.search(r'[\\/](?:site-packages|dist-packages|venv|\.venv)[\\/]', fpath):
+                    continue
+                fname = Path(fpath).name
+                if fname not in seen_files:
+                    seen_files.add(fname)
+                    related_files.append(fname)
             # Extract class/object names from AttributeError
             obj_match = re.search(r"'(\w+)' object has no attribute", output)
             if obj_match:
