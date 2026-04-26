@@ -672,23 +672,46 @@ def run_extraction_pipeline(
     extractions_dir = hash_dir / "extractions"
     extractions_dir.mkdir(parents=True, exist_ok=True)
 
+    # Check scorer availability once before the loop
+    scorer_available = False
+    try:
+        from claude_engram.hooks.scorer_server import embed_via_server
+
+        scorer_available = bool(embed_via_server("test"))
+    except Exception:
+        pass
+
     total_extractions = 0
 
     for session_id, session_meta in index.sessions.items():
         extraction_file = extractions_dir / f"{session_id}.json"
+
         if extraction_file.exists():
-            continue
+            try:
+                existing = json.loads(extraction_file.read_text(encoding="utf-8"))
+                had_scorer = existing.get("scorer_available", False)
+                has_content = any(
+                    existing.get(k)
+                    for k in ("decisions", "mistakes", "approaches", "corrections")
+                )
+                # Skip if: has content AND (scorer was available OR still isn't)
+                # Reprocess if: scorer is now available but wasn't during original extraction
+                if has_content and (had_scorer or not scorer_available):
+                    continue
+                # Skip empty files from genuinely empty sessions (< 10 messages)
+                if not has_content and existing.get("message_count", 999) < 10:
+                    continue
+            except Exception:
+                pass
 
         jsonl_file = jsonl_dir / session_meta.get("jsonl_file", "")
         if not jsonl_file.exists():
             continue
 
-        # Collect messages from main session + subagents
         messages = []
         for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
             messages.append(msg)
 
-        # Include subagent conversations
         session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(".jsonl", "")
         subagents_dir = session_dir / "subagents"
         if subagents_dir.exists():
@@ -697,22 +720,15 @@ def run_extraction_pipeline(
                     messages.append(msg)
 
         if not messages:
-            # Write empty extraction to prevent re-processing
-            extraction_file.write_text("{}", encoding="utf-8")
+            # Mark genuinely empty sessions so we don't re-parse their JSONL every run
+            extraction_file.write_text(
+                json.dumps({"message_count": 0, "scorer_available": scorer_available}),
+                encoding="utf-8",
+            )
             continue
 
-        # Run unified extraction
         extractions = extract_all(messages)
         extractions.session_id = session_id
-
-        # Save per-session
-        extraction_data = asdict(extractions)
-        # Strip raw message data to keep files small
-        tmp = extraction_file.with_suffix(".json.tmp")
-        tmp.write_text(
-            json.dumps(extraction_data, indent=2, default=str), encoding="utf-8"
-        )
-        tmp.replace(extraction_file)
 
         count = (
             len(extractions.decisions)
@@ -720,9 +736,21 @@ def run_extraction_pipeline(
             + len(extractions.approaches)
             + len(extractions.corrections)
         )
+
+        extraction_data = asdict(extractions)
+        extraction_data["scorer_available"] = scorer_available
+        extraction_data["message_count"] = len(messages)
+
+        # Always write — even if count is 0. The scorer_available flag
+        # lets us know whether to retry when scorer comes back.
+        tmp = extraction_file.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps(extraction_data, indent=2, default=str), encoding="utf-8"
+        )
+        tmp.replace(extraction_file)
+
         total_extractions += count
 
-        # Feed high-value findings into MemoryStore
         if count > 0:
             _feed_to_memory_store(project_path, extractions, engram_storage_dir)
 

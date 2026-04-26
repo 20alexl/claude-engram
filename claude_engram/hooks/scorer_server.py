@@ -275,9 +275,9 @@ def start_server_background():
 def score_via_server(text: str) -> tuple[float, str]:
     """
     Score text by connecting to the persistent server.
-    Returns (score, extracted_text) or (0.0, "") if server unavailable.
+    Auto-starts server if not running. Returns (score, extracted_text) or (0.0, "") if unavailable.
     """
-    if not PORT_FILE.exists():
+    if not _ensure_server():
         return 0.0, ""
 
     try:
@@ -303,12 +303,32 @@ def score_via_server(text: str) -> tuple[float, str]:
         return 0.0, ""
 
 
+_auto_start_attempted = False
+
+
+def _ensure_server() -> bool:
+    """Auto-start scorer server if not running. Returns True if server is available."""
+    global _auto_start_attempted
+    if PORT_FILE.exists():
+        _auto_start_attempted = False
+        return True
+    if _auto_start_attempted:
+        return False
+    _auto_start_attempted = True
+    start_server_background()
+    for _ in range(20):
+        if PORT_FILE.exists():
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def embed_via_server(text: str) -> list[float]:
     """
     Get embedding vector for text from the persistent server.
-    Returns 384-dim list or empty list if server unavailable.
+    Auto-starts server if not running. Returns 384-dim list or empty list.
     """
-    if not PORT_FILE.exists():
+    if not _ensure_server():
         return []
 
     try:
@@ -320,7 +340,6 @@ def embed_via_server(text: str) -> list[float]:
         request = json.dumps({"embed": text}) + "\n"
         sock.sendall(request.encode("utf-8"))
 
-        # Embedding responses are larger (~3KB for 384 floats)
         data = b""
         while b"\n" not in data:
             chunk = sock.recv(8192)
@@ -345,7 +364,7 @@ def embed_batch_via_server(texts: list[str]) -> list[list[float]]:
     """
     if not texts:
         return []
-    if not PORT_FILE.exists():
+    if not _ensure_server():
         return [[] for _ in texts]
 
     try:

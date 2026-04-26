@@ -207,7 +207,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                     project_path, index, engram_storage_dir
                 )
             except ImportError:
-                pass  # extractors not built yet (Phase 2)
+                pass
 
         # Phase 3: Generate embeddings (if mode supports it)
         if mode in ("embed", "bootstrap", "full"):
