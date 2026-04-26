@@ -144,19 +144,20 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 - **Multi-project** — memories scoped per sub-project. Workspace rules cascade down.
 
 ### Session Mining
-- **Structural extraction** — analyzes conversation flow (error->fix sequences, user redirects, approach changes) instead of fragile regex.
-- **Semantic classification** — AllMiniLM scores candidates against decision/correction templates. Naturally typo-tolerant (100% in benchmarks).
+- **Structural extraction** — analyzes conversation flow (confirmations, redirects, error->fix sequences, approach changes) instead of template matching.
+- **Tool content indexing** — bash commands + output, edit diffs, and error tracebacks are searchable alongside conversation text.
 - **Batch embeddings** — 22x faster than individual calls via batched TCP protocol.
-- **Cross-session search** — 7310 conversation chunks indexed, 112ms semantic query.
+- **Cross-session search** — 44k+ conversation chunks indexed, semantic + keyword + hybrid search.
 - **Pattern detection** — recurring struggles, error patterns, edit correlations across sessions.
 - **Predictive context** — before edits, surfaces related files and likely errors from history.
 - **Cross-project learning** — aggregates patterns across all your projects.
 - **Retroactive bootstrap** — mines all existing session history on first install.
+- **Scorer auto-start** — AllMiniLM server starts on demand if not running. No silent degradation.
 
 ### Lifecycle
-- **Auto-captures decisions** from prompts via semantic + structural scoring.
-- **Auto-tracks mistakes** from any failed tool. Warns before repeat edits.
-- **Survives compaction** — checkpoints before, re-injects rules/mistakes/decisions after.
+- **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
+- **Auto-tracks mistakes** from any failed tool. Only logs errors in project files (filters transient noise). Warns before repeat edits.
+- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after.
 - **Edit loop detection** — flags when the same file is edited 3+ times without progress.
 
 ## Configuration
@@ -166,6 +167,17 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 | `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model (optional — only for scout_search, convention checking) |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | AllMiniLM server idle timeout (seconds) |
+
+## Reindexing
+
+If search quality is poor or you want to rebuild after an update:
+
+```bash
+python scripts/reindex.py "E:\workspace" --force            # rebuild search index
+python scripts/reindex.py "E:\workspace" --force --extract   # also re-extract decisions/mistakes
+```
+
+Or via MCP: `session_mine(operation="reindex", mode="bootstrap")`
 
 ## Documentation
 
