@@ -126,6 +126,19 @@ def _increment_tool_usage(state: dict, tool_name: str):
     state["tool_usage"][tool_name] = state["tool_usage"].get(tool_name, 0) + 1
 
 
+def _track_tool_duration(state: dict, tool_name: str, duration_ms: int):
+    """Track tool execution duration for session diagnostics."""
+    if "tool_durations" not in state:
+        state["tool_durations"] = {}
+    durations = state["tool_durations"]
+    if tool_name not in durations:
+        durations[tool_name] = {"count": 0, "total_ms": 0, "max_ms": 0}
+    d = durations[tool_name]
+    d["count"] += 1
+    d["total_ms"] += duration_ms
+    d["max_ms"] = max(d["max_ms"], duration_ms)
+
+
 def mark_session_started(project_dir: str):
     """Mark that session_start was called - resets some counters."""
     state = load_state()
@@ -136,6 +149,7 @@ def mark_session_started(project_dir: str):
     state["last_session_start"] = time.time()
     state["active_project"] = project_dir
     state["files_edited_this_session"] = []
+    state["tool_durations"] = {}
     _increment_tool_usage(state, "session_start")
     save_state(state)
 
@@ -792,11 +806,19 @@ def get_scope_status() -> dict:
 
 def _get_session_context_for_handoff(project_dir: str) -> dict:
     """Pull recent decisions and mistakes from memory for richer handoffs."""
-    context = {"decisions": [], "mistakes": [], "prompts": 0, "tests": 0}
+    context = {"decisions": [], "mistakes": [], "prompts": 0, "tests": 0, "slow_tools": []}
     try:
         state = load_state()
         context["prompts"] = state.get("prompts_this_session", 0)
         context["tests"] = state.get("test_runs_this_session", 0)
+
+        # Surface slow tools (>5s avg or >30s max)
+        for tool, d in state.get("tool_durations", {}).items():
+            avg = d["total_ms"] / d["count"] if d["count"] else 0
+            if avg > 5000 or d["max_ms"] > 30000:
+                context["slow_tools"].append(
+                    f"{tool}: {avg/1000:.1f}s avg, {d['max_ms']/1000:.1f}s max ({d['count']}x)"
+                )
 
         session_start = state.get("last_session_start", 0)
         if not session_start:
@@ -2699,16 +2721,17 @@ def main():
             print(result)
 
     elif hook_type == "bash_json":
-        # PostToolUse hooks need to output JSON with additionalContext to show in conversation
-        # NOTE: This only fires for SUCCESSFUL commands. Failed commands (exit != 0) don't trigger
-        # PostToolUse hooks. See: https://github.com/anthropics/claude-code/issues/6371
         import json as json_module
 
         try:
-            # Cross-platform stdin reading with timeout
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
                 data = json_module.loads(stdin_data)
+                duration_ms = data.get("duration_ms", 0)
+                if duration_ms:
+                    state = load_state()
+                    _track_tool_duration(state, "Bash", duration_ms)
+                    save_state(state)
                 command = data.get("tool_input", {}).get("command", "")
                 # tool_response is an object with stdout/stderr fields
                 tool_response = data.get("tool_response", {})
@@ -2775,14 +2798,17 @@ def main():
             pass  # Silent failure
 
     elif hook_type == "post_edit_json":
-        # PostToolUse hook for Edit/Write - auto-record edit and show confirmation
         import json as json_module
 
         try:
-            # Cross-platform stdin reading with timeout
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
                 data = json_module.loads(stdin_data)
+                duration_ms = data.get("duration_ms", 0)
+                if duration_ms:
+                    state = load_state()
+                    _track_tool_duration(state, "Edit", duration_ms)
+                    save_state(state)
                 file_path = data.get("tool_input", {}).get("file_path", "")
                 # Resolve sub-project from the file
                 if file_path:
@@ -2842,7 +2868,12 @@ def main():
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
                 data = json_module.loads(stdin_data)
+                duration_ms = data.get("duration_ms", 0)
                 tool_name = data.get("tool_name", "")
+                if duration_ms and tool_name:
+                    state = load_state()
+                    _track_tool_duration(state, tool_name, duration_ms)
+                    save_state(state)
                 tool_input = data.get("tool_input", {})
                 error_msg = data.get("error", "")
                 is_interrupt = data.get("is_interrupt", False)
@@ -3010,6 +3041,8 @@ def main():
                 )
             if ctx["prompts"]:
                 summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests this session.")
+            if ctx["slow_tools"]:
+                summary_parts.append("Slow tools: " + "; ".join(ctx["slow_tools"]))
 
             handoff = {
                 "created": time.time(),
@@ -3322,6 +3355,8 @@ def main():
                         )
                     if ctx["prompts"]:
                         summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests.")
+                    if ctx["slow_tools"]:
+                        summary_parts.append("Slow tools: " + "; ".join(ctx["slow_tools"]))
 
                     handoff = {
                         "created": time.time(),
