@@ -89,6 +89,12 @@ _DECISION_TEMPLATES = [
     "the better approach is",
     "we should change to",
     "going with this implementation",
+    "yes lets do that please",
+    "go with that option",
+    "ok change it to use this instead",
+    "no do it differently, use the other way",
+    "lets do it that way",
+    "yes please do it to the best ability",
 ]
 
 _CORRECTION_TEMPLATES = [
@@ -377,6 +383,8 @@ def _extract_corrections_structural(flow: list[FlowMessage]) -> list[Correction]
         text = fm.user_text.strip()
         if len(text) < 5 or len(text) > 500:
             continue
+        if text.startswith("<") or text.startswith("{"):
+            continue
 
         # Structural signals:
         # - Short user message (< 200 chars) = likely feedback/redirect
@@ -428,76 +436,104 @@ def _extract_corrections_structural(flow: list[FlowMessage]) -> list[Correction]
     return corrections
 
 
+_CONFIRM_PATTERN = re.compile(
+    r"^(yes|yeah|yep|ok|sure|do it|go ahead|lets? do|go with|proceed|approved?|confirmed?)\b",
+    re.I,
+)
+_REDIRECT_PATTERN = re.compile(
+    r"^(no|don'?t|stop|not that|instead|actually|switch to|use .+ instead|change .+ to)\b",
+    re.I,
+)
+_EXPLICIT_DECISION_PATTERN = re.compile(
+    r"(let'?s? (?:use|go with|switch to|do|try|change|make|keep)|from now on|always use|never use|we should|go with|use .+ instead)",
+    re.I,
+)
+
+
 def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
     """
-    Extract decisions from conversation flow.
+    Extract decisions from conversation flow using structural patterns.
 
-    Patterns:
-    1. User explicitly states a choice ("let's use X", "go with Y")
-    2. Assistant switches approach after discussion
-    3. Semantic scoring against decision templates
+    Primary: conversation structure (no scorer needed)
+      - User confirms assistant's proposal → decision is the proposal
+      - User redirects with "no, do X" → decision is the redirect
+      - User makes explicit choice → decision is the choice
+
+    Secondary: semantic scoring as bonus (needs scorer)
     """
     decisions = []
     seen = set()
 
-    # Phase 1: Structural pre-filter — find candidate texts
-    candidates = []  # (text, source, timestamp, files, reasoning)
+    def _add(content, ts, files, confidence, source, reasoning=""):
+        key = content[:50].lower()
+        if key in seen or len(content) < 10:
+            return
+        seen.add(key)
+        decisions.append(Decision(
+            content=content, reasoning=reasoning, timestamp=ts,
+            source=source, related_files=files, confidence=confidence,
+        ))
 
+    # Phase 1: Structural detection (works without scorer)
     for i, fm in enumerate(flow):
-        # User messages: directive messages (not questions, not tool results)
+        if fm.msg_type != "user" or not fm.user_text:
+            continue
+        text = fm.user_text.strip()
+        if text.startswith("<") or text.startswith("{"):
+            continue
+
+        # Find preceding assistant message
+        prev_proposal = ""
+        prev_files = []
+        for j in range(i - 1, max(i - 4, -1), -1):
+            pf = flow[j]
+            if pf.msg_type == "assistant":
+                for t in pf.assistant_texts:
+                    if len(t) > 30 and not t.startswith("<"):
+                        prev_proposal = t[:200]
+                        break
+                prev_files = pf.file_edits
+                break
+
+        # Pattern A: User confirms assistant proposal (must be substantive)
+        if _CONFIRM_PATTERN.match(text) and prev_proposal and len(prev_proposal) > 50:
+            _add(
+                f"(confirmed) {prev_proposal}",
+                fm.timestamp, prev_files, 0.7, "confirmation",
+            )
+
+        # Pattern B: User redirects
+        elif _REDIRECT_PATTERN.match(text) and len(text) > 10:
+            _add(
+                _summarize_decision(text),
+                fm.timestamp, prev_files, 0.75, "redirect",
+            )
+
+        # Pattern C: Explicit decision language
+        elif _EXPLICIT_DECISION_PATTERN.search(text):
+            _add(
+                _summarize_decision(text),
+                fm.timestamp, prev_files, 0.8, "explicit",
+            )
+
+    # Phase 2: Semantic scoring as bonus (catches decisions structural misses)
+    semantic_candidates = []
+    for i, fm in enumerate(flow):
         if fm.msg_type == "user" and fm.user_text:
             text = fm.user_text.strip()
-            if 15 < len(text) < 500 and not text.rstrip("?").endswith("?"):
-                candidates.append((text, "user", fm.timestamp, [], ""))
+            if 15 < len(text) < 500 and not text.startswith("<") and not text.startswith("{"):
+                if not text.rstrip("?").endswith("?"):
+                    semantic_candidates.append((text, fm.timestamp))
 
-        # Assistant thinking blocks only (much rarer, high signal)
-        # Skip assistant text — too many messages, low decision density
-        elif fm.msg_type == "assistant":
-            for thought in fm.thinking:
-                if len(thought) > 50:
-                    candidates.append(
-                        (
-                            thought[:300],
-                            "thinking",
-                            fm.timestamp,
-                            fm.file_edits,
-                            _extract_reasoning_from_text(thought),
-                        )
-                    )
-
-    if not candidates:
-        return []
-
-    # Phase 2: Batch semantic scoring (one pass)
-    candidate_texts = [c[0] for c in candidates]
-    scores = _batch_score(candidate_texts, "decisions", _DECISION_TEMPLATES)
-
-    # Phase 3: Threshold and extract
-    for (text, source, ts, files, reasoning), score in zip(candidates, scores):
-        threshold = 0.5 if source == "user" else 0.6
-        confidence_factor = (
-            1.0 if source == "user" else (0.9 if source == "thinking" else 0.8)
-        )
-
-        if score < threshold:
-            continue
-
-        content = _summarize_decision(text)
-        key = content[:50].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-
-        decisions.append(
-            Decision(
-                content=content,
-                reasoning=reasoning,
-                timestamp=ts,
-                source=source,
-                related_files=files,
-                confidence=min(score * confidence_factor, 1.0),
-            )
-        )
+    if semantic_candidates:
+        texts = [c[0] for c in semantic_candidates]
+        scores = _batch_score(texts, "decisions", _DECISION_TEMPLATES)
+        for (text, ts), score in zip(semantic_candidates, scores):
+            if score >= 0.55:
+                _add(
+                    _summarize_decision(text),
+                    ts, [], score, "semantic",
+                )
 
     return decisions
 
