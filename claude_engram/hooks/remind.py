@@ -2059,7 +2059,7 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
 
     # --- Directive markers (0.25 max) ---
     directive_patterns = [
-        (r"\blet'?s\s+", 0.25),
+        (r"\blet'?s\s+(use|switch|go\s+with|change|adopt|move|try|replace|remove|drop|keep|stick|rewrite|migrate|do\s+it)\b", 0.25),
         (r"\bwe\s+should\b", 0.25),
         (r"\bfrom\s+now\s+on\b", 0.25),
         (r"\bgoing\s+forward\b", 0.2),
@@ -2175,8 +2175,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
     """
     prompt_lower = prompt.lower().strip()
 
-    # Skip very short or command-like prompts
-    if len(prompt_lower) < 25 or prompt_lower.startswith("/"):
+    if len(prompt_lower) < 25 or prompt_lower.startswith("/") or prompt_lower.startswith("<"):
         return
 
     try:
@@ -2208,9 +2207,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                 best_score = regex_score
                 best_text = regex_text
 
-        # Only capture when confident (0.45 threshold — semantic scores are well-calibrated,
-        # regex scores tend to cluster around 0.4-0.6 for borderline cases)
-        if best_score < 0.45 or not best_text or len(best_text) < 15:
+        if best_score < 0.6 or not best_text or len(best_text) < 15:
             return
 
         norm_dir = _normalize_path(project_dir)
