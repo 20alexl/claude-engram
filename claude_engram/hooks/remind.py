@@ -2405,15 +2405,24 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
     PostToolUseFailure is now the primary path for catching errors.
     """
     if not output or len(output) > 5000:
-        # Skip empty output and large outputs (build logs, test suites)
-        # where error keywords appear in non-error contexts
+        return ""
+
+    import re
+
+    # Only log mistakes that reference actual project files in the traceback.
+    # Errors in <string> (inline python), temp dirs, or pip packages are transient noise.
+    has_project_file = bool(re.search(
+        r'File "(?!<)(?!.*[\\/](?:site-packages|dist-packages|venv|\.venv|tmp|temp)[\\/])'
+        r'[^"]+\.py"',
+        output,
+    ))
+    if not has_project_file and ("Traceback" in output or "File " in output):
         return ""
 
     mistake_type = None
     how_to_avoid = None
 
     # Pattern 1: Import/Module errors
-    import re
 
     if "ModuleNotFoundError" in output or "ImportError" in output:
         # Try "No module named 'X'" first
