@@ -330,11 +330,11 @@ TOOL_DEFINITIONS = [
                     ],
                     "description": "Operation",
                 },
-                "task_description": {"type": "string"},
-                "current_step": {"type": "string"},
-                "completed_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}]},
-                "pending_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}]},
-                "files_involved": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}]},
+                "task_description": {"type": "string", "description": "For checkpoint_save: what task is in progress"},
+                "current_step": {"type": "string", "description": "For checkpoint_save: which step you're currently on"},
+                "completed_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: list of completed steps"},
+                "pending_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: list of remaining steps"},
+                "files_involved": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: files being worked on"},
                 "task_id": {
                     "type": "string",
                     "description": "For restore: specific checkpoint",
@@ -349,9 +349,9 @@ TOOL_DEFINITIONS = [
                     "description": "For verify: checks",
                 },
                 "instruction": {"type": "string", "description": "For instruction_add"},
-                "reason": {"type": "string"},
-                "importance": {"type": "integer"},
-                "project_path": {"type": "string"},
+                "reason": {"type": "string", "description": "For instruction_add: why this instruction matters"},
+                "importance": {"type": "integer", "description": "For instruction_add: priority 1-10"},
+                "project_path": {"type": "string", "description": "Project directory path"},
                 "handoff_summary": {
                     "type": "string",
                     "description": "For handoff_create: summary for next session",
@@ -379,52 +379,53 @@ TOOL_DEFINITIONS = [
     # NOTE: habit tool REMOVED - meta-tracking of tool usage adds noise without value
     Tool(
         name="convention",
-        description="""Project conventions. Operations:
-- add: Store rule (project_path, rule, category, reason, examples, importance)
-- get: Get rules (project_path, category)
-- check: Check code/filename (project_path, code_or_filename)
-- remove: Remove convention by matching text (project_path, rule)""",
+        description="""Manage project coding conventions and style rules. Stores rules per-project with categories, checks code against them using LLM, and enforces consistency across the codebase. Operations:
+- add: Store a new convention rule with category and reasoning
+- get: Retrieve all conventions, optionally filtered by category
+- check: Validate code or a filename against stored conventions using LLM analysis
+- remove: Delete a convention rule by matching its text""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
                     "enum": ["add", "get", "check", "remove"],
-                    "description": "Operation",
+                    "description": "Which convention operation to perform",
                 },
-                "project_path": {"type": "string"},
-                "rule": {"type": "string"},
+                "project_path": {"type": "string", "description": "Absolute path to the project directory"},
+                "rule": {"type": "string", "description": "For add/remove: the convention rule text (e.g., 'Always use snake_case for function names')"},
                 "category": {
                     "type": "string",
                     "enum": ["naming", "architecture", "style", "pattern", "avoid"],
+                    "description": "For add/get: convention category to organize rules",
                 },
-                "reason": {"type": "string"},
-                "examples": {"type": "array", "items": {"type": "string"}},
-                "importance": {"type": "integer"},
-                "code_or_filename": {"type": "string"},
+                "reason": {"type": "string", "description": "For add: why this convention exists (e.g., 'Consistency with stdlib')"},
+                "examples": {"type": "array", "items": {"type": "string"}, "description": "For add: code examples showing correct usage"},
+                "importance": {"type": "integer", "description": "For add: priority 1-10, higher = more important to enforce"},
+                "code_or_filename": {"type": "string", "description": "For check: code snippet or filename to validate against conventions"},
             },
             "required": ["operation", "project_path"],
         },
     ),
     Tool(
         name="output",
-        description="""Output validation. Operations:
-- validate_code: Check for fake/silent failures (code, context)
-- validate_result: Check output for fakes (output, expected_format, should_contain, should_not_contain)""",
+        description="""Validate code and command output for correctness. Detects fake results, silent failures, and missing expected content. Operations:
+- validate_code: Analyze code for patterns that silently fail (empty except blocks, unused return values, missing error handling)
+- validate_result: Check command output against expected format and required/forbidden content""",
         inputSchema={
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
                     "enum": ["validate_code", "validate_result"],
-                    "description": "Operation",
+                    "description": "Which validation operation to perform",
                 },
-                "code": {"type": "string"},
-                "context": {"type": "string"},
-                "output": {"type": "string"},
-                "expected_format": {"type": "string"},
-                "should_contain": {"type": "array", "items": {"type": "string"}},
-                "should_not_contain": {"type": "array", "items": {"type": "string"}},
+                "code": {"type": "string", "description": "For validate_code: the code snippet to analyze for silent failure patterns"},
+                "context": {"type": "string", "description": "For validate_code: what this code is supposed to do (helps detect semantic failures)"},
+                "output": {"type": "string", "description": "For validate_result: the actual command/tool output to validate"},
+                "expected_format": {"type": "string", "description": "For validate_result: expected output format (e.g., 'JSON array', 'CSV with headers')"},
+                "should_contain": {"type": "array", "items": {"type": "string"}, "description": "For validate_result: strings that must appear in valid output"},
+                "should_not_contain": {"type": "array", "items": {"type": "string"}, "description": "For validate_result: strings that indicate failure (e.g., 'Error', 'undefined')"},
             },
             "required": ["operation"],
         },
@@ -444,34 +445,35 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "query": {"type": "string", "description": "What to search for"},
                 "directory": {"type": "string", "description": "Directory to search"},
-                "max_results": {"type": "integer", "default": 10},
+                "max_results": {"type": "integer", "default": 10, "description": "Maximum number of results to return"},
             },
             "required": ["query", "directory"],
         },
     ),
     Tool(
         name="scout_analyze",
-        description="Analyze code with local LLM. Provide code and question.",
+        description="Analyze code using local LLM (Ollama). Send a code snippet with a specific question and get back architectural insights, bug analysis, or refactoring suggestions. Requires Ollama running with configured model.",
         inputSchema={
             "type": "object",
             "properties": {
-                "code": {"type": "string"},
-                "question": {"type": "string"},
+                "code": {"type": "string", "description": "The code snippet to analyze"},
+                "question": {"type": "string", "description": "Specific question about the code (e.g., 'What are the edge cases?', 'Is this thread-safe?')"},
             },
             "required": ["code", "question"],
         },
     ),
     Tool(
         name="file_summarize",
-        description="Summarize file purpose. Modes: quick (pattern-based) or detailed (LLM).",
+        description="Summarize a file's purpose, exports, and role in the project. Quick mode uses structural analysis (imports, classes, functions). Detailed mode uses local LLM for deeper understanding. Returns: purpose, key exports, dependencies, and complexity estimate.",
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string"},
+                "file_path": {"type": "string", "description": "Absolute path to the file to summarize"},
                 "mode": {
                     "type": "string",
                     "enum": ["quick", "detailed"],
                     "default": "quick",
+                    "description": "Analysis depth: 'quick' for pattern-based (fast, no LLM), 'detailed' for LLM-powered (slower, richer insights)",
                 },
             },
             "required": ["file_path"],
@@ -479,64 +481,65 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="deps_map",
-        description="Map file dependencies. Shows imports and optionally reverse deps.",
+        description="Map a file's dependency graph. Parses imports to find what a file depends on (forward deps) and optionally what depends on it (reverse deps). Useful before refactoring to understand blast radius. Returns: imports list, dependency tree, and optionally reverse dependents.",
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string"},
-                "include_reverse": {"type": "boolean", "default": False},
-                "project_root": {"type": "string"},
+                "file_path": {"type": "string", "description": "Absolute path to the file to analyze"},
+                "include_reverse": {"type": "boolean", "default": False, "description": "If true, also find all files that import this file (reverse dependencies)"},
+                "project_root": {"type": "string", "description": "Project root directory for resolving relative imports"},
             },
             "required": ["file_path"],
         },
     ),
     Tool(
         name="impact_analyze",
-        description="Analyze change impact. Shows dependents, exports, risk level.",
+        description="Analyze the impact of changing a file before making edits. Scans dependents, exported symbols, and usage patterns to estimate risk level (low/medium/high/critical). Returns: affected files, exported symbols at risk, suggested test targets, and overall risk assessment.",
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string"},
-                "project_root": {"type": "string"},
-                "proposed_changes": {"type": "string"},
+                "file_path": {"type": "string", "description": "Absolute path to the file being changed"},
+                "project_root": {"type": "string", "description": "Project root directory for scanning dependents"},
+                "proposed_changes": {"type": "string", "description": "Description of planned changes (helps assess which exports are affected)"},
             },
             "required": ["file_path", "project_root"],
         },
     ),
     Tool(
         name="code_quality_check",
-        description="Check code for AI slop: long functions, vague names, deep nesting.",
+        description="Check code quality against common anti-patterns: overly long functions (>50 lines), deep nesting (>4 levels), vague variable names, missing error handling, and AI-generated boilerplate. Returns: list of issues with severity, line numbers, and fix suggestions.",
         inputSchema={
             "type": "object",
             "properties": {
-                "code": {"type": "string"},
-                "language": {"type": "string", "default": "python"},
+                "code": {"type": "string", "description": "Code snippet to analyze for quality issues"},
+                "language": {"type": "string", "default": "python", "description": "Programming language for language-specific checks (python, javascript, typescript, go, rust)"},
             },
             "required": ["code"],
         },
     ),
     Tool(
         name="code_pattern_check",
-        description="Check code against stored conventions using LLM.",
+        description="Check code against project-specific conventions stored via the convention tool. Uses local LLM to analyze whether code follows naming, architecture, style, and pattern rules. Returns: violations found, matching convention rules, and suggested fixes.",
         inputSchema={
             "type": "object",
             "properties": {
-                "project_path": {"type": "string"},
-                "code": {"type": "string"},
+                "project_path": {"type": "string", "description": "Absolute path to the project whose conventions to check against"},
+                "code": {"type": "string", "description": "Code snippet to validate against stored project conventions"},
             },
             "required": ["project_path", "code"],
         },
     ),
     Tool(
         name="audit_batch",
-        description="Audit multiple files for issues. Supports glob patterns.",
+        description="Audit multiple files for code quality issues in a single pass. Accepts file paths or glob patterns (e.g., 'src/**/*.py'). Checks each file for long functions, deep nesting, missing error handling, and anti-patterns. Returns: per-file issue lists with severity and line numbers, plus aggregate summary.",
         inputSchema={
             "type": "object",
             "properties": {
-                "file_paths": {"type": "array", "items": {"type": "string"}},
+                "file_paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths or glob patterns to audit (e.g., ['src/auth.py', 'src/models/*.py'])"},
                 "min_severity": {
                     "type": "string",
                     "enum": ["critical", "warning", "info"],
+                    "description": "Minimum severity to report: 'critical' (bugs only), 'warning' (bugs + smells), 'info' (everything)",
                 },
             },
             "required": ["file_paths"],
@@ -544,14 +547,14 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="find_similar_issues",
-        description="Search codebase for bug pattern (e.g., 'except:\\s*pass').",
+        description="Search an entire codebase for a regex bug pattern. Finds all occurrences of anti-patterns like bare excepts, hardcoded secrets, or missing null checks. Returns: matching files with line numbers, context snippets, and match count.",
         inputSchema={
             "type": "object",
             "properties": {
-                "issue_pattern": {"type": "string", "description": "Regex pattern"},
-                "project_path": {"type": "string"},
-                "file_extensions": {"type": "array", "items": {"type": "string"}},
-                "exclude_paths": {"type": "array", "items": {"type": "string"}},
+                "issue_pattern": {"type": "string", "description": "Regex pattern to search for (e.g., 'except:\\s*pass', 'TODO|FIXME|HACK', 'password\\s*=\\s*[\"\\']')"},
+                "project_path": {"type": "string", "description": "Absolute path to the project root to search"},
+                "file_extensions": {"type": "array", "items": {"type": "string"}, "description": "File extensions to include (e.g., ['.py', '.js']). Empty means all files"},
+                "exclude_paths": {"type": "array", "items": {"type": "string"}, "description": "Directory patterns to skip (e.g., ['node_modules', 'venv', '__pycache__'])"},
             },
             "required": ["issue_pattern", "project_path"],
         },
