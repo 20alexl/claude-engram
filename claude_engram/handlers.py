@@ -2149,8 +2149,7 @@ class Handlers:
                 content = inst.get("instruction", "")
                 reason = inst.get("reason", "")
                 importance = inst.get("importance", 9)
-                full = f"{content} (Reason: {reason})" if reason else content
-                self.memory.add_rule(project_path, full, reason=reason, relevance=importance)
+                self.memory.add_rule(project_path, content, reason=reason, relevance=importance)
                 migrated += 1
             # Remove legacy file after migration
             inst_file.unlink()
@@ -2191,8 +2190,7 @@ class Handlers:
             importance = args.get("importance", 10)
             if not instruction:
                 return self._needs_clarification("No instruction provided", "What rule should be enforced?")
-            content = f"{instruction} (Reason: {reason})" if reason else instruction
-            self.memory.add_rule(project_path, content, reason=reason, relevance=importance)
+            self.memory.add_rule(project_path, instruction, reason=reason, relevance=importance)
             # Also migrate any legacy instructions
             self._migrate_legacy_instructions(project_path)
             response = MiniClaudeResponse(
