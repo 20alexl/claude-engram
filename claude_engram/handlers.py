@@ -1544,9 +1544,9 @@ class Handlers:
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_handoff_get(self) -> list[TextContent]:
+    async def context_handoff_get(self, project_path: str = "") -> list[TextContent]:
         """Retrieve the latest handoff document."""
-        response = self.context_guard.get_handoff()
+        response = self.context_guard.get_handoff(project_path=project_path)
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
@@ -1751,8 +1751,7 @@ class Handlers:
                 max_age_days=args.get("max_age_days", 30),
             )
         elif operation == "consolidate":
-            # Use LLM to intelligently merge related memories
-            tag = args.get("tag")  # Optional: consolidate specific tag only
+            tag = args.get("tag")
             dry_run = args.get("dry_run", True)
             result = self.memory.consolidate_memories(
                 project_path=project_path,
@@ -1767,10 +1766,24 @@ class Handlers:
                     reasoning=result["error"],
                 )
             else:
+                lines = [result.get("summary", "Consolidation complete")]
+                lines.append(f"Before: {result.get('original_count', '?')} memories")
+                if result.get("new_count"):
+                    lines.append(f"After: {result['new_count']} memories")
+                for group in result.get("groups_found", []):
+                    tag_name = group.get("tag", "?")
+                    count = group.get("count", 0)
+                    action = "would merge" if dry_run else "merged"
+                    lines.append(f"\n  [{tag_name}] {count} entries {action}:")
+                    for e in group.get("entries", []):
+                        lines.append(f"    [{e['id']}] {e['preview']}")
+                    if group.get("consolidated_to"):
+                        c = group["consolidated_to"]
+                        lines.append(f"    -> kept top 5, removed {c.get('removed_count', '?')}, summary: {c.get('content', '')[:80]}")
                 response = MiniClaudeResponse(
                     status="success",
                     confidence="high",
-                    reasoning=result.get("summary", "Consolidation complete"),
+                    reasoning="\n".join(lines),
                     data=result,
                 )
             return [TextContent(type="text", text=response.to_formatted_string())]
@@ -1977,10 +1990,45 @@ class Handlers:
                 ),
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "list_mistakes":
+            entries = self.memory.get_recent_memories(
+                project_path=project_path,
+                category="mistake",
+                limit=args.get("limit", 20),
+            )
+            if not entries:
+                return [TextContent(type="text", text="No mistakes tracked")]
+            lines = [f"Tracked mistakes ({len(entries)}):"]
+            for e in entries:
+                age_days = int((time.time() - e.created_at) / 86400)
+                files = ", ".join(e.related_files[:3]) if e.related_files else "no file"
+                lines.append(f"  [{e.id}] ({age_days}d) [{files}] {e.content[:100]}")
+            lines.append("")
+            lines.append("Use memory(acknowledge_mistake, memory_id='...') to archive a learned mistake")
+            response = MiniClaudeResponse(
+                status="success", confidence="high", reasoning="\n".join(lines),
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "acknowledge_mistake":
+            mid = args.get("memory_id", "")
+            if not mid:
+                return self._needs_clarification("No memory_id", "Which mistake to acknowledge? Use list_mistakes to see IDs.")
+            proj = self.memory.get_project(project_path)
+            if proj:
+                entry = next((e for e in proj.entries if e.id == mid and e.category == "mistake"), None)
+                if entry:
+                    entry.archived_at = time.time()
+                    self.memory._save_project(self.memory._normalize_path(project_path))
+                    response = MiniClaudeResponse(
+                        status="success", confidence="high",
+                        reasoning=f"Mistake [{mid}] acknowledged and archived. It won't appear in pre-edit warnings.",
+                    )
+                    return [TextContent(type="text", text=response.to_formatted_string())]
+            return self._needs_clarification(f"Mistake [{mid}] not found", "Check the ID with list_mistakes")
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
-                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent, archive, restore, archive_search, archive_status",
+                "Use: remember, recall, forget, search, clusters, cleanup, consolidate, add_rule, list_rules, modify, delete, batch_delete, promote, recent, archive, restore, archive_search, archive_status, list_mistakes, acknowledge_mistake",
             )
 
     async def handle_work(self, operation: str, args: dict) -> list[TextContent]:
@@ -2079,6 +2127,36 @@ class Handlers:
                 return [val]
         return []
 
+    _instructions_migrated = False
+
+    def _migrate_legacy_instructions(self, project_path: str):
+        """Migrate critical_instructions.json entries to rules (one-time)."""
+        if self._instructions_migrated:
+            return
+        self._instructions_migrated = True
+        try:
+            from pathlib import Path
+            import json as json_mod
+
+            inst_file = Path.home() / ".claude_engram" / "checkpoints" / "critical_instructions.json"
+            if not inst_file.exists():
+                return
+            instructions = json_mod.loads(inst_file.read_text())
+            if not instructions:
+                return
+            migrated = 0
+            for inst in instructions:
+                content = inst.get("instruction", "")
+                reason = inst.get("reason", "")
+                importance = inst.get("importance", 9)
+                full = f"{content} (Reason: {reason})" if reason else content
+                self.memory.add_rule(project_path, full, reason=reason, relevance=importance)
+                migrated += 1
+            # Remove legacy file after migration
+            inst_file.unlink()
+        except Exception:
+            pass
+
     async def handle_context(self, operation: str, args: dict) -> list[TextContent]:
         """Route context operations to existing handlers."""
         if operation == "checkpoint_save":
@@ -2106,13 +2184,37 @@ class Handlers:
                 evidence=self._coerce_list(args.get("evidence")),
             )
         elif operation == "instruction_add":
-            return await self.context_instruction_add(
-                instruction=args.get("instruction", ""),
-                reason=args.get("reason", ""),
-                importance=args.get("importance", 10),
+            # Route through rules system — instructions ARE rules
+            project_path = args.get("project_path", "")
+            instruction = args.get("instruction", "")
+            reason = args.get("reason", "")
+            importance = args.get("importance", 10)
+            if not instruction:
+                return self._needs_clarification("No instruction provided", "What rule should be enforced?")
+            content = f"{instruction} (Reason: {reason})" if reason else instruction
+            self.memory.add_rule(project_path, content, reason=reason, relevance=importance)
+            # Also migrate any legacy instructions
+            self._migrate_legacy_instructions(project_path)
+            response = MiniClaudeResponse(
+                status="success",
+                confidence="high",
+                reasoning=f"Rule registered (importance: {importance}/10). Use memory(list_rules) to see all rules.",
             )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "instruction_reinforce":
-            return await self.context_instruction_reinforce()
+            # Return rules (instructions are now rules)
+            project_path = args.get("project_path", "")
+            self._migrate_legacy_instructions(project_path)
+            return await self.handle_memory("list_rules", {"project_path": project_path})
+        elif operation == "instruction_list":
+            project_path = args.get("project_path", "")
+            self._migrate_legacy_instructions(project_path)
+            return await self.handle_memory("list_rules", {"project_path": project_path})
+        elif operation == "instruction_delete":
+            return await self.handle_memory("delete", {
+                "memory_id": args.get("memory_id", args.get("instruction_id", "")),
+                "project_path": args.get("project_path", ""),
+            })
         elif operation == "handoff_create":
             return await self.context_handoff_create(
                 summary=args.get("handoff_summary", ""),
@@ -2122,7 +2224,7 @@ class Handlers:
                 project_path=args.get("project_path"),
             )
         elif operation == "handoff_get":
-            return await self.context_handoff_get()
+            return await self.context_handoff_get(project_path=args.get("project_path"))
         else:
             return self._needs_clarification(
                 f"Unknown context operation: {operation}",
@@ -2406,24 +2508,45 @@ class Handlers:
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "reindex":
-            from claude_engram.mining.background import start_mining_background
+            from claude_engram.mining.background import start_mining_background, get_mining_status
+            import asyncio
 
             mode = args.get("mode", "full")
             started = start_mining_background(project_path, mode=mode)
-            if started:
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Background mining started (mode={mode}). Check status with session_mine(operation='status').",
-                    )
-                ]
-            else:
+            if not started:
                 return [
                     TextContent(
                         type="text",
                         text="Mining already running. Check status with session_mine(operation='status').",
                     )
                 ]
+
+            # Poll for completion (up to 10s) instead of fire-and-forget
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                status = get_mining_status()
+                if status.get("status") == "completed":
+                    result = status.get("result", {})
+                    lines = [f"Mining completed (mode={mode}):"]
+                    if result.get("sessions"):
+                        lines.append(f"  Sessions indexed: {result['sessions']}")
+                    if result.get("messages"):
+                        lines.append(f"  Messages: {result['messages']}")
+                    if result.get("extractions"):
+                        lines.append(f"  Extractions: {result['extractions']} findings")
+                    if result.get("embeddings"):
+                        lines.append(f"  Search chunks: {result['embeddings']}")
+                    return [TextContent(type="text", text="\n".join(lines))]
+
+            # Still running after 10s — return status hint
+            status = get_mining_status()
+            phase = status.get("phase", "unknown")
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Mining started (mode={mode}), currently in '{phase}' phase. Check session_mine(operation='status') for results.",
+                )
+            ]
 
         elif operation == "predict":
             from claude_engram.mining.predictive import (

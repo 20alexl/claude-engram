@@ -70,6 +70,10 @@ memory(operation="search", query="auth", project_path="/path")
 memory(operation="recent", project_path="/path", limit=10)
 memory(operation="clusters", project_path="/path")
 
+# Mistakes
+memory(operation="list_mistakes", project_path="/path")                  # View all with IDs
+memory(operation="acknowledge_mistake", memory_id="abc123", project_path="/path")  # Archive learned mistake
+
 # Manage (IDs shown in [brackets] at session start and in hook output)
 memory(operation="modify", memory_id="abc123", content="Updated", project_path="/path")
 memory(operation="delete", memory_id="abc123", project_path="/path")

@@ -803,27 +803,47 @@ class ContextGuard:
             suggestions=["Share HANDOFF.md content at the start of next session"],
         )
 
-    def get_handoff(self) -> MiniClaudeResponse:
+    def get_handoff(self, project_path: str = "") -> MiniClaudeResponse:
         """
         Retrieve the latest handoff document.
-
-        Call this at session start to see what the previous session left.
+        Checks per-project handoff first, then global fallback.
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("retrieving handoff")
 
-        handoff_file = self.storage_dir / "latest_handoff.json"
+        handoff = None
+        handoff_source = "global"
 
-        if not handoff_file.exists():
-            return MiniClaudeResponse(
-                status="not_found",
-                confidence="high",
-                reasoning="No handoff document found from previous session",
-                work_log=work_log,
-            )
+        # Check per-project first (has the detailed user-created handoff)
+        if project_path:
+            try:
+                from claude_engram.hooks.remind import _normalize_path, _get_manifest
 
-        with open(handoff_file) as f:
-            handoff = json.load(f)
+                norm = _normalize_path(project_path)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
+                    pf = pdir / "latest_handoff.json"
+                    if pf.exists():
+                        with open(pf) as f:
+                            handoff = json.load(f)
+                        handoff_source = "project"
+            except Exception:
+                pass
+
+        # Global fallback
+        if not handoff:
+            handoff_file = self.storage_dir / "latest_handoff.json"
+            if not handoff_file.exists():
+                return MiniClaudeResponse(
+                    status="not_found",
+                    confidence="high",
+                    reasoning="No handoff document found from previous session",
+                    work_log=work_log,
+                )
+            with open(handoff_file) as f:
+                handoff = json.load(f)
 
         age_hours = (time.time() - handoff.get("created", 0)) / 3600
 
