@@ -81,7 +81,9 @@ TOOL_DEFINITIONS = [
 - archive_search: Search archived memories (query, tags, limit)
 - archive_status: Show hot vs archived memory counts
 - hybrid_search: Semantic + keyword + scored search (query, file_path, tags, limit). Best retrieval.
-- embed_all: Generate AllMiniLM embeddings for all memories (enables hybrid_search)""",
+- embed_all: Generate AllMiniLM embeddings for all memories (enables hybrid_search)
+- list_mistakes: View tracked mistakes with IDs, file associations, and age
+- acknowledge_mistake: Archive a learned mistake so it stops appearing in pre-edit warnings (memory_id)""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -108,6 +110,8 @@ TOOL_DEFINITIONS = [
                         "archive_status",
                         "hybrid_search",
                         "embed_all",
+                        "list_mistakes",
+                        "acknowledge_mistake",
                     ],
                     "description": "Operation to perform",
                 },
@@ -309,10 +313,12 @@ TOOL_DEFINITIONS = [
 - checkpoint_restore: Restore last checkpoint (task_id optional)
 - checkpoint_list: List saved checkpoints
 - verify_completion: Claim task done + verify (task, evidence, verification_steps)
-- instruction_add: Register critical instruction (instruction, reason, importance)
-- instruction_reinforce: Get instructions to remember
+- instruction_add: Register a rule (routes to memory system — instructions ARE rules)
+- instruction_list: List all rules (alias for list_rules)
+- instruction_delete: Delete a rule by ID (memory_id)
+- instruction_reinforce: Get all rules for reinforcement
 - handoff_create: Create session handoff (handoff_summary, pending_steps, handoff_context_needed, handoff_warnings)
-- handoff_get: Retrieve latest handoff document""",
+- handoff_get: Retrieve latest handoff document (project_path for per-project handoff)""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -324,11 +330,13 @@ TOOL_DEFINITIONS = [
                         "checkpoint_list",
                         "verify_completion",
                         "instruction_add",
+                        "instruction_list",
+                        "instruction_delete",
                         "instruction_reinforce",
                         "handoff_create",
                         "handoff_get",
                     ],
-                    "description": "Operation",
+                    "description": "Which context operation to perform",
                 },
                 "task_description": {"type": "string", "description": "For checkpoint_save: what task is in progress"},
                 "current_step": {"type": "string", "description": "For checkpoint_save: which step you're currently on"},
@@ -338,6 +346,10 @@ TOOL_DEFINITIONS = [
                 "task_id": {
                     "type": "string",
                     "description": "For restore: specific checkpoint",
+                },
+                "memory_id": {
+                    "type": "string",
+                    "description": "For instruction_delete: ID of the rule to delete (shown in list_rules output)",
                 },
                 "task": {"type": "string", "description": "For verify: task to verify"},
                 "evidence": {
