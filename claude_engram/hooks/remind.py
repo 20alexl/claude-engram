@@ -3432,7 +3432,7 @@ def main():
             reason = "other"
             if stdin_data:
                 data = json_module.loads(stdin_data)
-                reason = data.get("reason", "other")
+                reason = data.get("end_reason", data.get("reason", "other"))
 
             # Gather session summary before clearing state
             state = load_state()

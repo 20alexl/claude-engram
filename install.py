@@ -171,21 +171,24 @@ def get_hooks_config():
     else:
         python_exe = str(script_dir / "venv" / "bin" / "python")
 
-    def _hook(hook_type, timeout=1000):
-        return {
+    def _hook(hook_type, timeout=1000, status=None):
+        h = {
             "type": "command",
             "command": python_exe,
             "args": ["-m", "claude_engram.hooks.remind", hook_type],
             "timeout": timeout,
         }
+        if status:
+            h["statusMessage"] = status
+        return h
 
     return {
         "hooks": {
             "UserPromptSubmit": [
-                {"matcher": "", "hooks": [_hook("prompt_json", 2000)]}
+                {"matcher": "", "hooks": [_hook("prompt_json", 2000, "Capturing decisions...")]}
             ],
             "PreToolUse": [
-                {"matcher": "Edit|Write", "hooks": [_hook("pre_edit_json")]}
+                {"matcher": "Edit|Write", "hooks": [_hook("pre_edit_json", status="Checking memories...")]}
             ],
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},
@@ -195,16 +198,16 @@ def get_hooks_config():
                 {"matcher": "", "hooks": [_hook("tool_failure_json")]}
             ],
             "PreCompact": [
-                {"matcher": "", "hooks": [_hook("pre_compact_json", 2000)]}
+                {"matcher": "", "hooks": [_hook("pre_compact_json", 2000, "Saving checkpoint...")]}
             ],
             "PostCompact": [
                 {"matcher": "", "hooks": [_hook("post_compact_json", 2000)]}
             ],
             "SessionStart": [
-                {"matcher": "", "hooks": [_hook("session_start_json", 2000)]}
+                {"matcher": "", "hooks": [_hook("session_start_json", 2000, "Restoring session...")]}
             ],
             "Stop": [
-                {"matcher": "", "hooks": [_hook("stop_json", 2000)]}
+                {"matcher": "", "hooks": [_hook("stop_json", 2000, "Saving session...")]}
             ],
             "SessionEnd": [
                 {"matcher": "", "hooks": [_hook("session_end_json", 1500)]}
