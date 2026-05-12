@@ -159,147 +159,67 @@ def create_hook_launcher_script():
 
 
 def get_hooks_config():
-    """Generate the hooks configuration for ~/.claude/settings.json."""
+    """Generate the hooks configuration for ~/.claude/settings.json.
+
+    Uses exec form (command + args) instead of shell form to avoid
+    quoting issues with paths containing spaces.
+    """
     script_dir = Path(__file__).parent.resolve()
 
     if is_windows():
-        hook_launcher = script_dir / "scripts" / "run_hook.bat"
-        hook_cmd = str(hook_launcher)
+        python_exe = str(script_dir / "venv" / "Scripts" / "python.exe").replace("\\", "/")
     else:
-        hook_launcher = script_dir / "scripts" / "run_hook.sh"
-        hook_cmd = str(hook_launcher)
+        python_exe = str(script_dir / "venv" / "bin" / "python")
 
-    # Always use /dev/null — Claude Code runs hooks through bash even on Windows
-    # (2>NUL creates a literal file named "NUL" in bash on Windows)
-    stderr_redirect = "2>/dev/null"
+    def _hook(hook_type, timeout=1000):
+        return {
+            "type": "command",
+            "command": python_exe,
+            "args": ["-m", "claude_engram.hooks.remind", hook_type],
+            "timeout": timeout,
+        }
 
     return {
         "hooks": {
             "UserPromptSubmit": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" prompt_json {stderr_redirect} || echo ""',
-                            "timeout": 2000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("prompt_json", 2000)]}
             ],
             "PreToolUse": [
-                {
-                    "matcher": "Edit|Write",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" pre_edit_json {stderr_redirect} || echo ""',
-                            "timeout": 1000,
-                        }
-                    ],
-                }
+                {"matcher": "Edit|Write", "hooks": [_hook("pre_edit_json")]}
             ],
             "PostToolUse": [
-                {
-                    "matcher": "Bash",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" bash_json {stderr_redirect} || echo ""',
-                            "timeout": 1000,
-                        }
-                    ],
-                },
-                {
-                    "matcher": "Edit|Write",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" post_edit_json {stderr_redirect} || echo ""',
-                            "timeout": 1000,
-                        }
-                    ],
-                },
+                {"matcher": "Bash", "hooks": [_hook("bash_json")]},
+                {"matcher": "Edit|Write", "hooks": [_hook("post_edit_json")]},
             ],
             "PostToolUseFailure": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" tool_failure_json {stderr_redirect} || echo ""',
-                            "timeout": 1000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("tool_failure_json")]}
             ],
             "PreCompact": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" pre_compact_json {stderr_redirect} || echo ""',
-                            "timeout": 2000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("pre_compact_json", 2000)]}
             ],
             "PostCompact": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" post_compact_json {stderr_redirect} || echo ""',
-                            "timeout": 2000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("post_compact_json", 2000)]}
             ],
             "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" session_start_json {stderr_redirect} || echo ""',
-                            "timeout": 2000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("session_start_json", 2000)]}
             ],
             "Stop": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" stop_json {stderr_redirect} || echo ""',
-                            "timeout": 2000,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("stop_json", 2000)]}
             ],
             "SessionEnd": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f'"{hook_cmd}" session_end_json {stderr_redirect} || echo ""',
-                            "timeout": 1500,
-                        }
-                    ],
-                }
+                {"matcher": "", "hooks": [_hook("session_end_json", 1500)]}
             ],
         }
     }
 
 
-def _is_claude_engram_hook(command: str) -> bool:
-    """Check if a hook command belongs to claude_engram."""
-    return "claude_engram" in command or "run_hook" in command
+def _is_claude_engram_hook(hook: dict) -> bool:
+    """Check if a hook definition belongs to claude_engram."""
+    command = hook.get("command", "")
+    args = hook.get("args", [])
+    args_str = " ".join(args)
+    combined = f"{command} {args_str}"
+    return "claude_engram" in combined or "run_hook" in combined
 
 
 def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
@@ -340,7 +260,7 @@ def _merge_hooks(existing_hooks: dict, new_hooks: dict) -> dict:
                 # Check if any existing hook in this matcher is ours
                 our_idx = None
                 for j, hook in enumerate(existing_hook_list):
-                    if _is_claude_engram_hook(hook.get("command", "")):
+                    if _is_claude_engram_hook(hook):
                         our_idx = j
                         break
 

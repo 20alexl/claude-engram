@@ -177,7 +177,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                     "status": "completed",
                     "project": project_path,
                     "mode": mode,
-                    "result": "no sessions found",
+                    "result": {"sessions": 0, "messages": 0, "extractions": 0},
                     "completed": time.time(),
                 }
             )
@@ -252,9 +252,11 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 "status": "completed",
                 "project": project_path,
                 "mode": mode,
-                "sessions_indexed": sessions_count,
-                "total_messages": messages_count,
-                "extractions": extraction_count,
+                "result": {
+                    "sessions": sessions_count,
+                    "messages": messages_count,
+                    "extractions": extraction_count,
+                },
                 "completed": time.time(),
             }
         )

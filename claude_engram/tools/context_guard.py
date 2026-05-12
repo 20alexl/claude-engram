@@ -148,7 +148,24 @@ class ContextGuard:
         temp_file.write_text(json.dumps(checkpoint_data, indent=2))
         temp_file.replace(checkpoint_file)
 
-        # Also save as "latest" for easy recovery (atomic)
+        # Save per-project if project_path provided
+        if project_path:
+            try:
+                from claude_engram.hooks.remind import _normalize_path, _get_manifest
+                norm = _normalize_path(project_path)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
+                    pdir.mkdir(parents=True, exist_ok=True)
+                    pf = pdir / "latest_checkpoint.json"
+                    temp_pf = pf.with_suffix(".json.tmp")
+                    temp_pf.write_text(json.dumps(checkpoint_data, indent=2))
+                    temp_pf.replace(pf)
+            except Exception:
+                pass
+
+        # Also save as "latest" for easy recovery (atomic) — global fallback
         latest_file = self.storage_dir / "latest_checkpoint.json"
         temp_latest = latest_file.with_suffix(".json.tmp")
         temp_latest.write_text(json.dumps(checkpoint_data, indent=2))
@@ -192,19 +209,35 @@ class ContextGuard:
     def restore_checkpoint(
         self,
         task_id: Optional[str] = None,
+        project_path: Optional[str] = None,
     ) -> MiniClaudeResponse:
         """
         Restore task state from a checkpoint.
 
         Call this at the start of a session to continue previous work.
         If no task_id provided, restores the latest checkpoint.
+        Checks per-project first, then global fallback.
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("restoring checkpoint")
 
+        checkpoint_file = None
         if task_id:
             checkpoint_file = self.storage_dir / f"{task_id}.json"
-        else:
+        elif project_path:
+            try:
+                from claude_engram.hooks.remind import _normalize_path, _get_manifest
+                norm = _normalize_path(project_path)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pf = self.storage_dir.parent / "projects" / proj_info["hash"] / "latest_checkpoint.json"
+                    if pf.exists():
+                        checkpoint_file = pf
+            except Exception:
+                pass
+
+        if not checkpoint_file:
             checkpoint_file = self.storage_dir / "latest_checkpoint.json"
 
         if not checkpoint_file.exists():
