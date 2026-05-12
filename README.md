@@ -157,7 +157,8 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 ### Lifecycle
 - **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
 - **Auto-tracks mistakes** from any failed tool. Only logs errors in project files (filters transient noise). Warns before repeat edits.
-- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after.
+- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after. Checkpoints and handoffs are per-project scoped.
+- **Subagent awareness** — memory injection and hook output are skipped for subagents (saves context), but file edits are still tracked.
 - **Edit loop detection** — flags when the same file is edited 3+ times without progress.
 
 ## Configuration

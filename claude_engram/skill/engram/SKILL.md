@@ -81,3 +81,5 @@ context(
 - Scorer server auto-starts on demand (no silent degradation)
 - Session mining runs in background after SessionEnd
 - Bootstrap: first session on new project auto-mines existing history
+- Checkpoints and handoffs are per-project (multi-project workspaces don't clobber each other)
+- Subagents: memory injection and output are skipped (saves context), but file edits are still tracked

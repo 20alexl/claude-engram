@@ -852,22 +852,33 @@ def _get_session_context_for_handoff(project_dir: str) -> dict:
     return context
 
 
-def get_checkpoint_data() -> dict:
-    """Load the latest checkpoint data if it exists."""
-    checkpoint_file = (
+def get_checkpoint_data(project_dir: str = "") -> dict:
+    """Load the latest checkpoint data — per-project first, then global fallback."""
+    candidates = []
+
+    if project_dir:
+        norm = _normalize_path(project_dir)
+        manifest = _get_manifest()
+        proj_info = manifest.get("projects", {}).get(norm)
+        if proj_info:
+            pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+            candidates.append(pdir / "latest_checkpoint.json")
+
+    candidates.append(
         Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
     )
-    if not checkpoint_file.exists():
-        return {}
-    try:
-        data = json.loads(checkpoint_file.read_text())
-        # Check age - only return if less than 48 hours old
-        age_hours = (time.time() - data.get("timestamp", 0)) / 3600
-        if age_hours < 48:
-            return data
-        return {}
-    except Exception:
-        return {}
+
+    for checkpoint_file in candidates:
+        if not checkpoint_file.exists():
+            continue
+        try:
+            data = json.loads(checkpoint_file.read_text())
+            age_hours = (time.time() - data.get("timestamp", 0)) / 3600
+            if age_hours < 48:
+                return data
+        except Exception:
+            continue
+    return {}
 
 
 def get_handoff_data(project_dir: str = "") -> dict:
@@ -1232,7 +1243,7 @@ def should_show_full_reminder(project_dir: str, prompt: str = "") -> tuple[bool,
         return (True, "first_prompt_of_session")
 
     # CASE 3: Checkpoint exists and we haven't reminded yet
-    checkpoint = get_checkpoint_data()
+    checkpoint = get_checkpoint_data(project_dir)
     if checkpoint and not state.get("checkpoint_reminded", False):
         state["checkpoint_reminded"] = True
         save_state(state)
@@ -1279,7 +1290,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         lines.append("")
 
         # AUTO-LOAD CHECKPOINT/HANDOFF
-        checkpoint = get_checkpoint_data()
+        checkpoint = get_checkpoint_data(project_dir)
         handoff = get_handoff_data(project_dir)
 
         if checkpoint or handoff:
@@ -2727,6 +2738,11 @@ def main():
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
                 data = json_module.loads(stdin_data)
+
+                # Subagents: no output injection, no tracking (utility work, not user flow)
+                if data.get("agent_id"):
+                    sys.exit(0)
+
                 duration_ms = data.get("duration_ms", 0)
                 if duration_ms:
                     state = load_state()
@@ -2804,56 +2820,50 @@ def main():
             stdin_data = _read_stdin_with_timeout(0.5)
             if stdin_data:
                 data = json_module.loads(stdin_data)
+
+                is_subagent = bool(data.get("agent_id"))
                 duration_ms = data.get("duration_ms", 0)
-                if duration_ms:
+                if duration_ms and not is_subagent:
                     state = load_state()
                     _track_tool_duration(state, "Edit", duration_ms)
                     save_state(state)
                 file_path = data.get("tool_input", {}).get("file_path", "")
-                # Resolve sub-project from the file
                 if file_path:
                     project_dir = get_project_dir(file_path)
-
-                if file_path:
-                    # AUTO-RECORD the edit
                     _auto_record_edit(file_path, "auto-tracked")
 
-                    # Track in files_edited_this_session AND last_session_files
-                    # Saving last_session_files continuously means session_end is optional
+                    # Track files edited (including by subagents — we want to know)
                     state = load_state()
                     files_edited = state.get("files_edited_this_session", [])
                     if file_path not in files_edited:
                         files_edited.append(file_path)
-                        # Keep last 50 files
                         state["files_edited_this_session"] = files_edited[-50:]
-                        # Also save as last_session_files so it persists without session_end
                         state["last_session_files"] = files_edited[-50:]
                         save_state(state)
 
-                    # Get edit count for this file
-                    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
-                    edit_count = 1
-                    if loop_file.exists():
-                        try:
-                            loop_data = json_module.loads(loop_file.read_text())
-                            edit_count = loop_data.get("edit_counts", {}).get(
-                                file_path, 1
-                            )
-                        except Exception:
-                            pass
+                    # Skip output for subagents — don't waste their context
+                    if not is_subagent:
+                        loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
+                        edit_count = 1
+                        if loop_file.exists():
+                            try:
+                                loop_data = json_module.loads(loop_file.read_text())
+                                edit_count = loop_data.get("edit_counts", {}).get(
+                                    file_path, 1
+                                )
+                            except Exception:
+                                pass
 
-                    # Show confirmation
-                    file_name = Path(file_path).name
-                    result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
+                        file_name = Path(file_path).name
+                        result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
 
-                    # Output JSON format for PostToolUse
-                    hook_output = {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PostToolUse",
-                            "additionalContext": result,
+                        hook_output = {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PostToolUse",
+                                "additionalContext": result,
+                            }
                         }
-                    }
-                    print(json_module.dumps(hook_output))
+                        print(json_module.dumps(hook_output))
         except Exception:
             pass  # Silent failure
 
@@ -2884,8 +2894,8 @@ def main():
                     if fp:
                         project_dir = get_project_dir(fp)
 
-                # Don't log user interrupts as mistakes
-                if is_interrupt:
+                # Don't log user interrupts or subagent errors as mistakes
+                if is_interrupt or data.get("agent_id"):
                     pass  # Silent
                 else:
                     lines = []
@@ -3017,7 +3027,21 @@ def main():
                 "handoff_warnings": [],
             }
 
-            # Save as latest checkpoint
+            # Save as latest checkpoint — per-project + global
+            try:
+                norm = _normalize_path(project_dir)
+                manifest = _get_manifest()
+                proj_info = manifest.get("projects", {}).get(norm)
+                if proj_info:
+                    pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
+                    pdir.mkdir(parents=True, exist_ok=True)
+                    pf = pdir / "latest_checkpoint.json"
+                    temp = pf.with_suffix(".json.tmp")
+                    temp.write_text(json_module.dumps(checkpoint, indent=2))
+                    temp.replace(pf)
+            except Exception:
+                pass
+
             latest = checkpoint_dir / "latest_checkpoint.json"
             temp = latest.with_suffix(".json.tmp")
             temp.write_text(json_module.dumps(checkpoint, indent=2))
@@ -3167,9 +3191,9 @@ def main():
                     f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
                 )
 
-            # Check for checkpoint/handoff to restore
-            checkpoint = get_checkpoint_data()
-            handoff = get_handoff_data(project_dir)
+            # Check for checkpoint/handoff to restore (skip on compact — PostCompact handles it)
+            checkpoint = get_checkpoint_data(project_dir) if source != "compact" else {}
+            handoff = get_handoff_data(project_dir) if source != "compact" else {}
             if checkpoint:
                 age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
                 lines.append(
@@ -3454,12 +3478,17 @@ def main():
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             file_path = ""
+            agent_id = ""
             if stdin_data:
                 data = json_module.loads(stdin_data)
                 file_path = data.get("tool_input", {}).get("file_path", "")
+                agent_id = data.get("agent_id", "")
 
-            # Resolve sub-project from the file being edited
-            if file_path:
+            # Skip memory injection for subagents — they have limited context
+            if agent_id:
+                pass
+            elif file_path:
+                # Resolve sub-project from the file being edited
                 project_dir = get_project_dir(file_path)
                 result = reminder_for_edit(project_dir, file_path)
 

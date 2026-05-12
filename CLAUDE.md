@@ -160,6 +160,8 @@ Top 3 are injected as context. You'll see them in the hook output before edits.
 
 In multi-project workspaces, injection includes memories from the sub-project AND workspace-level memories (rules and mistakes cascade down).
 
+Subagents (detected via `agent_id` in hook stdin) are handled differently: memory injection and hook output are skipped to preserve their limited context, but file edits are still tracked so the parent session knows what was modified.
+
 ### Decision Capture
 
 User prompts are scored for decision intent using two tiers:

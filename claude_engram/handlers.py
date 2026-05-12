@@ -666,19 +666,23 @@ class Handlers:
         checkpoint_info = ""
         try:
             # Try to restore checkpoint
-            checkpoint_result = self.context_guard.restore_checkpoint()
+            checkpoint_result = self.context_guard.restore_checkpoint(project_path=project_path)
             if checkpoint_result.status == "success" and checkpoint_result.data:
+                cpd = checkpoint_result.data
                 checkpoint_info = "\n\n" + "=" * 50 + "\n"
                 checkpoint_info += "RESTORED CHECKPOINT FROM PREVIOUS SESSION:\n"
                 checkpoint_info += "=" * 50 + "\n"
-                checkpoint_info += checkpoint_result.data.get("summary", "")
-                checkpoint_info += "\n\nCONTINUE FROM WHERE YOU LEFT OFF"
+                checkpoint_info += f"Task: {cpd.get('task_description', 'Unknown')}\n"
+                checkpoint_info += f"Step: {cpd.get('current_step', 'Unknown')}\n"
+                if cpd.get("pending_steps"):
+                    checkpoint_info += f"Pending: {', '.join(cpd['pending_steps'][:3])}\n"
+                checkpoint_info += "\nCONTINUE FROM WHERE YOU LEFT OFF"
 
             # Also check for handoff
-            handoff_result = self.context_guard.get_handoff()
+            handoff_result = self.context_guard.get_handoff(project_path=project_path)
             if handoff_result.status == "success" and handoff_result.data:
-                handoff = handoff_result.data.get("handoff", {})
-                if handoff:
+                handoff = handoff_result.data
+                if handoff.get("summary"):
                     checkpoint_info += "\n\n" + "=" * 50 + "\n"
                     checkpoint_info += "HANDOFF FROM PREVIOUS SESSION:\n"
                     checkpoint_info += "=" * 50 + "\n"
@@ -1425,9 +1429,10 @@ class Handlers:
     async def context_checkpoint_restore(
         self,
         task_id: str | None,
+        project_path: str | None = None,
     ) -> list[TextContent]:
         """Restore task state from a checkpoint."""
-        response = self.context_guard.restore_checkpoint(task_id)
+        response = self.context_guard.restore_checkpoint(task_id, project_path=project_path)
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     async def context_checkpoint_list(self) -> list[TextContent]:
@@ -2173,7 +2178,7 @@ class Handlers:
                 handoff_warnings=self._coerce_list(args.get("handoff_warnings")),
             )
         elif operation == "checkpoint_restore":
-            return await self.context_checkpoint_restore(args.get("task_id"))
+            return await self.context_checkpoint_restore(args.get("task_id"), project_path=args.get("project_path"))
         elif operation == "checkpoint_list":
             return await self.context_checkpoint_list()
         elif operation == "verify_completion":
@@ -2525,6 +2530,8 @@ class Handlers:
                 status = get_mining_status()
                 if status.get("status") == "completed":
                     result = status.get("result", {})
+                    if not isinstance(result, dict):
+                        result = {}
                     lines = [f"Mining completed (mode={mode}):"]
                     if result.get("sessions"):
                         lines.append(f"  Sessions indexed: {result['sessions']}")
