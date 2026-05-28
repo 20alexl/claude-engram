@@ -24,7 +24,7 @@ ollama pull gemma3:12b
 
 ## Running Tests
 
-There's no formal test suite yet. Testing is done via inline verification:
+Testing is done via inline verification and benchmark scripts in `tests/`:
 
 ```bash
 # Basic import check
@@ -56,7 +56,20 @@ print(f'All {len(types)} handlers present')
 "
 ```
 
-A proper pytest suite is a high-priority roadmap item.
+### Benchmark scripts (`tests/`)
+
+| Script | What it tests |
+|--------|--------------|
+| `bench_handoff_durability.py` | Ring buffer, promotion guard, walk-up resolution, manual-wins semantics |
+| `bench_path_relevance.py` | Path-aware `file_match` — no cross-version false positives, generic basenames require full-path signal |
+| `bench_migrations.py` | Idempotent migration steps: seed handoff history, re-extract related_files |
+| `bench_decision_capture.py` | Decision intent scoring (AllMiniLM + regex) |
+| `bench_scoring.py` | Memory relevance scoring weights |
+| `bench_integration.py` | End-to-end product behavior (6 scenarios) |
+| `bench_session_mining.py` | Session JSONL indexing and search |
+| *(and others)* | See `tests/` for the full list |
+
+A formal pytest suite is an ongoing roadmap item; coverage is partial.
 
 ## Code Style
 

@@ -16,6 +16,20 @@
 
 ---
 
+### Gotcha: Generic-basename memories fire on unrelated files
+
+**Symptom:** A mistake logged for `v7/auth/__init__.py` surfaces as a warning when editing `v8/auth/__init__.py`, even though the two files are unrelated.
+
+**Cause:** Pre-v0.5.0, `file_match` compared only basenames. `__init__.py` matched any `__init__.py` anywhere.
+
+**Fix:** Resolved in v0.5.0. File matching is now path-aware: a shared basename across diverging paths is not treated as a match. Generic basenames (`__init__.py`, `index.js`, `__main__.py`, etc.) require a full-path signal; specific filenames still match by name.
+
+If you upgraded and still see stale cross-version warnings, run `python -m claude_engram.migrations` to re-extract `related_files` to full paths for existing memories.
+
+**Lesson:** If you store a mistake with a specific file context, the path matters. Logging a mistake with `file_path="v7/auth/__init__.py"` and later editing `v8/auth/__init__.py` will correctly not trigger it.
+
+---
+
 ### Gotcha: Scorer server not starting
 
 **Symptom:** Decision capture only works via regex. Semantic scoring returns 0.0.

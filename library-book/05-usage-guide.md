@@ -120,6 +120,8 @@ pre_edit_check(file_path="auth/middleware.py")
 
 Returns: past mistakes for this file, loop risk level, scope status, and scored contextual memories.
 
+Memory injection is path-aware: a mistake stored for `v7/auth/middleware.py` will not fire when editing `v8/auth/middleware.py` even if the basename matches. Generic filenames (`__init__.py`, `index.js`) require a full-path signal; specific filenames still match by name.
+
 ### Declare Scope
 
 ```python
@@ -149,6 +151,23 @@ context(operation="checkpoint_save", task_description="Refactoring auth module",
 
 ```python
 context(operation="handoff_create", handoff_summary="Auth refactor 60% done. Middleware updated, routes pending.", next_steps=["Update route handlers to use new middleware", "Run full test suite"], handoff_context_needed=["The JWT validation was moved from routes to middleware"], handoff_warnings=["Don't edit auth/legacy.py — it's being removed in the next PR"])
+```
+
+### Retrieve a Handoff
+
+```python
+# Retrieve the latest handoff (default)
+context(operation="handoff_get", project_path="/path")
+
+# Retrieve an older handoff by index (0 = latest, 1 = previous, ...)
+context(operation="handoff_get", project_path="/path", index=2)
+```
+
+### Browse Handoff History
+
+```python
+# List all stored handoffs newest-first with index, age, kind (manual|auto), and summary
+context(operation="handoff_list", project_path="/path")
 ```
 
 ---

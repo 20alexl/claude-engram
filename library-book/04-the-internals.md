@@ -38,16 +38,19 @@ Claude Code
         └── gemma3:12b (configurable)
 
 Storage: ~/.claude_engram/
-    ├── manifest.json        ← Maps project paths to hash dirs
+    ├── manifest.json        ← Maps project paths to hash dirs; migrations_applied list
     ├── global.json          ← Global entries (cross-project)
     ├── projects/
     │   └── <hash>/
-    │       ├── memory.json  ← This project's memories (hot tier)
-    │       ├── archive.json ← This project's cold tier
+    │       ├── memory.json         ← This project's memories (hot tier)
+    │       ├── archive.json        ← This project's cold tier
     │       ├── embeddings.npy          ← Binary AllMiniLM vectors (numpy)
     │       ├── embeddings_index.json   ← ID-to-row mapping
-    │       └── embeddings_pending.json ← Hook writes (merged on load)
+    │       ├── embeddings_pending.json ← Hook writes (merged on load)
+    │       └── handoff_history.json    ← Capped ring buffer (last 20 handoffs)
     ├── checkpoints/         ← Task state, handoffs
+    │   ├── latest_handoff.json      ← Most recent handoff (kept in sync; backward-compatible)
+    │   └── handoff_history.json     ← Global slot ring buffer (last 20 handoffs)
     ├── embeddings/          ← Cached AllMiniLM decision templates
     ├── hook_state.json      ← Hook tracking counters
     ├── loop_detector.json   ← Edit counts per file
@@ -82,6 +85,7 @@ Storage: ~/.claude_engram/
 - Parent-path fallback: when looking up a sub-project path, also checks parent paths for inherited workspace-level memories
 - Scoring logic duplicated (simplified) from `MemoryStore._score_memory_relevance` to avoid Pydantic imports
 - Shared constants (`SCORE_WEIGHTS`, `CATEGORY_BONUSES`) keep the two implementations in sync
+- Path-aware `file_match` (v0.5.0): a shared basename across diverging paths (`V7/.../foo.py` vs `V8/.../foo.py`) is not treated as a match. Generic basenames (`__init__.py`, `index.js`, `__main__.py`, etc.) require a full-path signal to match; specific filenames still match by name. Scoring weights are unchanged.
 
 ### Hook System (`hooks/remind.py`)
 
@@ -169,6 +173,8 @@ claude_engram/
 │   ├── schema.py            # MiniClaudeResponse Pydantic model
 │   ├── llm.py               # Ollama client with queueing
 │   ├── tool_definitions_v2.py  # MCP tool schemas (combined tools)
+│   ├── handoff_store.py     # Shared handoff ring-buffer read/write (v0.5.0)
+│   ├── migrations.py        # Idempotent version-stamped migrations (v0.5.0)
 │   ├── hooks/
 │   │   ├── __init__.py
 │   │   ├── remind.py        # Hook entry point (~2100 lines)
@@ -210,6 +216,8 @@ claude_engram/
 | Parent-path memory inheritance | Workspace-level rules must apply to all sub-projects | Sub-project isolation if someone wants it |
 | `remind.py` as single file | All hook logic in one place. No cross-file imports to slow startup. | Harder to maintain as it grows |
 | Regex fallback for decision scoring | sentence-transformers is optional. Must work without it. | Fewer decisions captured without [semantic] |
+| Handoff ring buffer (last 20) + promotion guard | A single overwritable slot meant a trivial auto-handoff could silently replace a substantive one. Ring buffer preserves history; promotion guard skips writes that add no signal. | Lose historical handoffs on downgrade (backward-safe: latest_handoff.json kept in sync) |
+| Walk-up handoff resolution (project → ancestors → global) | A sub-project's handoff was previously shadowed by the shared global slot written by the Stop hook. | Sub-projects would again lose their handoff to the global slot |
 
 ---
 

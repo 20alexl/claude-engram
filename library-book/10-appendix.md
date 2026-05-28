@@ -93,7 +93,8 @@ All operations require `operation` and `project_path`.
 | `instruction_add` | `instruction`, `reason?`, `importance?` | Register critical rule |
 | `instruction_reinforce` | — | Get instructions to remember |
 | `handoff_create` | `handoff_summary`, `next_steps`, `handoff_context_needed?`, `handoff_warnings?` | Create session handoff |
-| `handoff_get` | — | Retrieve latest handoff |
+| `handoff_get` | `project_path?`, `index?` | Retrieve a handoff; `index=0` = latest, `index=N` = older from history |
+| `handoff_list` | `project_path?` | List handoff history newest-first with index, age, kind, and summary |
 
 ### `convention` Tool
 
@@ -206,6 +207,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 ~/.claude_engram/
 ├── manifest.json            # Maps project paths to hash directories (v3)
+│                            #   migrations_applied: list of completed migration IDs
 ├── global.json              # Global entries (cross-project)
 ├── projects/
 │   └── <hash>/              # Per-project storage (hash from manifest)
@@ -214,6 +216,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │       ├── embeddings.npy   # Binary AllMiniLM vectors (numpy, optional)
 │       ├── embeddings_index.json  # ID-to-row mapping for embeddings.npy
 │       ├── embeddings_pending.json # Hook embedding writes (merged on load)
+│       ├── handoff_history.json   # Per-project capped ring buffer (last 20 handoffs)
 │       ├── session_index.json     # Session metadata + offset cursors
 │       ├── session_embeddings.npy # Conversation chunk embeddings for search
 │       ├── session_embeddings_index.json # Chunk-to-session mapping
@@ -230,13 +233,31 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │   └── decision_templates.json  # Cached AllMiniLM template embeddings
 ├── checkpoints/
 │   ├── latest_checkpoint.json   # Most recent checkpoint
-│   ├── latest_handoff.json      # Most recent handoff
+│   ├── latest_handoff.json      # Most recent handoff (kept in sync for backward compat)
+│   ├── handoff_history.json     # Global slot ring buffer (last 20 handoffs)
 │   ├── HANDOFF.md               # Human-readable handoff
 │   └── task_*.json              # Individual checkpoints
 └── memory.json              # Legacy (auto-migrated to projects/ on first load)
 ```
 
 ## Changelog
+
+### v0.5.0 — 2026-05-28
+
+- **Durable session handoffs** — replaces the single overwritable `latest_handoff.json` slot with a capped ring buffer (`handoff_history.json`, last 20)
+  - Promotion guard: a trivial auto-handoff (no files edited, no decisions) never overwrites a substantive or manual handoff; manual handoffs always win
+  - `kind: manual|auto` marker on every handoff
+  - Walk-up read resolution: nearest project first, ancestors next, global slot last — a sub-project's handoff is no longer shadowed by the shared global slot
+  - New `handoff_list` operation + `index` parameter on `handoff_get` to list and retrieve older handoffs (index 0 = latest, then newest-first)
+  - The three handoff writers (`create_handoff`, Stop hook, PreCompact hook) now share one `handoff_store` module
+  - Backward compatible: `latest_handoff.json` is kept in sync; an existing slot is seeded into history on first write (old/downgraded clients keep working)
+- **Path-aware mistake relevance** — a shared basename across diverging paths (e.g. `V7/.../__init__.py` vs `V8/.../__init__.py`) is no longer treated as a match; generic basenames (`__init__.py`, `index.js`, …) require a full-path signal. Stops cross-version/cross-project mistakes firing on unrelated edits while preserving real matches
+- **Actionable recurring errors** — pattern detection groups by a normalized signature (exception class + message with names/paths/numbers templated) instead of the bare exception class. `patterns.json` refreshes on the next mining pass
+- **Fixes** — empty `<engram-error></engram-error>` tag suppressed; `last_message_preview` dropped from handoffs; `handoff_get` no longer prints the summary twice; `checkpoint_list` hides checkpoints older than 7 days (opt-in prune)
+- **`extract_file_refs` fix** — it used a *capturing* group, so `re.findall` returned only the extension and silently dropped every path, storing basenames only. This was the root data cause of cross-version false positives (`related_files` never carried directory context). Now captures full/relative paths
+- **Automatic, idempotent migrations** — on upgrade a version-stamped migration (run from the SessionStart hook and `install.py`, tracked in `manifest.migrations_applied`) seeds handoff history from the old single-slot file and, off the hook hot path, re-extracts `related_files` to full paths for existing memories. Forward-only, safe to re-run, downgrade-safe, no re-mine
+- **Versioning** — `pyproject` version corrected (had lagged at 0.2.0 through the 0.3.x–0.4.x feature work)
+- New benchmarks: `bench_handoff_durability.py`, `bench_path_relevance.py`
 
 ### v0.4.0 — 2026-04-08
 

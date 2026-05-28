@@ -1,6 +1,6 @@
 [project]
 name = "claude-engram"
-version = "0.2.0"
+version = "0.5.0"
 description = "Persistent memory for Claude Code. Auto-tracks mistakes, decisions, and context via hooks."
 readme = "README.md"
 requires-python = ">=3.10"

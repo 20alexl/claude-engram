@@ -28,7 +28,7 @@ Zero manual effort. Works with any MCP-compatible client.
 - `memory` — store, search, archive, and manage memories
 - `session_mine` — search past conversations, find decisions, replay file history, detect patterns
 - `work` — log decisions and mistakes with reasoning
-- Plus: scope guard, context checkpoints, convention tracking, impact analysis
+- Plus: scope guard, context checkpoints (including `handoff_list` / `handoff_get`), convention tracking, impact analysis
 
 ## How It Works
 
@@ -67,7 +67,7 @@ These test what the product actually does.
 | **Session Mining** (27 tests) | JSONL parsing, indexing, search, incremental processing | 27/27 |
 | **Obsidian Vault** (25 tests) | Compatibility with PARA + CLAUDE.md vault structure | 25/25 |
 
-Reproduce: `python tests/bench_integration.py`, `bench_session_mining.py`, `bench_obsidian_vault.py`
+Reproduce: `python tests/bench_integration.py`, `bench_session_mining.py`, `bench_obsidian_vault.py`, `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`
 
 ### Retrieval benchmarks
 
@@ -131,6 +131,8 @@ python install.py               # Re-run to update hooks and /engram skill
 
 Hooks and MCP tools pick up code changes immediately (editable install). Reconnect the MCP server in Claude Code (`/mcp`) to reload the server process.
 
+Data migrations run automatically: a cheap inline check fires on the next SessionStart, and a full migration runs in the background. `install.py` also runs migrations synchronously (step 9). Migrations are forward-only, idempotent, and downgrade-safe — no data is lost.
+
 ### Mid-Project Adoption
 
 Already deep in a project? Install normally. On first session, engram auto-detects your existing Claude Code session history and mines it in the background — extracting decisions, mistakes, and patterns from all past conversations. No manual effort.
@@ -139,7 +141,7 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 
 ### Memory System
 - **Hybrid search** — keyword + AllMiniLM vector + reranking. No ChromaDB.
-- **Scored injection** — top 3 memories by file match, tags, recency, importance before every edit.
+- **Scored injection** — top 3 memories by file match, tags, recency, importance before every edit. Injection is path-aware: a shared basename across diverging paths (e.g. `V7/cortex/__init__.py` vs `V8/cortex/__init__.py`) is not a match; generic basenames need a full-path signal.
 - **Tiered storage** — hot (fast) + archive (cold, searchable, restorable). Rules and mistakes never archive.
 - **Multi-project** — memories scoped per sub-project. Workspace rules cascade down.
 
@@ -158,8 +160,10 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 - **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
 - **Auto-tracks mistakes** from any failed tool. Only logs errors in project files (filters transient noise). Warns before repeat edits.
 - **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after. Checkpoints and handoffs are per-project scoped.
+- **Durable handoffs** — handoffs are stored in a capped ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one. Browse history with `context(handoff_list, ...)`, retrieve any entry with `context(handoff_get, ..., index=N)`.
 - **Subagent awareness** — memory injection and hook output are skipped for subagents (saves context), but file edits are still tracked.
 - **Edit loop detection** — flags when the same file is edited 3+ times without progress.
+- **Automatic migrations** — on upgrade, schema migrations run automatically: a cheap inline check on SessionStart and a full migration in a background process. Forward-only, idempotent, and downgrade-safe.
 
 ## Configuration
 

@@ -26,6 +26,7 @@ These happen via hooks. You don't call anything:
 | **Search spiral detection** | PostToolUse Bash | Warns after 3+ failed search commands |
 | **Memory archiving** | cleanup / session_start | Old inactive memories archived, not deleted |
 | **Sub-project scoping** | PreToolUse / PostToolUse | Memories scoped to the right sub-project |
+| **Data migrations** | SessionStart (upgrade) | Cheap inline check; full migration in background |
 
 ## Multi-Project Workspaces
 
@@ -121,6 +122,12 @@ context(
     handoff_warnings=["Don't touch legacy auth.py — still used by mobile"]
 )
 
+# Retrieve a handoff (index=0 latest, index=N older)
+context(operation="handoff_get", project_path="/path/to/project", index=0)
+
+# Browse handoff history newest-first (index, age, kind, summary)
+context(operation="handoff_list", project_path="/path/to/project")
+
 # Verify completion
 context(operation="verify_completion", task="OAuth2 migration", verification_steps=["All tests pass", "Login flow works"])
 ```
@@ -155,6 +162,8 @@ Before every Edit/Write, the PreToolUse hook scores all hot memories against the
 - 15% importance rating (1-10)
 - 10% access frequency
 - Rules get +0.3 bonus, mistakes get +0.2
+
+File-path matching is path-aware: a shared basename across diverging paths (e.g. `V7/cortex/__init__.py` vs `V8/cortex/__init__.py`) is not treated as a match. Generic basenames like `__init__.py` or `index.js` require a full-path signal to score; specific filenames still match on name alone.
 
 Top 3 are injected as context. You'll see them in the hook output before edits.
 

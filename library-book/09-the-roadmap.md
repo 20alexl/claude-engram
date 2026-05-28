@@ -35,10 +35,15 @@
 | Cross-project learning | Stable | v0.4.0 |
 | Retroactive bootstrap (mine existing history) | Stable | v0.4.0 |
 | `/engram` skill (slash command) | Stable | v0.4.0 |
+| Durable handoffs (ring buffer, promotion guard, walk-up) | Stable | v0.5.0 |
+| `handoff_list` + `handoff_get` index | Stable | v0.5.0 |
+| Path-aware memory relevance (`file_match`) | Stable | v0.5.0 |
+| Recurring error grouping by normalized signature | Stable | v0.5.0 |
+| Idempotent version-stamped migrations | Stable | v0.5.0 |
 
 ## What's Next
 
-- [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Currently tested via benchmarks and inline scripts.
+- [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.
 - [ ] **Split `remind.py`** — At ~2800 lines, it works but is hard to maintain. Split into `hooks/prompt.py`, `hooks/edit.py`, `hooks/bash.py`, etc.
 - [ ] **Ollama-powered session summaries** — Use local LLM to generate human-readable session summaries instead of metadata-only.
 - [ ] **Obsidian export** — Export session insights, decisions, and project timelines as Obsidian-compatible markdown with wikilinks.

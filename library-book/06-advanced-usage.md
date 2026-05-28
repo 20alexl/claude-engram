@@ -142,6 +142,38 @@ memory(operation="add_rule", content="...", project_path="/home/user/projects")
 
 ---
 
+## Handoff History
+
+Handoffs are stored in a capped ring buffer (last 20 per project, plus a global slot). Use `handoff_list` to browse and `handoff_get` with an `index` to retrieve a specific entry.
+
+```python
+# See all stored handoffs, newest-first (index, age, kind: manual|auto, summary)
+context(operation="handoff_list", project_path="/path")
+
+# Retrieve by index (0 = latest, 1 = previous session, etc.)
+context(operation="handoff_get", project_path="/path", index=0)
+context(operation="handoff_get", project_path="/path", index=3)
+```
+
+The `kind` field tells you whether the handoff was written manually (`handoff_create`) or automatically by the Stop/PreCompact hook. Manual handoffs always win: an auto-handoff with no files edited and no decisions never overwrites a substantive one.
+
+Reads walk up from the nearest project to ancestor projects to the global slot — a sub-project's handoff is not shadowed by the shared global slot.
+
+---
+
+## Automatic Migrations on Upgrade
+
+When you upgrade Claude Engram to a new version, storage migrations run automatically. They are version-stamped, idempotent (safe to re-run), and forward-only. The list of applied migrations is tracked in `manifest.json` under `migrations_applied`.
+
+Migrations triggered by v0.5.0:
+
+- **Seed handoff history** — the existing `latest_handoff.json` is seeded into the new ring buffer on the first write. No data is lost.
+- **Re-extract related_files** — existing memories get their `related_files` re-populated with full paths (fixing a bug where only basenames were stored).
+
+Cheap steps run inline on SessionStart. Heavier steps run in a detached background process so the hook is not delayed. Migrations also run synchronously when you run `python install.py` or `python -m claude_engram.migrations`.
+
+---
+
 ## Performance Tuning
 
 | Situation | Recommendation |

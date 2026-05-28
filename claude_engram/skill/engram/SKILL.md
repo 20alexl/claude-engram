@@ -47,7 +47,8 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `context(checkpoint_save, ...)` — save task state for compaction/session recovery
 - `context(checkpoint_restore)` — restore last checkpoint
 - `context(handoff_create, ..., project_path="...")` — create handoff for next session
-- `context(handoff_get, project_path="...")` — retrieve latest handoff (per-project)
+- `context(handoff_get, project_path="...", index=0)` — retrieve handoff (0 = latest, N = older from history)
+- `context(handoff_list, project_path="...")` — list handoff history newest-first with index, age, kind, summary
 - `context(instruction_add, instruction="...", reason="...", project_path="...")` — add a rule (routes to memory system)
 - `context(instruction_list, project_path="...")` — list all rules
 - `context(instruction_delete, memory_id="...", project_path="...")` — delete a rule by ID
@@ -76,10 +77,12 @@ context(
 ## Key Behaviors
 - Rules cascade from workspace to sub-projects
 - Only file-relevant memories inject before edits (no generic noise)
+- Pre-edit injection is path-aware: a shared basename across diverging paths (e.g. V7/.../__init__.py vs V8/.../__init__.py) is not treated as a match; generic basenames like `__init__.py` or `index.js` require a full-path signal to score
 - Mistakes only logged from errors in project files (not inline python, not pip packages)
 - Loop counter resets after git commits
 - Scorer server auto-starts on demand (no silent degradation)
 - Session mining runs in background after SessionEnd
 - Bootstrap: first session on new project auto-mines existing history
+- Handoffs are durable: stored in a ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one; manual always wins; retrieve any entry via `handoff_get(index=N)` or browse with `handoff_list`
 - Checkpoints and handoffs are per-project (multi-project workspaces don't clobber each other)
 - Subagents: memory injection and output are skipped (saves context), but file edits are still tracked
