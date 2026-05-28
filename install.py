@@ -416,7 +416,7 @@ def main():
     print("Auto-tracks mistakes, decisions, and context. Retrieves")
     print("the right memory at the right time using hybrid search.")
 
-    total_steps = 8
+    total_steps = 9
     script_dir = Path(__file__).parent.resolve()
 
     # Step 1: Check virtual environment
@@ -537,6 +537,21 @@ def main():
             print(f"  Removed old {old_cmd}")
     except Exception as e:
         print_warning(f"Could not install skill: {e}")
+
+    # Step 9: Apply data migrations for existing users (idempotent, forward-only).
+    print_step(total_steps, total_steps, "Applying data migrations...")
+    try:
+        from claude_engram import migrations as _migrations
+
+        rep = _migrations.migrate(include_heavy=True)
+        if rep.get("applied"):
+            print_success("Migrations applied: " + ", ".join(rep["applied"]))
+        elif rep.get("errors"):
+            print_error("Migration issues: " + "; ".join(rep["errors"]))
+        else:
+            print_success("Data already up to date")
+    except Exception as e:
+        print_error(f"Migration skipped: {e}")
 
     # Summary
     print("\n" + "=" * 60)

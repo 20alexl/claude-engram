@@ -3209,6 +3209,17 @@ def main():
             # Auto-start claude_engram session
             mark_session_started(project_dir)
 
+            # Apply pending data migrations: cheap steps inline (fast, idempotent),
+            # heavy steps in a detached background process so the hook stays snappy.
+            try:
+                from claude_engram import migrations as _migrations
+
+                _migrations.run(include_heavy=False)
+                if _migrations.heavy_pending():
+                    _migrations.spawn_background()
+            except Exception:
+                pass
+
             # Start persistent scorer server in background (if sentence-transformers available)
             try:
                 from claude_engram.hooks.scorer_server import start_server_background
