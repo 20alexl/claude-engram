@@ -417,6 +417,24 @@ _PROJECT_MARKERS = {
     "CLAUDE.md",
 }
 
+# Generic filenames present in nearly every project — a bare basename match on
+# these pulls in unrelated projects' mistakes (a V7 __init__.py mistake firing
+# on a V8 __init__.py edit), so the pre-edit check requires a full-path match
+# for them. Mirrors memory._GENERIC_BASENAMES (kept local to avoid importing
+# the heavy memory module on the hot hook path).
+_GENERIC_BASENAMES = {
+    "__init__.py",
+    "__main__.py",
+    "__init__.ts",
+    "index.js",
+    "index.ts",
+    "index.tsx",
+    "mod.rs",
+    "setup.py",
+    "conftest.py",
+    "types.ts",
+}
+
 # Cache: file_path -> resolved project dir (avoids repeated filesystem walks)
 _project_dir_cache: dict[str, str] = {}
 
@@ -1013,15 +1031,24 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     all_mistakes = get_past_mistakes(project_memory)
     file_name = Path(file_path).name
 
-    # Find mistakes related to this file (exact filename match, not substring)
+    # Find mistakes related to this file. For generic names (__init__.py, etc.)
+    # a bare filename match is meaningless across projects, so require the full
+    # path to appear in the mistake — otherwise a V7 __init__.py mistake fires
+    # on every V8 __init__.py edit.
     import re as _re3
 
-    file_pattern = _re3.compile(
-        r"(?:^|[\s/\\:])" + _re3.escape(file_name.lower()) + r"(?:[\s:,.]|$)"
-    )
-    for mistake in all_mistakes:
-        if file_pattern.search(mistake["content"].lower()):
-            results["past_mistakes"].append(mistake["content"])
+    if file_name.lower() in _GENERIC_BASENAMES:
+        needle = file_path.replace("\\", "/").lower()
+        for mistake in all_mistakes:
+            if needle and needle in mistake["content"].replace("\\", "/").lower():
+                results["past_mistakes"].append(mistake["content"])
+    else:
+        file_pattern = _re3.compile(
+            r"(?:^|[\s/\\:])" + _re3.escape(file_name.lower()) + r"(?:[\s:,.]|$)"
+        )
+        for mistake in all_mistakes:
+            if file_pattern.search(mistake["content"].lower()):
+                results["past_mistakes"].append(mistake["content"])
 
     # Check loop detector — use test-aware check (not just edit count)
     loop_status = get_loop_status()

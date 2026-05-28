@@ -65,6 +65,99 @@ SCORE_WEIGHTS = {
 CATEGORY_BONUSES = {"rule": 0.3, "mistake": 0.2}
 RECENCY_HALF_LIFE_DAYS = 30
 
+# Filenames that exist in nearly every project/package. A bare basename match
+# on these is meaningless (every project has an __init__.py), so they require a
+# full-path signal before a memory counts as file-relevant — otherwise a V7
+# mistake about __init__.py fires on every V8 __init__.py edit.
+_GENERIC_BASENAMES = {
+    "__init__.py",
+    "__main__.py",
+    "__init__.ts",
+    "index.js",
+    "index.ts",
+    "index.tsx",
+    "mod.rs",
+    "setup.py",
+    "conftest.py",
+    "types.ts",
+}
+
+
+def _file_match_score(ctx_file: str, related_files: list, content: str) -> float:
+    """Path-aware file relevance in [0, 1].
+
+    The key fix for cross-version false positives: when a related file carries
+    directory info, we require *path compatibility* (same file in absolute or
+    relative form), not just a shared basename. ``V7/.../losses/__init__.py``
+    and ``V8/.../losses/__init__.py`` share their whole suffix but are different
+    files — they diverge at the ``V7``/``V8`` component, so they do NOT match.
+
+    - Same path (abs or rel form of one path) -> 1.0
+    - Bare-basename locator (no dir info), non-generic name -> 0.5
+    - Generic basename without a full-path signal -> 0.0
+    - Full path mentioned in the memory text -> 0.7; bare name-drop -> 0.3
+    """
+    if not ctx_file:
+        return 0.0
+    ctx_norm = ctx_file.replace("\\", "/").lower().strip("/")
+    ctx_name = ctx_norm.rsplit("/", 1)[-1]
+    generic = ctx_name in _GENERIC_BASENAMES
+
+    best = 0.0
+    for rf in related_files or []:
+        if not rf:
+            continue
+        rf_norm = str(rf).replace("\\", "/").lower().strip("/")
+        if rf_norm.rsplit("/", 1)[-1] != ctx_name:
+            continue  # different file entirely
+        if "/" in rf_norm:
+            # Related file has directory info: demand path compatibility. A
+            # mere shared basename across diverging paths is NOT a match.
+            if (
+                ctx_norm == rf_norm
+                or ctx_norm.endswith("/" + rf_norm)
+                or rf_norm.endswith("/" + ctx_norm)
+            ):
+                return 1.0
+            continue
+        # Bare basename locator (no path) — weak, worthless if generic.
+        best = max(best, 0.0 if generic else 0.5)
+
+    cn = content.replace("\\", "/").lower()
+    if ctx_norm in cn:
+        best = max(best, 0.7)  # full path appears in the memory -> strong signal
+    elif not generic and ctx_name in cn:
+        # A *specific* filename mentioned in a memory is real signal and matched
+        # before — keep it (passes the gate). Only *generic* names are rejected
+        # (the `not generic` guard): the bug is generic basenames and diverging
+        # paths, not specific-filename recall.
+        best = max(best, 0.5)
+    return min(best, 1.0)
+
+
+_FILE_EXTS = r"(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)"
+_FILE_PATH_RE = re.compile(r"[\w/\\.:-]+\." + _FILE_EXTS)
+
+
+def extract_file_refs(content: str) -> list[str]:
+    """Extract file references from text, keeping full/relative paths rather
+    than collapsing to basenames — so directory context survives and a
+    ``V7/.../x.py`` reference stays distinguishable from ``V8/.../x.py``.
+
+    Note: the previous implementation used a *capturing* extension group, so
+    ``re.findall`` returned only the extension ("py") and every path was
+    dropped; its fallback then kept basenames only. That left related_files
+    without directory info — the root data cause of cross-version false
+    positives. This keeps the whole matched path (non-capturing group, with
+    ``/ \\ :`` in the character class for dirs and Windows drive letters).
+    """
+    files = set()
+    for m in _FILE_PATH_RE.findall(content):
+        m = m.strip().strip("\"'`,()[]{}<>")
+        if m and not m.startswith("."):
+            files.add(m)
+    return sorted(files)
+
 
 class MemoryCluster(BaseModel):
     """A group of related memories."""
@@ -501,26 +594,9 @@ class MemoryStore:
         return list(tags)
 
     def _extract_file_refs(self, content: str) -> list[str]:
-        """Extract file references from memory content."""
-        files = set()
-
-        # Match common file patterns
-        patterns = [
-            r"[\w/\\.-]+\.(py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
-            r"[\w-]+\.py",
-            r"handlers\.py|server\.py|memory\.py|remind\.py",
-        ]
-
-        for pattern in patterns:
-            matches = re.findall(pattern, content)
-            for match in matches:
-                if isinstance(match, tuple):
-                    match = match[0]
-                # Clean up the match
-                if "." in match:
-                    files.add(match)
-
-        return list(files)
+        """Extract file references from memory content (delegates to the
+        module-level extract_file_refs, which keeps full paths)."""
+        return extract_file_refs(content)
 
     def _generate_entry_id(self, content: str, project_path: str = "") -> str:
         """Generate a unique ID for a memory entry based on content.
@@ -3044,13 +3120,12 @@ class HotMemoryReader:
                 if category == "rule":
                     rules.append(entry)
                     continue
-                # Direct file relevance only
+                # Direct file relevance only — path-aware, so a shared basename
+                # across diverging paths (e.g. V7 vs V8) is not treated as a
+                # match and generic names like __init__.py need a full path.
                 related = entry.get("related_files", [])
                 content = entry.get("content", "")
-                has_file_match = any(Path(rf).name == ctx_name for rf in related)
-                has_content_match = ctx_name in content
-
-                if has_file_match or has_content_match:
+                if _file_match_score(ctx_file, related, content) >= 0.5:
                     file_relevant.append(entry)
 
             # Only show rules when there's something file-specific to go with
@@ -3078,16 +3153,10 @@ class HotMemoryReader:
         content = entry.get("content", "")
         entry_tags = set(entry.get("tags", []))
 
-        # File match (0.35)
-        file_score = 0.0
-        if ctx_file:
-            ctx_name = Path(ctx_file).name
-            for rf in related_files:
-                if Path(rf).name == ctx_name:
-                    file_score = 1.0
-                    break
-            if file_score < 0.4 and ctx_name in content:
-                file_score = 0.4
+        # File match (0.35) — path-aware (see _file_match_score): a shared
+        # basename across diverging paths is not a match, and generic names
+        # need a full-path signal.
+        file_score = _file_match_score(ctx_file, related_files, content) if ctx_file else 0.0
         score += SCORE_WEIGHTS["file_match"] * file_score
 
         # Tag overlap (0.20)
