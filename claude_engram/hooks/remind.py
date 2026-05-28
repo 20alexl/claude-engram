@@ -3338,8 +3338,9 @@ def main():
                             if recurring:
                                 lines.append("Recurring errors:")
                                 for e in recurring:
+                                    label = e.get("message_pattern") or e["error_type"]
                                     lines.append(
-                                        f"  - {e['error_type']} ({e['session_count']} sessions)"
+                                        f"  - {label} ({e['session_count']} sessions)"
                                     )
                         except Exception:
                             pass

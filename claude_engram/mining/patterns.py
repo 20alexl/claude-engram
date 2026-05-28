@@ -172,6 +172,24 @@ def detect_struggles(
     return struggles[:20]
 
 
+_ERR_QUOTED = re.compile(r"""['"][^'"]{1,80}['"]""")
+_ERR_HEX = re.compile(r"\b0x[0-9a-fA-F]+\b")
+_ERR_DOTTED = re.compile(r"\b\w+(?:\.\w+)+\b")
+_ERR_NUM = re.compile(r"\b\d+\b")
+
+
+def _normalize_error_msg(msg: str) -> str:
+    """Template out the variable parts of an error message — quoted names,
+    dotted module paths, hex addresses, numbers — so the *same* error with
+    different identifiers collapses into one signature. This turns coarse
+    "AttributeError (3 sessions)" buckets into actionable, distinct patterns."""
+    msg = _ERR_QUOTED.sub("<name>", msg)
+    msg = _ERR_HEX.sub("<addr>", msg)
+    msg = _ERR_DOTTED.sub("<path>", msg)
+    msg = _ERR_NUM.sub("<n>", msg)
+    return " ".join(msg.split())[:120]
+
+
 def detect_recurring_errors(
     sessions: dict[str, dict],
     project_path: str,
@@ -208,21 +226,29 @@ def detect_recurring_errors(
 
             for mistake in data.get("mistakes", []):
                 error_type = mistake.get("error_type", "")
-                desc = mistake.get("description", "")
-                if error_type:
-                    # Group by error type (e.g., "AttributeError")
-                    error_occurrences.setdefault(error_type, []).append(session_id)
+                desc = mistake.get("description", "") or ""
+                if not error_type:
+                    continue
+                # Group by a normalized signature (class + templated message),
+                # not the bare exception class — the full message is already
+                # stored in `description`, so this needs no schema change.
+                prefix = error_type + ": "
+                raw_msg = desc[len(prefix):] if desc.startswith(prefix) else desc
+                norm_msg = _normalize_error_msg(raw_msg)
+                sig = f"{error_type}: {norm_msg}" if norm_msg else error_type
+                error_occurrences.setdefault(sig, []).append(session_id)
         except Exception:
             continue
 
     recurring = []
-    for error_type, sids in error_occurrences.items():
+    for sig, sids in error_occurrences.items():
         unique_sessions = list(set(sids))
         if len(unique_sessions) >= 2:
+            error_type = sig.split(":", 1)[0]
             recurring.append(
                 RecurringError(
                     error_type=error_type,
-                    message_pattern=error_type,
+                    message_pattern=sig,
                     session_count=len(unique_sessions),
                     sessions=unique_sessions[:10],
                 )
