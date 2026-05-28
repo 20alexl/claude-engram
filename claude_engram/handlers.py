@@ -1549,9 +1549,18 @@ class Handlers:
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_handoff_get(self, project_path: str = "") -> list[TextContent]:
-        """Retrieve the latest handoff document."""
-        response = self.context_guard.get_handoff(project_path=project_path)
+    async def context_handoff_get(
+        self, project_path: str = "", index: int = 0
+    ) -> list[TextContent]:
+        """Retrieve a handoff (index=0 latest, index>0 older from history)."""
+        response = self.context_guard.get_handoff(
+            project_path=project_path or "", index=index
+        )
+        return [TextContent(type="text", text=response.to_formatted_string())]
+
+    async def context_handoff_list(self, project_path: str = "") -> list[TextContent]:
+        """List the handoff history ring (newest first, retrievable by index)."""
+        response = self.context_guard.list_handoffs(project_path=project_path or "")
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
@@ -2227,11 +2236,18 @@ class Handlers:
                 project_path=args.get("project_path"),
             )
         elif operation == "handoff_get":
-            return await self.context_handoff_get(project_path=args.get("project_path"))
+            return await self.context_handoff_get(
+                project_path=args.get("project_path"),
+                index=int(args.get("index") or 0),
+            )
+        elif operation == "handoff_list":
+            return await self.context_handoff_list(
+                project_path=args.get("project_path")
+            )
         else:
             return self._needs_clarification(
                 f"Unknown context operation: {operation}",
-                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, or handoff_get",
+                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, handoff_get, or handoff_list",
             )
 
     # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead

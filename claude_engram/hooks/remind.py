@@ -527,6 +527,50 @@ def get_project_memory_dir(project_dir: str) -> Path:
     return storage / "projects" / hash_id
 
 
+def _global_handoff_dir() -> Path:
+    """Global checkpoints dir — the cross-project fallback for handoffs."""
+    return get_engram_storage_dir() / "checkpoints"
+
+
+def _project_hash_dir(project_dir: str) -> "Path | None":
+    """The per-project hash dir for handoff storage, or None when the project
+    is not yet registered in the manifest (then only the global dir is used)."""
+    if not project_dir:
+        return None
+    info = _get_manifest().get("projects", {}).get(_normalize_path(project_dir))
+    if info:
+        return get_engram_storage_dir() / "projects" / info["hash"]
+    return None
+
+
+def _handoff_candidate_dirs(project_dir: str = "") -> list:
+    """Ordered dirs to search for a handoff: nearest project first, then any
+    ancestor project registered in the manifest, then the global dir last.
+
+    The walk-up means a sub-project's own handoff wins over the shared global
+    slot, so retrieval no longer returns the wrong (root) project's handoff."""
+    storage = get_engram_storage_dir()
+    projects = _get_manifest().get("projects", {})
+    dirs: list = []
+    seen_hashes = set()
+    if project_dir:
+        try:
+            p = Path(_normalize_path(project_dir))
+        except Exception:
+            p = None
+        while p is not None:
+            info = projects.get(_normalize_path(str(p)))
+            if info and info["hash"] not in seen_hashes:
+                dirs.append(storage / "projects" / info["hash"])
+                seen_hashes.add(info["hash"])
+            parent = p.parent
+            if parent == p:
+                break
+            p = parent
+    dirs.append(storage / "checkpoints")
+    return dirs
+
+
 def _load_project_entries_from_dir(project_hash_dir: Path) -> list[dict]:
     """Load entries from a per-project memory.json file."""
     mem_file = project_hash_dir / "memory.json"
@@ -882,37 +926,17 @@ def get_checkpoint_data(project_dir: str = "") -> dict:
 
 
 def get_handoff_data(project_dir: str = "") -> dict:
-    """Load the latest handoff data — per-project first, then global fallback."""
-    candidates = []
+    """Load the latest handoff — nearest project first, then ancestor projects,
+    then the global slot. Uses the durable ring-buffer store with the walk-up
+    resolver so a sub-project's own handoff is never shadowed by the shared
+    global slot (which any project's stop/compact hook may have last written)."""
+    try:
+        from claude_engram import handoff_store as _hs
 
-    # Per-project handoff (preferred)
-    if project_dir:
-        norm = _normalize_path(project_dir)
-        manifest = _get_manifest()
-        proj_info = manifest.get("projects", {}).get(norm)
-        if proj_info:
-            pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
-            candidates.append(pdir / "latest_handoff.json")
-
-    # Global fallback (legacy)
-    candidates.append(
-        Path.home() / ".claude_engram" / "checkpoints" / "latest_handoff.json"
-    )
-
-    for handoff_file in candidates:
-        if not handoff_file.exists():
-            continue
-        try:
-            data = json.loads(handoff_file.read_text())
-            age_hours = (
-                time.time() - data.get("created", data.get("created_at", 0))
-            ) / 3600
-            if age_hours < 48:
-                return data
-        except Exception:
-            continue
-
-    return {}
+        data = _hs.read_latest(_handoff_candidate_dirs(project_dir), max_age_hours=48)
+        return data or {}
+    except Exception:
+        return {}
 
 
 # NOTE: detect_complex_task REMOVED - too many false positives
@@ -2980,14 +3004,17 @@ def main():
 
                     # No nag — if auto-log didn't capture it, it wasn't worth tracking
 
-                    result = "\n".join(lines)
-                    hook_output = {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PostToolUseFailure",
-                            "additionalContext": f"<engram-error>{result}</engram-error>",
+                    result = "\n".join(lines).strip()
+                    # Only emit the tag when we actually tracked something —
+                    # otherwise we leak an empty <engram-error></engram-error>.
+                    if result:
+                        hook_output = {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PostToolUseFailure",
+                                "additionalContext": f"<engram-error>{result}</engram-error>",
+                            }
                         }
-                    }
-                    print(json_module.dumps(hook_output))
+                        print(json_module.dumps(hook_output))
         except Exception:
             pass
 
@@ -3070,6 +3097,7 @@ def main():
 
             handoff = {
                 "created": time.time(),
+                "kind": "auto",
                 "summary": " ".join(summary_parts),
                 "next_steps": ["Continue work from before compaction"],
                 "context_needed": [],
@@ -3081,25 +3109,13 @@ def main():
                 "trigger": trigger,
             }
 
-            try:
-                norm = _normalize_path(project_dir)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
-                    pdir.mkdir(parents=True, exist_ok=True)
-                    hf = pdir / "latest_handoff.json"
-                    temp = hf.with_suffix(".json.tmp")
-                    temp.write_text(json_module.dumps(handoff, indent=2))
-                    temp.replace(hf)
-            except Exception:
-                pass
+            # Durable store: ring buffer + guarded latest pointer (see stop_json).
+            from claude_engram import handoff_store as _hs
 
-            # Global fallback
-            hf = checkpoint_dir / "latest_handoff.json"
-            temp = hf.with_suffix(".json.tmp")
-            temp.write_text(json_module.dumps(handoff, indent=2))
-            temp.replace(hf)
+            _hs.write_handoff(
+                handoff,
+                [_project_hash_dir(project_dir), _global_handoff_dir()],
+            )
         except Exception:
             pass
 
@@ -3368,9 +3384,6 @@ def main():
                 files_edited = state.get("files_edited_this_session", [])
 
                 if files_edited or last_message:
-                    checkpoint_dir = Path.home() / ".claude_engram" / "checkpoints"
-                    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
                     ctx = _get_session_context_for_handoff(project_dir)
                     summary_parts = [f"Session stopped. {len(files_edited)} files edited."]
                     if ctx["decisions"]:
@@ -3384,36 +3397,27 @@ def main():
 
                     handoff = {
                         "created": time.time(),
+                        "kind": "auto",
                         "summary": " ".join(summary_parts),
                         "next_steps": ["Review what was in progress"],
                         "context_needed": [],
                         "warnings": [],
                         "project_path": project_dir,
-                        "last_message_preview": (
-                            last_message[:300] if last_message else ""
-                        ),
                         "files_in_progress": files_edited[:10],
                         "decisions": ctx["decisions"],
                         "mistakes": ctx["mistakes"],
                     }
 
-                    # Save per-project (preferred) + global fallback
-                    norm = _normalize_path(project_dir)
-                    manifest = _get_manifest()
-                    proj_info = manifest.get("projects", {}).get(norm)
-                    if proj_info:
-                        pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
-                        pdir.mkdir(parents=True, exist_ok=True)
-                        hf = pdir / "latest_handoff.json"
-                        temp = hf.with_suffix(".json.tmp")
-                        temp.write_text(json_module.dumps(handoff, indent=2))
-                        temp.replace(hf)
+                    # Durable store: append to the ring buffer and update the
+                    # latest pointer behind a promotion guard. A trivial
+                    # auto-handoff (0 files, 0 decisions, no real next steps) is
+                    # dropped so it can't bury a substantive or manual handoff.
+                    from claude_engram import handoff_store as _hs
 
-                    # Also save global for legacy compatibility
-                    handoff_file = checkpoint_dir / "latest_handoff.json"
-                    temp = handoff_file.with_suffix(".json.tmp")
-                    temp.write_text(json_module.dumps(handoff, indent=2))
-                    temp.replace(handoff_file)
+                    _hs.write_handoff(
+                        handoff,
+                        [_project_hash_dir(project_dir), _global_handoff_dir()],
+                    )
 
                 # Also persist session files for next session context
                 mark_session_ended()

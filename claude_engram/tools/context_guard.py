@@ -766,6 +766,7 @@ class ContextGuard:
 
         handoff = {
             "created": time.time(),
+            "kind": "manual",
             "summary": summary,
             "next_steps": next_steps,
             "context_needed": context_needed,
@@ -773,26 +774,25 @@ class ContextGuard:
             "project_path": project_path,
         }
 
-        # Save per-project (preferred) + global fallback
-        if project_path:
-            try:
-                from claude_engram.hooks.remind import _normalize_path, _get_manifest
-                norm = _normalize_path(project_path)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
-                    pdir.mkdir(parents=True, exist_ok=True)
-                    hf = pdir / "latest_handoff.json"
-                    with open(hf, "w") as f:
-                        json.dump(handoff, f, indent=2)
-            except Exception:
-                pass
+        # Durable store: append to the ring buffer and update the latest
+        # pointer. Manual handoffs always win the promotion guard, so they are
+        # never buried by an auto-handoff from a later stop/compact.
+        try:
+            from claude_engram import handoff_store as _hs
+            from claude_engram.hooks.remind import (
+                _project_hash_dir,
+                _global_handoff_dir,
+            )
 
-        # Global fallback
-        handoff_file = self.storage_dir / "latest_handoff.json"
-        with open(handoff_file, "w") as f:
-            json.dump(handoff, f, indent=2)
+            _hs.write_handoff(
+                handoff,
+                [_project_hash_dir(project_path), _global_handoff_dir()],
+            )
+        except Exception:
+            # Last-resort fallback: keep the legacy global slot working.
+            handoff_file = self.storage_dir / "latest_handoff.json"
+            with open(handoff_file, "w") as f:
+                json.dump(handoff, f, indent=2)
 
         # Also create a markdown version for easy reading
         md_lines = [
@@ -829,69 +829,82 @@ class ContextGuard:
             reasoning=f"Handoff created with {len(next_steps)} next steps",
             work_log=work_log,
             data={
-                "handoff_file": str(handoff_file),
+                "handoff_file": str(self.storage_dir / "latest_handoff.json"),
                 "markdown_file": str(handoff_md),
                 "next_steps": next_steps,
             },
             suggestions=["Share HANDOFF.md content at the start of next session"],
         )
 
-    def get_handoff(self, project_path: str = "") -> MiniClaudeResponse:
+    def get_handoff(
+        self, project_path: str = "", index: int = 0
+    ) -> MiniClaudeResponse:
         """
-        Retrieve the latest handoff document.
-        Checks per-project handoff first, then global fallback.
+        Retrieve a handoff document from the durable store.
+
+        ``index=0`` returns the latest (best) handoff; ``index>0`` reaches an
+        older handoff from the ring buffer. Resolution walks up from
+        ``project_path`` to the nearest project that has a handoff, then the
+        global slot — so a sub-project never gets the wrong (root) handoff.
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("retrieving handoff")
 
         handoff = None
-        handoff_source = "global"
+        try:
+            from claude_engram import handoff_store as _hs
+            from claude_engram.hooks.remind import _handoff_candidate_dirs
 
-        # Check per-project first (has the detailed user-created handoff)
-        if project_path:
-            try:
-                from claude_engram.hooks.remind import _normalize_path, _get_manifest
+            dirs = _handoff_candidate_dirs(project_path)
+            # index 0 == promoted latest, then older handoffs newest-first;
+            # indices match handoff_list (see handoff_store.read_ordered).
+            handoff = _hs.get_by_index(dirs, index if index and index > 0 else 0)
+        except Exception:
+            handoff = None
 
-                norm = _normalize_path(project_path)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
-                    pf = pdir / "latest_handoff.json"
-                    if pf.exists():
-                        with open(pf) as f:
-                            handoff = json.load(f)
-                        handoff_source = "project"
-            except Exception:
-                pass
-
-        # Global fallback
         if not handoff:
-            handoff_file = self.storage_dir / "latest_handoff.json"
-            if not handoff_file.exists():
-                return MiniClaudeResponse(
-                    status="not_found",
-                    confidence="high",
-                    reasoning="No handoff document found from previous session",
-                    work_log=work_log,
-                )
-            with open(handoff_file) as f:
-                handoff = json.load(f)
+            return MiniClaudeResponse(
+                status="not_found",
+                confidence="high",
+                reasoning=(
+                    "No handoff document found from previous session"
+                    if not index
+                    else f"No handoff at index {index} — use handoff_list to see how many exist"
+                ),
+                work_log=work_log,
+            )
 
-        age_hours = (time.time() - handoff.get("created", 0)) / 3600
+        age_hours = (
+            time.time() - handoff.get("created", handoff.get("created_at", 0))
+        ) / 3600
+        kind = handoff.get("kind", "auto")
+        work_log.what_worked.append(
+            f"retrieved {kind} handoff from {age_hours:.1f} hours ago"
+        )
 
-        work_log.what_worked.append(f"retrieved handoff from {age_hours:.1f} hours ago")
-
-        warnings = handoff.get("warnings", [])
+        warnings = list(handoff.get("warnings", []))
         if age_hours > 48:
             warnings.append(f"Handoff is {age_hours:.0f} hours old - may be outdated")
+
+        # Compact display data. Exclude `summary` (shown as the headline
+        # reasoning) and `warnings` (surfaced separately) so neither prints
+        # twice in the formatted output.
+        display_keys = (
+            "next_steps",
+            "context_needed",
+            "decisions",
+            "files_in_progress",
+            "mistakes",
+        )
+        data = {k: handoff[k] for k in display_keys if handoff.get(k)}
+        summary = handoff.get("summary", "No summary")
 
         return MiniClaudeResponse(
             status="success",
             confidence="high",
-            reasoning=handoff.get("summary", "No summary"),
+            reasoning=f"[{kind}, {age_hours:.0f}h ago] {summary}",
             work_log=work_log,
-            data=handoff,
+            data=data,
             warnings=warnings,
             suggestions=[
                 (
@@ -902,38 +915,107 @@ class ContextGuard:
             ],
         )
 
-    def list_checkpoints(self) -> MiniClaudeResponse:
-        """List all saved checkpoints."""
+    def list_handoffs(self, project_path: str = "") -> MiniClaudeResponse:
+        """List the handoff history (index 0 = latest, then newest-first) with
+        age, kind, and a summary snippet, so an older handoff can be retrieved
+        via handoff_get index=N. Indices here match handoff_get exactly. Fixes
+        the old single-slot loss where only one handoff was ever recoverable."""
         work_log = WorkLog()
-        work_log.what_i_tried.append("listing checkpoints")
+        work_log.what_i_tried.append("listing handoffs")
 
-        checkpoints = []
-        for f in self.storage_dir.glob("task_*.json"):
-            try:
-                with open(f) as file:
-                    data = json.load(file)
-                    checkpoints.append(
-                        {
-                            "task_id": data.get("task_id"),
-                            "description": data.get("task_description", "")[:50],
-                            "progress": f"{len(data.get('completed_steps', []))}/{len(data.get('completed_steps', [])) + len(data.get('pending_steps', []))}",
-                            "age_hours": round(
-                                (time.time() - data.get("timestamp", 0)) / 3600, 1
-                            ),
-                        }
-                    )
-            except (json.JSONDecodeError, KeyError):
-                continue
+        try:
+            from claude_engram import handoff_store as _hs
+            from claude_engram.hooks.remind import _handoff_candidate_dirs
 
-        # Sort by age
-        checkpoints.sort(key=lambda x: x["age_hours"])
+            hist = _hs.read_ordered(_handoff_candidate_dirs(project_path))
+        except Exception:
+            hist = []
 
-        work_log.what_worked.append(f"found {len(checkpoints)} checkpoints")
+        if not hist:
+            return MiniClaudeResponse(
+                status="not_found",
+                confidence="high",
+                reasoning="No handoffs recorded yet",
+                work_log=work_log,
+            )
+
+        items = []
+        for i, h in enumerate(hist):
+            age_h = (
+                time.time() - h.get("created", h.get("created_at", 0))
+            ) / 3600
+            kind = h.get("kind", "auto")
+            summary = (h.get("summary", "") or "")[:80]
+            items.append(f"[{i}] ({kind}, {age_h:.0f}h) {summary}")
 
         return MiniClaudeResponse(
             status="success",
             confidence="high",
-            reasoning=f"Found {len(checkpoints)} saved checkpoints",
+            reasoning=f"{len(hist)} handoff(s) in history (handoff_get index=N to retrieve):",
+            work_log=work_log,
+            data={"handoffs": items},
+        )
+
+    def list_checkpoints(
+        self, max_age_hours: float = 168.0, prune: bool = False
+    ) -> MiniClaudeResponse:
+        """List saved checkpoints, hiding stale ones (older than
+        ``max_age_hours``, default 7 days) so old test/throwaway checkpoints no
+        longer clutter the view mixed in with real ones.
+
+        With ``prune=True`` the stale checkpoint files are deleted. Pruning is
+        off by default — checkpoints are never removed silently.
+        """
+        work_log = WorkLog()
+        work_log.what_i_tried.append("listing checkpoints")
+
+        checkpoints = []
+        stale = 0
+        pruned = 0
+        for f in self.storage_dir.glob("task_*.json"):
+            try:
+                with open(f) as file:
+                    data = json.load(file)
+            except (json.JSONDecodeError, KeyError, OSError):
+                continue
+
+            age_hours = (time.time() - data.get("timestamp", 0)) / 3600
+            if age_hours > max_age_hours:
+                stale += 1
+                if prune:
+                    try:
+                        f.unlink()
+                        pruned += 1
+                    except OSError:
+                        pass
+                continue
+
+            completed = len(data.get("completed_steps", []))
+            pending = len(data.get("pending_steps", []))
+            checkpoints.append(
+                {
+                    "task_id": data.get("task_id"),
+                    "description": data.get("task_description", "")[:50],
+                    "progress": f"{completed}/{completed + pending}",
+                    "age_hours": round(age_hours, 1),
+                }
+            )
+
+        checkpoints.sort(key=lambda x: x["age_hours"])
+
+        days = int(max_age_hours / 24)
+        reasoning = f"Found {len(checkpoints)} recent checkpoint(s)"
+        if pruned:
+            reasoning += f"; pruned {pruned} stale (>{days}d)"
+        elif stale:
+            reasoning += f"; {stale} older than {days}d hidden (prune=true to remove)"
+
+        work_log.what_worked.append(f"{len(checkpoints)} recent, {stale} stale")
+
+        return MiniClaudeResponse(
+            status="success",
+            confidence="high",
+            reasoning=reasoning,
             work_log=work_log,
             data={"checkpoints": checkpoints},
         )

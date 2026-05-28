@@ -318,7 +318,8 @@ TOOL_DEFINITIONS = [
 - instruction_delete: Delete a rule by ID (memory_id)
 - instruction_reinforce: Get all rules for reinforcement
 - handoff_create: Create session handoff (handoff_summary, pending_steps, handoff_context_needed, handoff_warnings)
-- handoff_get: Retrieve latest handoff document (project_path for per-project handoff)""",
+- handoff_get: Retrieve a handoff (project_path; index=0 latest, index=N older from history)
+- handoff_list: List handoff history newest-first with index, age, kind, summary""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -335,6 +336,7 @@ TOOL_DEFINITIONS = [
                         "instruction_reinforce",
                         "handoff_create",
                         "handoff_get",
+                        "handoff_list",
                     ],
                     "description": "Which context operation to perform",
                 },
@@ -350,6 +352,10 @@ TOOL_DEFINITIONS = [
                 "memory_id": {
                     "type": "string",
                     "description": "For instruction_delete: ID of the rule to delete (shown in list_rules output)",
+                },
+                "index": {
+                    "type": "integer",
+                    "description": "For handoff_get: 0 = latest handoff, N>0 = older handoff from history (see handoff_list)",
                 },
                 "task": {"type": "string", "description": "For verify: task to verify"},
                 "evidence": {
