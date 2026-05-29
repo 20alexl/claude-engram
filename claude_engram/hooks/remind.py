@@ -110,11 +110,18 @@ def load_state() -> dict:
 
 
 def save_state(state: dict):
-    """Save hook state."""
+    """Save hook state atomically (temp file + atomic replace).
+
+    Two Claude sessions launched from the same workspace write hook state
+    concurrently; a plain write_text can be read half-finished or interleaved.
+    A pid-tagged temp file + os.replace makes each write all-or-nothing.
+    """
     state_file = get_state_file()
     state_file.parent.mkdir(parents=True, exist_ok=True)
     try:
-        state_file.write_text(json.dumps(state, indent=2))
+        tmp = state_file.parent / f"{state_file.name}.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps(state, indent=2))
+        tmp.replace(state_file)
     except Exception:
         pass
 
