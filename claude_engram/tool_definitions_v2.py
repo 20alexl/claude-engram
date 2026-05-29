@@ -509,31 +509,21 @@ TOOL_DEFINITIONS = [
         },
     ),
     Tool(
-        name="code_quality_check",
-        description="Check code quality against common anti-patterns: overly long functions (>50 lines), deep nesting (>4 levels), vague variable names, missing error handling, and AI-generated boilerplate. Returns: list of issues with severity, line numbers, and fix suggestions.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "code": {"type": "string", "description": "Code snippet to analyze for quality issues"},
-                "language": {"type": "string", "default": "python", "description": "Programming language for language-specific checks (python, javascript, typescript, go, rust)"},
-            },
-            "required": ["code"],
-        },
-    ),
-    Tool(
         name="audit_batch",
-        description="Audit multiple files for code quality issues in a single pass. Accepts file paths or glob patterns (e.g., 'src/**/*.py'). Checks each file for long functions, deep nesting, missing error handling, and anti-patterns. Returns: per-file issue lists with severity and line numbers, plus aggregate summary.",
+        description="Audit code for quality issues. Two modes: pass file_paths (paths or globs like 'src/**/*.py') to audit files on disk for bugs, missing error handling, security issues, TODOs, and anti-patterns; OR pass code (+language) for a fast, no-I/O structural/naming lint of an inline snippet (long functions, vague names, deep nesting, too many params). Returns issues with severity, line numbers, and fix suggestions.",
         inputSchema={
             "type": "object",
             "properties": {
-                "file_paths": {"type": "array", "items": {"type": "string"}, "description": "List of file paths or glob patterns to audit (e.g., ['src/auth.py', 'src/models/*.py'])"},
+                "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files mode: file paths or glob patterns to audit (e.g., ['src/auth.py', 'src/models/*.py'])"},
                 "min_severity": {
                     "type": "string",
                     "enum": ["critical", "warning", "info"],
-                    "description": "Minimum severity to report: 'critical' (bugs only), 'warning' (bugs + smells), 'info' (everything)",
+                    "description": "Files mode: minimum severity to report: 'critical' (bugs only), 'warning' (bugs + smells), 'info' (everything)",
                 },
+                "code": {"type": "string", "description": "Inline mode: code snippet to lint for structural/naming quality (instead of file_paths)"},
+                "language": {"type": "string", "default": "python", "description": "Inline mode: language for the snippet (python, javascript, typescript, go, rust)"},
             },
-            "required": ["file_paths"],
+            "required": [],
         },
     ),
     Tool(

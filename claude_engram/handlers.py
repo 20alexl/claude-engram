@@ -1227,20 +1227,6 @@ class Handlers:
     # Code Quality Checker
     # -------------------------------------------------------------------------
 
-    async def code_quality_check(
-        self,
-        code: str,
-        language: str,
-    ) -> list[TextContent]:
-        """Check code for structural quality issues."""
-        if not code:
-            return self._needs_clarification(
-                "No code provided", "What code would you like me to check?"
-            )
-
-        response = self.code_quality.check(code, language)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
     # -------------------------------------------------------------------------
     # Loop Detector
     # -------------------------------------------------------------------------
@@ -1623,12 +1609,29 @@ class Handlers:
         self,
         file_paths: list[str],
         min_severity: str | None = None,
+        code: str = "",
+        language: str = "python",
     ) -> list[TextContent]:
-        """Audit multiple files at once."""
+        """Audit code for quality issues.
+
+        Two modes:
+        - inline: pass ``code`` (+ optional ``language``) for a fast, no-I/O
+          structural/naming lint of a snippet (long functions, vague names,
+          deep nesting, too many params). Heuristic, no LLM. (Folded in from
+          the former code_quality_check tool.)
+        - files: pass ``file_paths`` (globs ok) to audit files on disk for
+          bugs, error handling, security, TODOs, and anti-patterns.
+        """
+        # Inline snippet mode.
+        if code:
+            response = self.code_quality.check(code, language)
+            return [TextContent(type="text", text=response.to_formatted_string())]
+
         if not file_paths:
             return self._needs_clarification(
-                "No file paths provided",
-                "Which files should I audit? (supports glob patterns like 'src/**/*.py')",
+                "Nothing to audit",
+                "Pass file_paths to audit files (globs like 'src/**/*.py' ok), "
+                "or code (+language) to lint an inline snippet.",
             )
 
         record_session_tool_use("audit_batch", f"{len(file_paths)} files")

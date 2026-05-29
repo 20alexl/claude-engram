@@ -121,8 +121,7 @@ All operations require `operation` and `project_path`.
 | `file_summarize` | `file_path`, `mode?` | Quick or detailed summary |
 | `deps_map` | `file_path`, `project_root?`, `include_reverse?` | Map dependencies |
 | `impact_analyze` | `file_path`, `project_root`, `proposed_changes?` | Change impact analysis |
-| `code_quality_check` | `code`, `language?` | Detect AI slop patterns |
-| `audit_batch` | `file_paths`, `min_severity?` | Audit multiple files |
+| `audit_batch` | `file_paths`+`min_severity?` (files) · or `code`+`language?` (inline) | Audit files, or lint a snippet for AI-slop patterns |
 | `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns |
 
 ### `session_mine` Tool

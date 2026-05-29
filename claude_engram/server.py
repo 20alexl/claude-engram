@@ -155,16 +155,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 proposed_changes=arguments.get("proposed_changes"),
             )
 
-        case "code_quality_check":
-            return await handlers.code_quality_check(
-                code=arguments.get("code", ""),
-                language=arguments.get("language", "python"),
-            )
-
         case "audit_batch":
             return await handlers.audit_batch(
                 file_paths=arguments.get("file_paths", []),
                 min_severity=arguments.get("min_severity"),
+                code=arguments.get("code", ""),
+                language=arguments.get("language", "python"),
             )
 
         case "find_similar_issues":
