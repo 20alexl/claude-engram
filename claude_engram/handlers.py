@@ -514,73 +514,6 @@ class Handlers:
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
-    # Memory - Cluster View (v2)
-    # -------------------------------------------------------------------------
-
-    async def memory_cluster_view(
-        self,
-        project_path: str,
-        cluster_id: str | None = None,
-    ) -> list[TextContent]:
-        """Handle memory cluster view requests."""
-        if not project_path:
-            return self._needs_clarification(
-                "No project path provided", "Which project's clusters should I show?"
-            )
-
-        work_log = WorkLog()
-        work_log.what_i_tried.append(
-            f"Getting memory clusters for: {project_path}"
-            + (f" (cluster: {cluster_id})" if cluster_id else "")
-        )
-
-        try:
-            result = self.memory.get_clusters(
-                project_path=project_path,
-                cluster_id=cluster_id,
-            )
-
-            if "error" in result and result["error"]:
-                work_log.what_failed.append(result["error"])
-                response = MiniClaudeResponse(
-                    status="failed",
-                    confidence="high",
-                    reasoning=result["error"],
-                    work_log=work_log,
-                )
-            else:
-                if cluster_id:
-                    work_log.what_worked.append(
-                        f"Retrieved cluster: {result.get('cluster', {}).get('name', cluster_id)}"
-                    )
-                else:
-                    work_log.what_worked.append(
-                        f"Found {len(result.get('clusters', []))} clusters"
-                    )
-
-                response = MiniClaudeResponse(
-                    status="success",
-                    confidence="high",
-                    reasoning=(
-                        "Memory clusters retrieved"
-                        if not cluster_id
-                        else f"Cluster {cluster_id} details"
-                    ),
-                    work_log=work_log,
-                    data=result,
-                )
-        except Exception as e:
-            work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
-                status="failed",
-                confidence="high",
-                reasoning=f"Failed to get clusters: {e}",
-                work_log=work_log,
-            )
-
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    # -------------------------------------------------------------------------
     # File Summarizer
     # -------------------------------------------------------------------------
 
@@ -1710,11 +1643,6 @@ class Handlers:
                 query=args.get("query"),
                 limit=args.get("limit", 5),
             )
-        elif operation == "clusters":
-            return await self.memory_cluster_view(
-                project_path=project_path,
-                cluster_id=args.get("cluster_id"),
-            )
         elif operation == "cleanup":
             return await self.memory_cleanup(
                 project_path=project_path,
@@ -1722,43 +1650,6 @@ class Handlers:
                 min_relevance=args.get("min_relevance", 3),
                 max_age_days=args.get("max_age_days", 30),
             )
-        elif operation == "consolidate":
-            tag = args.get("tag")
-            dry_run = args.get("dry_run", True)
-            result = self.memory.consolidate_memories(
-                project_path=project_path,
-                llm_client=self.llm,
-                tag=tag,
-                dry_run=dry_run,
-            )
-            if "error" in result:
-                response = MiniClaudeResponse(
-                    status="needs_clarification",
-                    confidence="high",
-                    reasoning=result["error"],
-                )
-            else:
-                lines = [result.get("summary", "Consolidation complete")]
-                lines.append(f"Before: {result.get('original_count', '?')} memories")
-                if result.get("new_count"):
-                    lines.append(f"After: {result['new_count']} memories")
-                for group in result.get("groups_found", []):
-                    tag_name = group.get("tag", "?")
-                    count = group.get("count", 0)
-                    action = "would merge" if dry_run else "merged"
-                    lines.append(f"\n  [{tag_name}] {count} entries {action}:")
-                    for e in group.get("entries", []):
-                        lines.append(f"    [{e['id']}] {e['preview']}")
-                    if group.get("consolidated_to"):
-                        c = group["consolidated_to"]
-                        lines.append(f"    -> kept top 5, removed {c.get('removed_count', '?')}, summary: {c.get('content', '')[:80]}")
-                response = MiniClaudeResponse(
-                    status="success",
-                    confidence="high",
-                    reasoning="\n".join(lines),
-                    data=result,
-                )
-            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "add_rule":
             added, msg = self.memory.add_rule(
                 project_path=project_path,

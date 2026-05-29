@@ -19,7 +19,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="session_start",
-        description="Load full context: memories, checkpoints, decisions, memory health. Auto-cleans duplicates. Hook auto-starts basic session, but this gives deep context.",
+        description="RARELY NEEDED — the SessionStart hook auto-loads context every session. Call only for an explicit deep re-load (full memories + checkpoints + decisions + health).",
         inputSchema={
             "type": "object",
             "properties": {
@@ -33,7 +33,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="session_end",
-        description="Optional. Shows session summary. All memories auto-save without this - just a nice recap.",
+        description="RARELY NEEDED — Stop/SessionEnd hooks handle teardown automatically. Just a summary recap; memories save without it.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -47,7 +47,7 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="pre_edit_check",
-        description="Run BEFORE editing important files. Checks: past mistakes, loop risk, scope violations.",
+        description="RARELY NEEDED — the PreToolUse hook auto-runs this before every edit. Call manually only for an explicit impact check (past mistakes, loop risk, scope violations).",
         inputSchema={
             "type": "object",
             "properties": {
@@ -66,9 +66,7 @@ TOOL_DEFINITIONS = [
 - recall: Get all memories for project
 - forget: Clear project memories
 - search: Find by file/tags/query (file_path, tags, query, limit)
-- clusters: View grouped memories (cluster_id to expand)
 - cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)
-- consolidate: LLM-powered merge of related memories (tag, dry_run)
 - add_rule: Add permanent rule (content, reason) - never decays
 - list_rules: Get all rules for project
 - modify: Edit memory (memory_id, content, relevance, category)
@@ -94,9 +92,7 @@ TOOL_DEFINITIONS = [
                         "recall",
                         "forget",
                         "search",
-                        "clusters",
                         "cleanup",
-                        "consolidate",
                         "add_rule",
                         "list_rules",
                         "modify",
@@ -153,17 +149,9 @@ TOOL_DEFINITIONS = [
                     "type": "integer",
                     "description": "For search/recent: max results",
                 },
-                "cluster_id": {
-                    "type": "string",
-                    "description": "For clusters: expand specific cluster",
-                },
-                "tag": {
-                    "type": "string",
-                    "description": "For consolidate: only consolidate memories with this tag",
-                },
                 "dry_run": {
                     "type": "boolean",
-                    "description": "For cleanup/consolidate: preview only",
+                    "description": "For cleanup/archive: preview only",
                 },
                 "min_relevance": {
                     "type": "integer",
