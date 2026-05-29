@@ -27,6 +27,9 @@ These happen via hooks. You don't call anything:
 | **Memory archiving** | cleanup / session_start | Old inactive memories archived, not deleted |
 | **Sub-project scoping** | PreToolUse / PostToolUse | Memories scoped to the right sub-project |
 | **Data migrations** | SessionStart (upgrade) | Cheap inline check; full migration in background |
+| **Pre-edit import check** | PreToolUse Edit/Write | `<engram-precheck>` when a proposed import won't resolve against the code index (closest-name suggestion) |
+| **Blast-radius alert** | PreToolUse Edit/Write | `<engram-blast-radius>` listing modules that import the file being edited |
+| **Outcome feedback loop** | PreToolUse + PostToolUse Bash | Injection kinds correlated with test pass/fail; surfaced via `session_mine(reflect)` |
 
 ## Multi-Project Workspaces
 
@@ -69,7 +72,6 @@ memory(operation="add_rule", content="Always do X", reason="Because Y", project_
 # Find
 memory(operation="search", query="auth", project_path="/path")
 memory(operation="recent", project_path="/path", limit=10)
-memory(operation="clusters", project_path="/path")
 
 # Mistakes
 memory(operation="list_mistakes", project_path="/path")                  # View all with IDs
@@ -113,20 +115,23 @@ context(
 # Restore last checkpoint
 context(operation="checkpoint_restore")
 
-# Handoff — richer session transition
+# Bridge to next session: checkpoint_save also carries handoff fields
+# (handoff_create/get/list remain as deprecated aliases)
 context(
-    operation="handoff_create",
+    operation="checkpoint_save",
+    task_description="OAuth2 migration",
+    pending_steps=["Implement refresh_token()", "Add integration tests"],
     handoff_summary="OAuth2 migration 60% done, token refresh next",
-    next_steps=["Implement refresh_token()", "Add integration tests"],
     handoff_context_needed=["OAuth provider docs at docs/oauth.md"],
-    handoff_warnings=["Don't touch legacy auth.py — still used by mobile"]
+    handoff_warnings=["Don't touch legacy auth.py — still used by mobile"],
+    project_path="/path/to/project"
 )
 
-# Retrieve a handoff (index=0 latest, index=N older)
-context(operation="handoff_get", project_path="/path/to/project", index=0)
+# Restore an older entry from the ring (index=N; 0 = latest)
+context(operation="checkpoint_restore", project_path="/path/to/project", index=1)
 
-# Browse handoff history newest-first (index, age, kind, summary)
-context(operation="handoff_list", project_path="/path/to/project")
+# Browse history newest-first (index, age, kind, summary)
+context(operation="checkpoint_list", project_path="/path/to/project")
 
 # Verify completion
 context(operation="verify_completion", task="OAuth2 migration", verification_steps=["All tests pass", "Login flow works"])

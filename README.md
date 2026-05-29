@@ -14,6 +14,9 @@ Zero manual effort. Works with any MCP-compatible client.
 - Detects edit loops (same file 3+ times without progress)
 - Survives context compaction — checkpoints before, re-injects after
 - Mines your session history in the background after every session
+- Verifies imports in proposed edits against a per-project code index (AST, no LLM) — `<engram-precheck>` with closest-name suggestions
+- Shows blast radius before editing a shared module — lists its importers (`<engram-blast-radius>`)
+- Measures injection precision — tracks which injected context precedes passing tests (view via `session_mine(reflect)`)
 
 **Session Mining (automatic, background):**
 - Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
@@ -21,14 +24,14 @@ Zero manual effort. Works with any MCP-compatible client.
 - Builds a searchable index across all past conversations (20k+ chunks with subagents)
 - Detects recurring struggles, error patterns, and file edit correlations
 - Predicts what files and context you'll need before edits
-- Reflects on patterns using local LLM to synthesize root causes and architectural insights
+- Logs which injected context precedes passing tests; `session_mine(reflect)` reports that precision + LLM-synthesized patterns
 - On first install, retroactively mines your entire session history
 
 **On-demand (MCP tools):**
 - `memory` — store, search, archive, and manage memories
 - `session_mine` — search past conversations, find decisions, replay file history, detect patterns
 - `work` — log decisions and mistakes with reasoning
-- Plus: scope guard, context checkpoints (including `handoff_list` / `handoff_get`), convention tracking, impact analysis
+- Plus: scope guard, context checkpoints (`checkpoint_save/restore/list`; `handoff_*` are deprecated aliases), convention tracking, impact analysis
 
 ## How It Works
 
@@ -159,8 +162,8 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 ### Lifecycle
 - **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
 - **Auto-tracks mistakes** from any failed tool. Only logs errors in project files (filters transient noise). Warns before repeat edits.
-- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after. Checkpoints and handoffs are per-project scoped.
-- **Durable handoffs** — handoffs are stored in a capped ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one. Browse history with `context(handoff_list, ...)`, retrieve any entry with `context(handoff_get, ..., index=N)`.
+- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after. Checkpoints are per-project scoped.
+- **Durable checkpoints** — stored in a capped ring buffer (last 20); trivial auto-saves don't clobber a substantive or manual checkpoint. Browse with `context(checkpoint_list, ...)`, restore any entry with `context(checkpoint_restore, ..., index=N)`. `handoff_list`/`handoff_get` remain as deprecated aliases.
 - **Subagent awareness** — memory injection and hook output are skipped for subagents (saves context), but file edits are still tracked.
 - **Edit loop detection** — flags when the same file is edited 3+ times without progress.
 - **Automatic migrations** — on upgrade, schema migrations run automatically: a cheap inline check on SessionStart and a full migration in a background process. Forward-only, idempotent, and downgrade-safe.

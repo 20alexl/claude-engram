@@ -10,6 +10,9 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - Session mining: background indexing of conversations after every session
 - Smart session start: last session context + recurring patterns
 - Predictive context: related files + likely errors before edits
+- Pre-edit import/export check: proposed imports verified against the per-project code index (AST, LLM-free) — `<engram-precheck>` banner with closest-name suggestions
+- Blast-radius: editing a shared module lists its importers — `<engram-blast-radius>`
+- Outcome feedback loop: tracks which injection kinds (memory/prediction/precheck/blast) precede passing tests; see `session_mine(reflect)`
 - Tool duration tracking: slow tools surfaced in handoffs
 
 ## Memory Tools
@@ -21,8 +24,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `memory(recent, project_path="...")` — newest memories
 - `memory(list_mistakes, project_path="...")` — view tracked mistakes with IDs and file associations
 - `memory(acknowledge_mistake, memory_id="...", project_path="...")` — archive a learned mistake (stops pre-edit warnings)
-- `memory(cleanup, dry_run=true, project_path="...")` — find dupes/stale
-- `memory(consolidate, dry_run=true, project_path="...")` — LLM-powered merge (shows what changes)
+- `memory(cleanup, dry_run=true, project_path="...")` — find dupes/stale (clustering happens here, internally)
 - `memory(archive, project_path="...")` — move old memories to cold storage
 - `memory(modify, memory_id="...", content="...", project_path="...")` — edit a memory
 - `memory(delete, memory_id="...", project_path="...")` — remove a memory
@@ -39,7 +41,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(struggles, project_path="...")` — recurring struggle files
 - `session_mine(errors, project_path="...")` — recurring error patterns
 - `session_mine(overview, project_path="...")` — project stats
-- `session_mine(reflect, project_path="...")` — LLM root cause analysis
+- `session_mine(reflect, project_path="...")` — injection precision (which context kinds precede passing tests) + LLM insights from recurring patterns
 - `session_mine(search, query="...", since="2026-04-01")` — temporal filtering
 - `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results)
 

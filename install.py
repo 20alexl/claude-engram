@@ -412,9 +412,9 @@ def main():
     print("=" * 60)
     print("Claude Engram Installer")
     print("=" * 60)
-    print("\nPersistent memory for AI coding assistants.")
-    print("Auto-tracks mistakes, decisions, and context. Retrieves")
-    print("the right memory at the right time using hybrid search.")
+    print("\nPersistent memory + proactive code-awareness for AI coding assistants.")
+    print("Auto-tracks mistakes/decisions/context, verifies imports and blast-radius")
+    print("before edits, and retrieves the right memory via hybrid search.")
 
     total_steps = 9
     script_dir = Path(__file__).parent.resolve()
@@ -586,11 +586,15 @@ def main():
   Edit tracking            PostToolUse Edit/Write
   Loop warnings            PreToolUse Edit/Write (3+ edits to same file)
   Scored memory injection  PreToolUse Edit/Write (top 3 relevant memories)
+  Predictive context       PreToolUse Edit/Write (related files + likely errors)
+  Import verification      PreToolUse Edit/Write (<engram-precheck>, code index)
+  Blast-radius alert       PreToolUse Edit/Write (<engram-blast-radius>)
   Test tracking            PostToolUse Bash
   Error auto-logging       PostToolUseFailure (any tool)
   Decision capture         UserPromptSubmit (semantic + regex scoring)
   Checkpoint on compact    PreCompact
   Context re-injection     PostCompact (rules + mistakes + decisions)
+  Outcome feedback loop    PreToolUse + PostToolUse Bash (-> session_mine reflect)
   Session handoff          Stop
 """
     )
@@ -603,10 +607,10 @@ def main():
   memory        remember, search, add_rule, hybrid_search, archive, ...
   work          log_mistake, log_decision
   session_mine  search, decisions, replay, struggles, errors, overview, ...
-  context       checkpoint_save, handoff_create, verify_completion
+  context       checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion
   scope         declare, check, expand, status, clear
 
-  Also: scout_search, impact_analyze, file_summarize, deps_map
+  Also: scout_search, impact_analyze, file_summarize, deps_map, audit_batch, find_similar_issues
   Skill: /engram — quick reference for all tools
 """
     )
