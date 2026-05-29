@@ -641,6 +641,9 @@ class Handlers:
             self._last_project_path = project_path  # For session_end() with no args
             # Start work tracking for this project
             self.work_tracker.start_session(project_path)
+            # One-time migration of any legacy critical_instructions.json -> rules
+            # (instruction_* tool ops were removed; this preserves old data).
+            self._migrate_legacy_instructions(project_path)
             # Start habit tracking session
             start_habit_session()
             record_session_tool_use("session_start", f"project: {project_path}")
@@ -1436,30 +1439,6 @@ class Handlers:
         response = self.context_guard.list_handoffs(project_path=project_path or "")
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_instruction_add(
-        self,
-        instruction: str,
-        reason: str,
-        importance: int,
-    ) -> list[TextContent]:
-        """Register a critical instruction that must not be forgotten."""
-        if not instruction:
-            return self._needs_clarification(
-                "No instruction provided", "What instruction should never be forgotten?"
-            )
-
-        response = self.context_guard.add_critical_instruction(
-            instruction=instruction,
-            reason=reason or "Important rule",
-            importance=importance,
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def context_instruction_reinforce(self) -> list[TextContent]:
-        """Get critical instructions that need reinforcement."""
-        response = self.context_guard.get_reinforcement()
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
     async def context_claim_completion(
         self,
         task: str,
@@ -2196,37 +2175,6 @@ class Handlers:
                 verification_steps=self._coerce_list(args.get("verification_steps", [])),
                 evidence=self._coerce_list(args.get("evidence")),
             )
-        elif operation == "instruction_add":
-            # Route through rules system — instructions ARE rules
-            project_path = args.get("project_path", "")
-            instruction = args.get("instruction", "")
-            reason = args.get("reason", "")
-            importance = args.get("importance", 10)
-            if not instruction:
-                return self._needs_clarification("No instruction provided", "What rule should be enforced?")
-            self.memory.add_rule(project_path, instruction, reason=reason, relevance=importance)
-            # Also migrate any legacy instructions
-            self._migrate_legacy_instructions(project_path)
-            response = MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning=f"Rule registered (importance: {importance}/10). Use memory(list_rules) to see all rules.",
-            )
-            return [TextContent(type="text", text=response.to_formatted_string())]
-        elif operation == "instruction_reinforce":
-            # Return rules (instructions are now rules)
-            project_path = args.get("project_path", "")
-            self._migrate_legacy_instructions(project_path)
-            return await self.handle_memory("list_rules", {"project_path": project_path})
-        elif operation == "instruction_list":
-            project_path = args.get("project_path", "")
-            self._migrate_legacy_instructions(project_path)
-            return await self.handle_memory("list_rules", {"project_path": project_path})
-        elif operation == "instruction_delete":
-            return await self.handle_memory("delete", {
-                "memory_id": args.get("memory_id", args.get("instruction_id", "")),
-                "project_path": args.get("project_path", ""),
-            })
         elif operation == "handoff_create":
             return await self.context_handoff_create(
                 summary=args.get("handoff_summary", ""),
@@ -2247,7 +2195,7 @@ class Handlers:
         else:
             return self._needs_clarification(
                 f"Unknown context operation: {operation}",
-                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, instruction_add, instruction_reinforce, handoff_create, handoff_get, or handoff_list",
+                "Use: checkpoint_save, checkpoint_restore, checkpoint_list, verify_completion, handoff_create, handoff_get, or handoff_list",
             )
 
     # NOTE: handle_momentum REMOVED - use Claude Code's native TodoWrite instead

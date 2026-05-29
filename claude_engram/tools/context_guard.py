@@ -10,7 +10,7 @@ The problems:
 The solutions:
 1. context_checkpoint - Save task state that survives compaction
 2. task_handoff - Structured session handoff
-3. instruction_reinforce - Re-inject critical instructions
+3. Rule reinforcement - rules re-injected by hooks (memory system)
 4. self_check - Verify claimed work was actually done
 """
 
@@ -42,16 +42,6 @@ class TaskCheckpoint:
     handoff_warnings: list[str] = field(default_factory=list)
 
 
-@dataclass
-class CriticalInstruction:
-    """An instruction that must not be forgotten."""
-
-    instruction: str
-    reason: str
-    last_reinforced: float = field(default_factory=time.time)
-    reinforce_count: int = 0
-    importance: int = 10  # 1-10
-
 
 class ContextGuard:
     """
@@ -59,7 +49,7 @@ class ContextGuard:
 
     Key features:
     1. Checkpoint saving - preserves task state for recovery
-    2. Instruction reinforcement - keeps critical rules active
+    2. Rule reinforcement - rules re-injected by hooks
     3. Self-verification - checks if claimed work was done
     4. Task handoff - structured session transitions
     """
@@ -69,7 +59,6 @@ class ContextGuard:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         self._current_checkpoint: Optional[TaskCheckpoint] = None
-        self._critical_instructions: list[CriticalInstruction] = []
         self._claimed_completions: list[dict] = (
             []
         )  # Track what Claude claims to have done
@@ -380,118 +369,6 @@ class ContextGuard:
             data=data,
             warnings=warnings,
             suggestions=suggestions,
-        )
-
-    def add_critical_instruction(
-        self,
-        instruction: str,
-        reason: str,
-        importance: int = 10,
-    ) -> MiniClaudeResponse:
-        """
-        Register an instruction that must not be forgotten.
-
-        These get re-injected into context periodically to combat
-        the tendency to ignore CLAUDE.md instructions as context grows.
-        """
-        work_log = WorkLog()
-        work_log.what_i_tried.append("registering critical instruction")
-
-        ci = CriticalInstruction(
-            instruction=instruction,
-            reason=reason,
-            importance=max(1, min(10, importance)),
-        )
-
-        self._critical_instructions.append(ci)
-
-        # Persist to disk
-        instructions_file = self.storage_dir / "critical_instructions.json"
-        existing = []
-        if instructions_file.exists():
-            with open(instructions_file) as f:
-                existing = json.load(f)
-
-        existing.append(
-            {
-                "instruction": instruction,
-                "reason": reason,
-                "importance": importance,
-                "added": time.time(),
-            }
-        )
-
-        with open(instructions_file, "w") as f:
-            json.dump(existing, f, indent=2)
-
-        work_log.what_worked.append("instruction registered")
-
-        return MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=f"Critical instruction registered (importance: {importance}/10)",
-            work_log=work_log,
-            data={"instruction_count": len(self._critical_instructions)},
-        )
-
-    def get_reinforcement(self) -> MiniClaudeResponse:
-        """
-        Get critical instructions that need reinforcement.
-
-        Call this periodically (every few messages) to re-inject
-        important instructions that might have faded from attention.
-        """
-        work_log = WorkLog()
-        work_log.what_i_tried.append("getting instruction reinforcement")
-
-        # Load from disk
-        instructions_file = self.storage_dir / "critical_instructions.json"
-        if not instructions_file.exists():
-            return MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning="No critical instructions registered",
-                work_log=work_log,
-                suggestions=[
-                    "Use add_critical_instruction to register important rules"
-                ],
-            )
-
-        with open(instructions_file) as f:
-            instructions = json.load(f)
-
-        if not instructions:
-            return MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning="No critical instructions to reinforce",
-                work_log=work_log,
-            )
-
-        # Sort by importance and build reinforcement message
-        sorted_instructions = sorted(
-            instructions, key=lambda x: x.get("importance", 5), reverse=True
-        )
-
-        reinforcement_lines = ["## CRITICAL REMINDERS (Do not ignore!)"]
-        for inst in sorted_instructions[:5]:  # Top 5 most important
-            reinforcement_lines.append(
-                f"- **{inst['instruction']}** (Why: {inst['reason']})"
-            )
-
-        work_log.what_worked.append(
-            f"generated reinforcement for {len(sorted_instructions[:5])} instructions"
-        )
-
-        return MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning="\n".join(reinforcement_lines),
-            work_log=work_log,
-            data={
-                "instruction_count": len(instructions),
-                "reinforced": len(sorted_instructions[:5]),
-            },
         )
 
     def claim_completion(

@@ -313,10 +313,6 @@ TOOL_DEFINITIONS = [
 - checkpoint_restore: Restore a checkpoint (index=0 latest, index=N older from history; task_id optional)
 - checkpoint_list: List the unified checkpoint/handoff history newest-first (index, age, kind, summary), retrievable via checkpoint_restore index=N
 - verify_completion: Claim task done + verify (task, evidence, verification_steps)
-- instruction_add: Register a rule (routes to memory system — instructions ARE rules)
-- instruction_list: List all rules (alias for list_rules)
-- instruction_delete: Delete a rule by ID (memory_id)
-- instruction_reinforce: Get all rules for reinforcement
 - handoff_create: [deprecated alias of checkpoint_save] handoff_summary, next_steps, handoff_context_needed, handoff_warnings
 - handoff_get: [deprecated alias of checkpoint_restore] retrieve by index (0 latest, N older)
 - handoff_list: [deprecated alias of checkpoint_list] list history newest-first""",
@@ -330,10 +326,6 @@ TOOL_DEFINITIONS = [
                         "checkpoint_restore",
                         "checkpoint_list",
                         "verify_completion",
-                        "instruction_add",
-                        "instruction_list",
-                        "instruction_delete",
-                        "instruction_reinforce",
                         "handoff_create",
                         "handoff_get",
                         "handoff_list",
@@ -349,10 +341,6 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "For restore: specific checkpoint",
                 },
-                "memory_id": {
-                    "type": "string",
-                    "description": "For instruction_delete: ID of the rule to delete (shown in list_rules output)",
-                },
                 "index": {
                     "type": "integer",
                     "description": "For checkpoint_restore/handoff_get: 0 = latest, N>0 = older entry from history (see checkpoint_list)",
@@ -366,9 +354,6 @@ TOOL_DEFINITIONS = [
                     "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
                     "description": "For verify: checks",
                 },
-                "instruction": {"type": "string", "description": "For instruction_add"},
-                "reason": {"type": "string", "description": "For instruction_add: why this instruction matters"},
-                "importance": {"type": "integer", "description": "For instruction_add: priority 1-10"},
                 "project_path": {"type": "string", "description": "Project directory path"},
                 "handoff_summary": {
                     "type": "string",

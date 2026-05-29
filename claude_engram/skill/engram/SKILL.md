@@ -49,9 +49,8 @@ Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are pr
 - `context(checkpoint_restore, project_path="...", index=0)` — restore a checkpoint (0 = latest, N = older from history)
 - `context(checkpoint_list, project_path="...")` — list the unified history newest-first (index, age, kind, summary)
 - `context(handoff_create | handoff_get | handoff_list, ...)` — deprecated aliases of the checkpoint_* ops above
-- `context(instruction_add, instruction="...", reason="...", project_path="...")` — add a rule (routes to memory system)
-- `context(instruction_list, project_path="...")` — list all rules
-- `context(instruction_delete, memory_id="...", project_path="...")` — delete a rule by ID
+
+For rules use the dedicated API: `memory(add_rule / list_rules / delete)`.
 
 Example:
 ```
@@ -69,7 +68,7 @@ context(
 ## Memory Categories
 | Category | Protected | Auto-captured |
 |---|---|---|
-| rule | Never archived | Manual (or via instruction_add) |
+| rule | Never archived | Manual (via memory add_rule) |
 | mistake | Archivable via acknowledge | Auto from errors in project files |
 | decision | No | Auto from prompts + session mining |
 | discovery | No | Manual |
