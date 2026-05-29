@@ -521,18 +521,6 @@ TOOL_DEFINITIONS = [
         },
     ),
     Tool(
-        name="code_pattern_check",
-        description="Check code against project-specific conventions stored via the convention tool. Uses local LLM to analyze whether code follows naming, architecture, style, and pattern rules. Returns: violations found, matching convention rules, and suggested fixes.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "project_path": {"type": "string", "description": "Absolute path to the project whose conventions to check against"},
-                "code": {"type": "string", "description": "Code snippet to validate against stored project conventions"},
-            },
-            "required": ["project_path", "code"],
-        },
-    ),
-    Tool(
         name="audit_batch",
         description="Audit multiple files for code quality issues in a single pass. Accepts file paths or glob patterns (e.g., 'src/**/*.py'). Checks each file for long functions, deep nesting, missing error handling, and anti-patterns. Returns: per-file issue lists with severity and line numbers, plus aggregate summary.",
         inputSchema={

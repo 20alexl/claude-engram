@@ -122,7 +122,6 @@ All operations require `operation` and `project_path`.
 | `deps_map` | `file_path`, `project_root?`, `include_reverse?` | Map dependencies |
 | `impact_analyze` | `file_path`, `project_root`, `proposed_changes?` | Change impact analysis |
 | `code_quality_check` | `code`, `language?` | Detect AI slop patterns |
-| `code_pattern_check` | `project_path`, `code` | Check against conventions (LLM) |
 | `audit_batch` | `file_paths`, `min_severity?` | Audit multiple files |
 | `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns |
 

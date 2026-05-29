@@ -997,12 +997,16 @@ class Handlers:
         # Check session
         session_warning = self._check_session(project_path)
 
-        # Use LLM-based checking for accurate results
-        # The simple keyword-based check misses most violations
-        response = self.conventions.check_code_with_llm(
-            project_path=project_path,
-            code=code_or_filename,
-            llm_client=self.llm,
+        # Use LLM-based checking for accurate results (the simple keyword check
+        # misses most violations). Run off the event loop — the LLM call blocks.
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.conventions.check_code_with_llm(
+                project_path=project_path,
+                code=code_or_filename,
+                llm_client=self.llm,
+            ),
         )
 
         output = response.to_formatted_string()
@@ -1675,30 +1679,6 @@ class Handlers:
     # -------------------------------------------------------------------------
     # Code Pattern Check - Check code against conventions with LLM
     # -------------------------------------------------------------------------
-
-    async def code_pattern_check(
-        self,
-        project_path: str,
-        code: str,
-    ) -> list[TextContent]:
-        """Check code against stored conventions using LLM."""
-        if not project_path:
-            return self._needs_clarification(
-                "No project path provided",
-                "Which project's conventions should I check against?",
-            )
-
-        if not code:
-            return self._needs_clarification(
-                "No code provided", "What code should I check?"
-            )
-
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.conventions.check_code_with_llm(project_path, code, self.llm),
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # =========================================================================
     # COMBINED TOOL ROUTERS (v2 - token-efficient tools)

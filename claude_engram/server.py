@@ -161,12 +161,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 language=arguments.get("language", "python"),
             )
 
-        case "code_pattern_check":
-            return await handlers.code_pattern_check(
-                project_path=arguments.get("project_path", ""),
-                code=arguments.get("code", ""),
-            )
-
         case "audit_batch":
             return await handlers.audit_batch(
                 file_paths=arguments.get("file_paths", []),
