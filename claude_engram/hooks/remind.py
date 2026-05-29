@@ -614,6 +614,30 @@ def get_handoff_data(project_dir: str = "") -> dict:
         return {}
 
 
+def _format_handoff_banner(handoff: dict) -> str:
+    """One-line session-start handoff label. Surfaces kind, age, the sub-project,
+    and the files it touched, so a handoff left by a *different* concurrent
+    session (e.g. the other Claude in the same workspace) is obvious rather than
+    silently mistaken for this session's own.
+
+    project_path is just the shared workspace for both concurrent sessions, so
+    the sub-project is derived from the edited files -- those distinguish them.
+    """
+    summary = _truncate(handoff.get("summary", "?"), 100)
+    bits = [handoff.get("kind", "auto")]
+    created = handoff.get("created", 0)
+    if created:
+        bits.append(f"{(time.time() - created) / 3600:.1f}h ago")
+    files = handoff.get("files_in_progress") or []
+    if files:
+        try:
+            bits.append(Path(resolve_project_for_file(files[0])).name)
+        except Exception:
+            pass
+        bits.append(", ".join(Path(f).name for f in files[:3]))
+    return f"HANDOFF [{' | '.join(bits)}]: {summary}"
+
+
 # NOTE: detect_complex_task REMOVED - too many false positives
 # Almost every prompt contains "add", "create", "modify" etc.
 
@@ -2663,6 +2687,7 @@ def main():
                 "context_needed": [],
                 "warnings": [],
                 "project_path": project_dir,
+                "session_id": _session_id,
                 "files_in_progress": files_edited[:10],
                 "decisions": ctx["decisions"],
                 "mistakes": ctx["mistakes"],
@@ -2787,7 +2812,7 @@ def main():
                     f"CHECKPOINT ({age_hours:.1f}h ago): {_truncate(checkpoint.get('task_description', '?'), 80)}"
                 )
             if handoff:
-                lines.append(f"HANDOFF: {_truncate(handoff.get('summary', '?'), 100)}")
+                lines.append(_format_handoff_banner(handoff))
 
             # Session mining: show last session context (read-only, no building)
             try:
@@ -2975,6 +3000,7 @@ def main():
                         "context_needed": [],
                         "warnings": [],
                         "project_path": project_dir,
+                        "session_id": _session_id,
                         "files_in_progress": files_edited[:10],
                         "decisions": ctx["decisions"],
                         "mistakes": ctx["mistakes"],
