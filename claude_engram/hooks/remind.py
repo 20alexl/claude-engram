@@ -2901,8 +2901,21 @@ def main():
                             if struggles:
                                 lines.append("Recurring struggles:")
                                 for s in struggles:
+                                    # Label with the sub-project so a struggle from
+                                    # the other concurrent session's project (mining
+                                    # is workspace-pooled) is obvious, not mistaken
+                                    # for this one's.
+                                    try:
+                                        proj = Path(resolve_project_for_file(s["file_path"])).name
+                                    except Exception:
+                                        proj = ""
+                                    loc = (
+                                        f"{proj}/{Path(s['file_path']).name}"
+                                        if proj
+                                        else s["file_path"]
+                                    )
                                     lines.append(
-                                        f"  - {s['file_path']} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
+                                        f"  - {loc} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
                                     )
                             if recurring:
                                 lines.append("Recurring errors:")

@@ -209,8 +209,9 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except ImportError:
                 pass
 
-        # Phase 3: Generate embeddings (if mode supports it)
-        if mode in ("embed", "bootstrap", "full"):
+        # Phase 3: Generate embeddings (incremental -- skips already-embedded
+        # sessions, so it is cheap to refresh every session end)
+        if mode in ("post_session", "embed", "bootstrap", "full"):
             _write_status(
                 {
                     "status": "running",
@@ -228,8 +229,10 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except ImportError:
                 pass  # search not built yet (Phase 3)
 
-        # Phase 4: Pattern detection (if mode supports it)
-        if mode in ("bootstrap", "full"):
+        # Phase 4: Pattern detection -- run every session end so the session-start
+        # "recurring errors / struggles" banner stays current instead of frozen at
+        # the one-time bootstrap (cheap: aggregates the already-built index)
+        if mode in ("post_session", "bootstrap", "full"):
             try:
                 from claude_engram.mining.patterns import detect_all_patterns
 
