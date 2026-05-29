@@ -559,7 +559,7 @@ TOOL_DEFINITIONS = [
 - reindex: Trigger background re-indexing (project_path, mode=post_session|bootstrap|full)
 - predict: Predict context needed for a file edit (file_path, project_path)
 - cross_project: Patterns across all projects (no project_path needed)
-- reflect: injection precision — how often each injected context kind (context/precheck/blast) preceded a passing vs failing test""",
+- reflect: how engram is doing — injection precision (which context kinds precede passing tests) + LLM-synthesized insights from recurring mistakes/patterns""",
         inputSchema={
             "type": "object",
             "properties": {

@@ -2523,24 +2523,29 @@ class Handlers:
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "reflect":
-            from claude_engram.mining.reflect import reflect_all
+            # Two complementary views of how engram is doing: deterministic
+            # injection precision (Cap 6, always available), plus LLM-synthesized
+            # insights from recurring mistakes/patterns (best effort — Ollama).
+            from claude_engram.mining.outcomes import (
+                reflect as _injection_reflect,
+                format_reflection,
+            )
 
-            insights = reflect_all(project_path, str(self.memory.storage_dir))
-            if not insights:
-                return [
-                    TextContent(
-                        type="text",
-                        text="No insights generated. Needs Ollama running + 3+ recurring mistakes or patterns.",
-                    )
-                ]
-            lines = [f"Reflected on {len(insights)} patterns:"]
-            for ins in insights:
-                lines.append(
-                    f"\n[{ins.insight_type}] (confidence: {ins.confidence:.0%})"
-                )
-                lines.append(f"  {ins.content}")
-                if ins.related_files:
-                    lines.append(f"  Files: {', '.join(ins.related_files[:5])}")
+            lines = [format_reflection(_injection_reflect())]
+            try:
+                from claude_engram.mining.reflect import reflect_all
+
+                insights = reflect_all(project_path, str(self.memory.storage_dir))
+                if insights:
+                    lines.append(f"\nLLM insights ({len(insights)} patterns):")
+                    for ins in insights:
+                        lines.append(
+                            f"  [{ins.insight_type}] ({ins.confidence:.0%}) {ins.content}"
+                        )
+                        if ins.related_files:
+                            lines.append(f"    Files: {', '.join(ins.related_files[:5])}")
+            except Exception:
+                pass
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "cross_project":
@@ -2568,13 +2573,6 @@ class Handlers:
                     "\nNo cross-project patterns yet (need 2+ projects with session indexes)."
                 )
             return [TextContent(type="text", text="\n".join(lines))]
-
-        elif operation == "reflect":
-            # Outcome feedback loop (Cap 6): how often each injection kind
-            # preceded a passing vs failing test.
-            from claude_engram.mining.outcomes import reflect, format_reflection
-
-            return [TextContent(type="text", text=format_reflection(reflect()))]
 
         else:
             return self._needs_clarification(
