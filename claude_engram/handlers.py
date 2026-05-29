@@ -2569,10 +2569,17 @@ class Handlers:
                 )
             return [TextContent(type="text", text="\n".join(lines))]
 
+        elif operation == "reflect":
+            # Outcome feedback loop (Cap 6): how often each injection kind
+            # preceded a passing vs failing test.
+            from claude_engram.mining.outcomes import reflect, format_reflection
+
+            return [TextContent(type="text", text=format_reflection(reflect()))]
+
         else:
             return self._needs_clarification(
                 f"Unknown session_mine operation: {operation}",
-                "Use: search, decisions, replay, struggles, errors, correlations, timeline, summaries, overview, status, reindex, predict, cross_project",
+                "Use: search, decisions, replay, struggles, errors, correlations, timeline, summaries, overview, status, reindex, predict, cross_project, reflect",
             )
 
     # -------------------------------------------------------------------------

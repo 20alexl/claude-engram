@@ -1286,6 +1286,15 @@ def reminder_for_bash(
         error_snippet = output[:200] if output and not passed else ""
         result = _auto_record_test(passed, error_snippet)
 
+        # Feed the outcome loop (Cap 6): correlated with this session's
+        # injections by session_id in reflect().
+        try:
+            from claude_engram.mining.outcomes import record_outcome as _rec_out
+
+            _rec_out(passed, _session_id)
+        except Exception:
+            pass
+
         # On test failure, link to recently-edited files in the mistake
         if not passed and error_snippet:
             recent = load_state().get("files_edited_this_session", [])[-5:]
@@ -3089,6 +3098,10 @@ def main():
                 except Exception:
                     pass
 
+                # Snapshot whether memory/predictive context was injected,
+                # before the code-index banners append to `result`.
+                _had_ctx = bool(result)
+
                 # Pre-edit import/export verification off the code index (P1).
                 # Reads the PROPOSED content; advisory + conservative + silent
                 # on anything it can't verify with high confidence.
@@ -3118,6 +3131,24 @@ def main():
                     br = blast_radius(file_path, project_dir)
                     if br:
                         result = (result or "") + "\n" + br
+                except Exception:
+                    pass
+
+                # Log what was injected, for the outcome feedback loop (Cap 6).
+                try:
+                    from claude_engram.mining.outcomes import (
+                        record_injection as _rec_inj,
+                    )
+
+                    _kinds = []
+                    if _had_ctx:
+                        _kinds.append("context")
+                    if result and "<engram-precheck>" in result:
+                        _kinds.append("precheck")
+                    if result and "<engram-blast-radius>" in result:
+                        _kinds.append("blast")
+                    if _kinds:
+                        _rec_inj(file_path, _kinds, _session_id)
                 except Exception:
                     pass
 

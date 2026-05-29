@@ -559,7 +559,7 @@ TOOL_DEFINITIONS = [
 - reindex: Trigger background re-indexing (project_path, mode=post_session|bootstrap|full)
 - predict: Predict context needed for a file edit (file_path, project_path)
 - cross_project: Patterns across all projects (no project_path needed)
-- reflect: LLM-powered analysis of mistakes, patterns, and decisions (project_path)""",
+- reflect: injection precision — how often each injected context kind (context/precheck/blast) preceded a passing vs failing test""",
         inputSchema={
             "type": "object",
             "properties": {
