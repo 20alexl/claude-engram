@@ -250,6 +250,18 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except Exception:
                 pass
 
+        # Phase 6: Code index (per-project symbol table) -- the substrate for
+        # pre-edit import/export verification + blast-radius. Incremental,
+        # mtime-keyed, ast-only, scoped to one project (cheap every session end).
+        if mode in ("post_session", "bootstrap", "full"):
+            try:
+                from claude_engram.mining.code_index import build_code_index
+                from claude_engram.hooks.paths import get_project_memory_dir
+
+                build_code_index(project_path, get_project_memory_dir(project_path))
+            except Exception:
+                pass
+
         _write_status(
             {
                 "status": "completed",
