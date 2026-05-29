@@ -2701,6 +2701,21 @@ def main():
                 handoff,
                 [_project_hash_dir(project_dir), _global_handoff_dir()],
             )
+
+            # Compaction is the one point where mid-session mining pays off: the
+            # detail about to be dropped from the context window is still in the
+            # session JSONL, so index it now (background, lock-guarded) to keep it
+            # recallable via session_mine after the window shrinks.
+            try:
+                from claude_engram.mining.background import (
+                    start_mining_background,
+                    is_mining_running,
+                )
+
+                if not is_mining_running():
+                    start_mining_background(project_dir, mode="post_session")
+            except Exception:
+                pass
         except Exception:
             pass
 
