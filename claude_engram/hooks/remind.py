@@ -356,35 +356,6 @@ def detect_search_failure_in_output(command: str, output: str) -> bool:
     return any(pattern in output_lower for pattern in failure_patterns)
 
 
-def get_underused_tools() -> list[str]:
-    """Get suggestions for underused tools based on usage patterns."""
-    state = load_state()
-    usage = state.get("tool_usage", {})
-    suggestions = []
-
-    # Key tools that should be used often (v2 combined tools)
-    key_tools = {
-        "work(operation='log_mistake')": "Log mistakes to avoid repeating them",
-        "work(operation='log_decision')": "Log decisions so future sessions know why",
-        "pre_edit_check": "Check for past mistakes before editing",
-        "loop(operation='record_edit')": "Track edits to detect loops",
-        "scope(operation='declare')": "Declare scope to prevent over-refactoring",
-    }
-
-    session_count = usage.get("session_start", 0)
-    if session_count == 0:
-        return []  # No sessions yet, skip analysis
-
-    # Find tools that are used much less than session_start
-    for tool, desc in key_tools.items():
-        tool_count = usage.get(tool, 0)
-        # If tool is used less than 20% as often as sessions, suggest it
-        if tool_count < session_count * 0.2:
-            suggestions.append(f"{tool}: {desc}")
-
-    return suggestions[:3]  # Max 3 suggestions
-
-
 # ============================================================================
 # Project Context Loading
 # ============================================================================
@@ -1509,74 +1480,6 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
     lines.append("</engram-edit-reminder>")
 
     if has_content:
-        return "\n".join(lines)
-    return ""
-
-
-def reminder_for_write(project_dir: str, file_path: str = "", content: str = "") -> str:
-    """
-    Generate reminder for Write tool.
-
-    Enforces:
-    1. Code quality checks
-    2. Same session/scope checks as edit
-    """
-    # First do all the edit checks
-    edit_reminder = reminder_for_edit(project_dir, file_path)
-
-    lines = []
-    has_quality_issues = False
-
-    # Code quality checks
-    if content:
-        issues = []
-
-        # Check for long functions
-        func_matches = re.findall(
-            r"def\s+\w+\([^)]*\):[^\n]*\n((?:[ \t]+[^\n]*\n){50,})", content
-        )
-        if func_matches:
-            issues.append("Function(s) >50 lines - break them down")
-
-        # Check for vague names (only clearly bad ones, not x/y/z/data which are often legitimate)
-        vague_names = ["temp", "tmp", "foo", "bar", "stuff", "thing"]
-        for name in vague_names:
-            if re.search(rf"\b{name}\b\s*=", content):
-                issues.append(f"Vague variable name: '{name}'")
-                break
-
-        # Check for placeholders
-        placeholders = ["TODO", "FIXME", "HACK", "XXX", "PLACEHOLDER"]
-        for p in placeholders:
-            if p in content:
-                issues.append(f"Found placeholder: '{p}'")
-                break
-
-        # Check for silent failure (CRITICAL) - only match at start of line (not in comments/strings)
-        if re.search(r"^\s*except\s*:\s*pass", content, re.MULTILINE) or re.search(
-            r"^\s*except\s+\w+:\s*pass", content, re.MULTILINE
-        ):
-            issues.append("DANGER: Found 'except: pass' - silent failure pattern")
-
-        # Check for hardcoded values
-        if re.search(
-            r'(password|secret|api_key|token)\s*=\s*["\'][^"\']+["\']', content, re.I
-        ):
-            issues.append("DANGER: Possible hardcoded secret")
-
-        if issues:
-            lines.append("<engram-write-quality>")
-            lines.append("Code Quality Warnings:")
-            for issue in issues[:5]:
-                lines.append(f"  {issue}")
-            lines.append("")
-            lines.append("Run: code_quality_check(code) for full analysis")
-            lines.append("</engram-write-quality>")
-            has_quality_issues = True
-
-    if edit_reminder:
-        return edit_reminder + ("\n" + "\n".join(lines) if has_quality_issues else "")
-    elif has_quality_issues:
         return "\n".join(lines)
     return ""
 
@@ -2714,75 +2617,16 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
     return ""
 
 
-def reminder_for_error(project_dir: str, error_message: str = "") -> str:
-    """Generate reminder when something fails."""
-    state = load_state()
-    state["errors_without_log"] = state.get("errors_without_log", 0) + 1
-    errors = state["errors_without_log"]
-    save_state(state)
-
-    lines = ["<engram-error-reminder>"]
-    if errors >= 3:
-        lines.append(f"{errors} errors without logging. Consider:")
-        lines.append(
-            "  work(operation='log_mistake', description='...', how_to_avoid='...')"
-        )
-    else:
-        lines.append(
-            "Log recurring errors with work(log_mistake) to get warned next time"
-        )
-    lines.append("</engram-error-reminder>")
-    return "\n".join(lines)
-
-
 # ============================================================================
 # Main Entry Point
 # ============================================================================
 
 
 def main():
-    hook_type = sys.argv[1] if len(sys.argv) > 1 else "prompt"
+    hook_type = sys.argv[1] if len(sys.argv) > 1 else ""
     project_dir = get_project_dir()
 
-    if hook_type == "prompt":
-        prompt_text = sys.argv[2] if len(sys.argv) > 2 else ""
-        print(reminder_for_prompt(project_dir, prompt_text))
-
-    elif hook_type == "edit":
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        result = reminder_for_edit(project_dir, file_path)
-        if result:
-            print(result)
-
-    elif hook_type == "post_edit":
-        # NEW: Auto-record edit after it completes
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        if file_path:
-            _auto_record_edit(file_path, "auto-tracked")
-        # Silent - no output
-
-    elif hook_type == "write":
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        content = _read_stdin_with_timeout(0.5)  # Use timeout to avoid blocking
-        result = reminder_for_write(project_dir, file_path, content)
-        if result:
-            print(result)
-
-    elif hook_type == "post_write":
-        # NEW: Auto-record write after it completes
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        if file_path:
-            _auto_record_edit(file_path, "auto-tracked")
-        # Silent - no output
-
-    elif hook_type == "bash":
-        command = sys.argv[2] if len(sys.argv) > 2 else ""
-        exit_code = sys.argv[3] if len(sys.argv) > 3 else ""
-        result = reminder_for_bash(project_dir, command, exit_code)
-        if result:
-            print(result)
-
-    elif hook_type == "bash_json":
+    if hook_type == "bash_json":
         import json as json_module
 
         try:
@@ -3559,42 +3403,6 @@ def main():
                     print(json_module.dumps(hook_output))
         except Exception:
             pass
-
-    elif hook_type == "error":
-        error_msg = sys.argv[2] if len(sys.argv) > 2 else ""
-        print(reminder_for_error(project_dir, error_msg))
-
-    # Legacy tool callback hooks - called by handlers when Claude Engram tools are used
-    elif hook_type == "session_started":
-        mark_session_started(project_dir)
-
-    elif hook_type == "pre_edit_checked":
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        mark_pre_edit_check_done(file_path)
-
-    elif hook_type == "loop_recorded":
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        mark_loop_record_done(file_path)
-
-    elif hook_type == "scope_declared":
-        mark_scope_declared()
-
-    elif hook_type == "test_recorded":
-        mark_test_recorded()
-
-    elif hook_type == "mistake_logged":
-        mark_mistake_logged()
-
-    # Legacy argv-based handlers (kept for backward compat)
-    elif hook_type == "prompt":
-        prompt_text = sys.argv[2] if len(sys.argv) > 2 else ""
-        print(reminder_for_prompt(project_dir, prompt_text))
-
-    elif hook_type == "edit":
-        file_path = sys.argv[2] if len(sys.argv) > 2 else ""
-        result = reminder_for_edit(project_dir, file_path)
-        if result:
-            print(result)
 
     else:
         pass  # Unknown hook type - silent
