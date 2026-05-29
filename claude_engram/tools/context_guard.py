@@ -177,6 +177,7 @@ class ContextGuard:
                     next_steps=pending_steps or [],
                     context_needed=handoff_context_needed or [],
                     warnings=handoff_warnings or [],
+                    project_path=project_path,
                 )
             except Exception:
                 pass
@@ -693,13 +694,26 @@ class ContextGuard:
         next_steps: list[str],
         context_needed: Optional[list[str]] = None,
         warnings: Optional[list[str]] = None,
+        project_path: Optional[str] = None,
     ):
-        """Render the human-readable HANDOFF.md companion (single latest file,
-        mirroring latest_handoff.json). Shared by save_checkpoint and the
-        deprecated create_handoff so the artifact is identical either way."""
+        """Render the human-readable HANDOFF.md companion.
+
+        Always writes the global "latest across all projects" mirror; when
+        ``project_path`` resolves to a registered project, ALSO writes a
+        project-scoped copy beside that project's ring
+        (``projects/<hash>/HANDOFF.md``) so a multi-project workspace never
+        shows the wrong project's handoff. The body is stamped with the
+        project path for the same reason. Shared by save_checkpoint and the
+        deprecated create_handoff so the artifact is identical either way.
+        Returns the most specific path written (project-scoped when
+        available, else global)."""
         md_lines = [
             "# Session Handoff",
             f"*Created: {time.strftime('%Y-%m-%d %H:%M')}*",
+        ]
+        if project_path:
+            md_lines.append(f"**Project:** {project_path}")
+        md_lines += [
             "",
             "## Summary",
             summary,
@@ -716,9 +730,32 @@ class ContextGuard:
             md_lines.extend(["", "## Warnings"])
             for warn in warnings:
                 md_lines.append(f"- {warn}")
-        handoff_md = self.storage_dir / "HANDOFF.md"
-        handoff_md.write_text("\n".join(md_lines), encoding="utf-8")
-        return handoff_md
+        text = "\n".join(md_lines)
+
+        # Global mirror — always written, so any reader of the shared slot
+        # still works (back-compat).
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        global_md = self.storage_dir / "HANDOFF.md"
+        global_md.write_text(text, encoding="utf-8")
+        written = global_md
+
+        # Project-scoped copy — written beside the project's own ring when the
+        # project is known/registered (mirrors where write_handoff puts the
+        # ring). Unregistered project -> _project_hash_dir is None -> global
+        # only, which matches the ring's own behaviour.
+        if project_path:
+            try:
+                from claude_engram.hooks.remind import _project_hash_dir
+
+                proj_dir = _project_hash_dir(project_path)
+                if proj_dir is not None:
+                    proj_dir.mkdir(parents=True, exist_ok=True)
+                    proj_md = proj_dir / "HANDOFF.md"
+                    proj_md.write_text(text, encoding="utf-8")
+                    written = proj_md
+            except Exception:
+                pass
+        return written
 
     def create_handoff(
         self,
@@ -770,7 +807,9 @@ class ContextGuard:
                 json.dump(handoff, f, indent=2)
 
         # Human-readable companion (shared writer with checkpoint_save).
-        handoff_md = self._write_handoff_md(summary, next_steps, context_needed, warnings)
+        handoff_md = self._write_handoff_md(
+            summary, next_steps, context_needed, warnings, project_path=project_path
+        )
 
         work_log.what_worked.append("handoff document created")
 
@@ -784,7 +823,9 @@ class ContextGuard:
                 "markdown_file": str(handoff_md),
                 "next_steps": next_steps,
             },
-            suggestions=["Share HANDOFF.md content at the start of next session"],
+            suggestions=[
+                f"Share this handoff at the start of the next session (project copy: {handoff_md})"
+            ],
         )
 
     def get_handoff(
