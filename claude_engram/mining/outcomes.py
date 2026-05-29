@@ -1,8 +1,9 @@
 """
 Injection outcome log — Capability 6 (instrumentation).
 
-Records what the pre-edit hook injected (context / precheck / blast-radius) and
-the test outcomes that followed, so injection precision becomes *measurable*
+Records what the pre-edit hook injected (memory / prediction / precheck /
+blast) and the test outcomes that followed, so injection precision becomes
+*measurable*
 instead of assumed. ``reflect()`` correlates each test outcome with the
 injection kinds that preceded it in the same session, surfacing which channels
 earn their tokens — the thing that keeps proactive injection from decaying into

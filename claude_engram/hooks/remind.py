@@ -3094,6 +3094,12 @@ def main():
                 # Resolve sub-project from the file being edited
                 project_dir = get_project_dir(file_path)
                 result = reminder_for_edit(project_dir, file_path)
+                # Track the injection channels separately for the outcome loop:
+                # memory/struggle context vs predictive context (vs the
+                # code-index banners below). Coarse "context" hid which earns
+                # its tokens.
+                _had_mem = bool(result)
+                _had_pred = False
 
                 # Add predictive context from session mining (reads JSON, fast)
                 try:
@@ -3106,12 +3112,9 @@ def main():
                     pred_text = format_prediction(pred)
                     if pred_text:
                         result = (result or "") + "\n" + pred_text
+                        _had_pred = True
                 except Exception:
                     pass
-
-                # Snapshot whether memory/predictive context was injected,
-                # before the code-index banners append to `result`.
-                _had_ctx = bool(result)
 
                 # Pre-edit import/export verification off the code index (P1).
                 # Reads the PROPOSED content; advisory + conservative + silent
@@ -3152,8 +3155,10 @@ def main():
                     )
 
                     _kinds = []
-                    if _had_ctx:
-                        _kinds.append("context")
+                    if _had_mem:
+                        _kinds.append("memory")
+                    if _had_pred:
+                        _kinds.append("prediction")
                     if result and "<engram-precheck>" in result:
                         _kinds.append("precheck")
                     if result and "<engram-blast-radius>" in result:
