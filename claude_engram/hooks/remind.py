@@ -112,6 +112,7 @@ def load_state() -> dict:
         "errors_without_log": 0,
         "checkpoint_reminded": False,  # Track if we've shown checkpoint reminder
         "last_session_start": None,
+        "last_session_end": None,
         "last_pre_edit_check": None,
         "last_loop_record": None,
         "last_scope_declare": None,
@@ -214,6 +215,10 @@ def mark_session_ended():
     files_edited = state.get("files_edited_this_session", [])
     if files_edited:
         state["last_session_files"] = files_edited.copy()
+
+    # Stamp when the session ended (start is stamped in mark_session_started) so
+    # clean termination is auditable -- the end was previously never recorded.
+    state["last_session_end"] = time.time()
 
     # Reset session-specific state
     state["files_edited_this_session"] = []
