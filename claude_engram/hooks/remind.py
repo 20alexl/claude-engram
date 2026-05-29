@@ -23,11 +23,24 @@ import threading
 from pathlib import Path
 
 
+# Cached once per hook invocation: the raw stdin payload and the Claude Code
+# session id parsed from it. State is keyed by this id so two sessions from the
+# same workspace don't clobber each other's working state (see get_state_file).
+_stdin_cache: "str | None" = None
+_session_id: str = ""
+
+
 def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
     """
-    Cross-platform stdin reader with timeout.
-    Works on both Windows and Unix.
+    Cross-platform stdin reader with timeout. Works on Windows and Unix.
+
+    Memoized: a hook invocation delivers a single JSON payload on stdin and
+    several code paths want it, so the first read is cached and reused.
     """
+    global _stdin_cache
+    if _stdin_cache is not None:
+        return _stdin_cache
+
     result = {"data": ""}
 
     def read_stdin():
@@ -41,7 +54,23 @@ def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
     thread.start()
     thread.join(timeout=timeout_secs)
 
-    return result["data"]
+    _stdin_cache = result["data"]
+    return _stdin_cache
+
+
+def _init_session_id() -> None:
+    """Parse session_id from the (cached) hook stdin so per-session state files
+    don't collide between concurrent sessions. No-op without stdin (e.g. the MCP
+    server), where state falls back to the shared global file."""
+    global _session_id
+    try:
+        raw = _read_stdin_with_timeout(0.5)
+        if raw:
+            sid = json.loads(raw).get("session_id", "")
+            if sid:
+                _session_id = str(sid)
+    except Exception:
+        pass
 
 
 # NOTE: habit tracker imports REMOVED - habit tools removed as noisy
@@ -53,8 +82,16 @@ def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
 
 
 def get_state_file() -> Path:
-    """Get the hook state file path."""
-    return Path.home() / ".claude_engram" / "hook_state.json"
+    """Path to the per-session hook-state file.
+
+    Keyed by the Claude Code session_id so two sessions launched from the same
+    workspace don't clobber each other's working state. Falls back to the shared
+    hook_state.json when no session id is known -- e.g. the MCP server, which
+    Claude Code does not hand a session id."""
+    base = Path.home() / ".claude_engram"
+    if _session_id:
+        return base / "sessions" / f"{_session_id}.json"
+    return base / "hook_state.json"
 
 
 def load_state() -> dict:
@@ -2273,6 +2310,9 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
 def main():
     hook_type = sys.argv[1] if len(sys.argv) > 1 else ""
+    # Identify the Claude Code session before any state I/O so per-session
+    # working state doesn't collide when two sessions share a workspace.
+    _init_session_id()
     project_dir = get_project_dir()
 
     if hook_type == "bash_json":
