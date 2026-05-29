@@ -108,9 +108,14 @@ class ImpactAnalyzer:
         report.exported_symbols = self._extract_exports(content, ext)
         work_log.what_worked.append(f"found {len(report.exported_symbols)} exports")
 
-        # Step 2: Find dependent files
+        # Step 2: Find dependent files. Prefer the cached code-index reverse
+        # edges (ast-accurate, no filesystem walk); fall back to the regex scan
+        # when there is no index for this file.
         work_log.what_i_tried.append("find dependents")
-        report.dependents = self._find_dependents(path, root, ext)
+        idx_deps = self._dependents_via_index(path, project_root)
+        report.dependents = (
+            idx_deps if idx_deps is not None else self._find_dependents(path, root, ext)
+        )
         work_log.files_examined = len(report.dependents) + 1
         work_log.what_worked.append(f"found {len(report.dependents)} dependent files")
 
@@ -279,6 +284,28 @@ class ImpactAnalyzer:
     # -------------------------------------------------------------------------
     # Dependent Finding
     # -------------------------------------------------------------------------
+
+    def _dependents_via_index(self, path: Path, project_root: str):
+        """Dependents from the cached code index, or None if this file isn't
+        indexed (then the caller falls back to the filesystem scan). An empty
+        list is authoritative (the index knows the file and it has no importers)."""
+        try:
+            from claude_engram.mining.code_index import resolve_code_index
+
+            idx = resolve_code_index(project_root)
+            if idx is None:
+                return None
+            rec = idx.module_for_file(str(path))
+            if not rec:
+                return None
+            files = []
+            for dotted in idx.dependents_of(rec.get("module_path", "")):
+                rel = idx.file_for_module(dotted)
+                if rel:
+                    files.append(rel)
+            return files
+        except Exception:
+            return None
 
     def _find_dependents(self, target: Path, root: Path, ext: str) -> list[str]:
         """Find files that import/depend on the target file."""

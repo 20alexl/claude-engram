@@ -3110,6 +3110,17 @@ def main():
                 except Exception:
                     pass
 
+                # Blast radius: how many project modules import this one (reads
+                # the cached reverse-edges; silent for near-leaf modules).
+                try:
+                    from claude_engram.hooks.precheck import blast_radius
+
+                    br = blast_radius(file_path, project_dir)
+                    if br:
+                        result = (result or "") + "\n" + br
+                except Exception:
+                    pass
+
                 if result:
                     hook_output = {
                         "hookSpecificOutput": {

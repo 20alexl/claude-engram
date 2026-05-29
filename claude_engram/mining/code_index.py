@@ -125,6 +125,45 @@ def _format_signature(args: ast.arguments, returns: Optional[ast.AST]) -> str:
     return sig
 
 
+def _import_targets(imports: list[str], importer: str, is_pkg: bool) -> set[str]:
+    """Resolve a module's import strings to dotted module targets (absolute +
+    relative), for reverse-dependency edges. Best-effort: unresolved / external
+    targets are kept verbatim (harmless — they just won't match a real module).
+
+    Relative resolution honours whether the importer is a package (__init__):
+    in ``a/b/__init__.py`` (module ``a.b``) ``.`` is ``a.b``; in ``a/b/c.py``
+    (module ``a.b.c``) ``.`` is its package ``a.b``."""
+    base_parts = importer.split(".") if importer else []
+    pkg_parts = base_parts if is_pkg else base_parts[:-1]
+    targets: set[str] = set()
+    for imp in imports:
+        if imp.startswith("from "):
+            try:
+                mod, names = imp[len("from "):].split(" import ", 1)
+            except ValueError:
+                continue
+            mod = mod.strip()
+            level = len(mod) - len(mod.lstrip("."))
+            modpart = mod[level:].strip()
+            if level:
+                upto = len(pkg_parts) - (level - 1)
+                root = pkg_parts[:upto] if upto >= 0 else []
+                if modpart:
+                    targets.add(".".join(root + [modpart]))
+                else:
+                    if root:
+                        targets.add(".".join(root))
+                    for nm in names.replace("(", " ").replace(")", " ").split(","):
+                        nm = nm.split(" as ")[0].strip()
+                        if nm.isidentifier():
+                            targets.add(".".join(root + [nm]))
+            elif modpart:
+                targets.add(modpart)
+        else:
+            targets.add(imp.strip())
+    return {t for t in targets if t}
+
+
 def _base_name(node: ast.AST) -> str:
     """Best-effort dotted name for a class base / decorator."""
     try:
@@ -270,7 +309,7 @@ class CodeIndex:
     def save(self):
         if not self._dirty:
             return
-        self._rebuild_symbol_map()
+        self._rebuild_maps()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
@@ -300,9 +339,12 @@ class CodeIndex:
         if gone:
             self._dirty = True
 
-    def _rebuild_symbol_map(self):
+    def _rebuild_maps(self):
+        """Rebuild both derived indexes from the modules table: the symbol
+        reverse map and the module->dependents (reverse-import) map."""
         sym: dict[str, list[str]] = {}
-        for rec in self.modules.values():
+        deps: dict[str, set] = {}
+        for rel, rec in self.modules.items():
             dotted = rec.get("module_path", "")
             names = (
                 list(rec.get("classes", {}))
@@ -313,7 +355,12 @@ class CodeIndex:
                 sym.setdefault(n, [])
                 if dotted not in sym[n]:
                     sym[n].append(dotted)
+            is_pkg = rel.endswith("__init__.py")
+            for tgt in _import_targets(rec.get("imports", []), dotted, is_pkg):
+                if tgt != dotted:
+                    deps.setdefault(tgt, set()).add(dotted)
         self._data["symbol_to_modules"] = sym
+        self._data["module_to_dependents"] = {k: sorted(v) for k, v in deps.items()}
 
     # -- query (used by the pre-edit hook) --
     def by_dotted(self, module_path: str) -> Optional[dict]:
@@ -347,6 +394,29 @@ class CodeIndex:
         """Top-level package names this index covers — used to decide whether an
         import is internal (verifiable) vs external/stdlib (leave alone)."""
         return {mp.split(".")[0] for mp in self.module_paths() if mp}
+
+    def dependents_of(self, module_path: str) -> list[str]:
+        """Modules that import ``module_path`` (the blast radius), newest build."""
+        return self._data.get("module_to_dependents", {}).get(module_path, [])
+
+    def module_for_file(self, file_path: str) -> Optional[dict]:
+        """The module record for an absolute/relative file path, matched against
+        the indexed root. None if the file isn't in this index."""
+        root = self._data.get("root", "")
+        if not root:
+            return None
+        try:
+            rel = Path(file_path).resolve().relative_to(Path(root).resolve()).as_posix()
+        except (ValueError, OSError):
+            return None
+        return self.modules.get(rel)
+
+    def file_for_module(self, module_path: str) -> Optional[str]:
+        """Reverse of module_path: the indexed rel path for a dotted module."""
+        for rel, rec in self.modules.items():
+            if rec.get("module_path") == module_path:
+                return rel
+        return None
 
     def all_symbols(self) -> list[str]:
         return list(self._data.get("symbol_to_modules", {}))
@@ -406,6 +476,10 @@ def build_code_index(
 
     index = CodeIndex(index_dir / "code_index.json")
     index._data["root"] = str(root)
+    # Migrate indexes that predate the reverse-edge map: force a derived-map
+    # rebuild on save (cheap — rebuilt from the existing modules, no re-parse).
+    if "module_to_dependents" not in index._data:
+        index._dirty = True
 
     files, truncated = _iter_python_files(root, max_files)
     present: set[str] = set()

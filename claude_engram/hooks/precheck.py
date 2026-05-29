@@ -107,6 +107,46 @@ def format_precheck(findings: list[str]) -> str:
     return "\n".join(lines)
 
 
+BLAST_MIN_DEPENDENTS = 2  # don't nag for near-leaf modules
+
+
+def _short(dotted: str) -> str:
+    parts = dotted.split(".")
+    return ".".join(parts[-2:]) if len(parts) > 2 else dotted
+
+
+def blast_radius(file_path: str, project_path: str = "") -> str:
+    """Terse pre-edit blast radius: how many project modules import the one
+    being edited. Silent for near-leaf modules (< BLAST_MIN_DEPENDENTS) and on
+    any failure. Reads the cached reverse-edges — no filesystem walk."""
+    if not file_path.endswith(".py"):
+        return ""
+    try:
+        from pathlib import Path
+
+        base = project_path or str(Path(file_path).parent)
+        idx = resolve_code_index(base)
+        if idx is None:
+            return ""
+        rec = idx.module_for_file(file_path)
+        if not rec:
+            return ""
+        mod = rec.get("module_path", "")
+        deps = idx.dependents_of(mod)
+        if len(deps) < BLAST_MIN_DEPENDENTS:
+            return ""
+        names = ", ".join(_short(d) for d in deps[:8])
+        more = f" +{len(deps) - 8} more" if len(deps) > 8 else ""
+        return (
+            "<engram-blast-radius>\n"
+            f"- `{mod}` is imported by {len(deps)} module(s): {names}{more}. "
+            "Check these callers if you change its signatures or exports.\n"
+            "</engram-blast-radius>"
+        )
+    except Exception:
+        return ""
+
+
 def precheck_edit(file_path: str, proposed_text: str, project_path: str = "") -> str:
     """Resolve the project's code index and verify the imports in the proposed
     edit text. Returns a terse precheck banner, or '' (incl. on any failure)."""
