@@ -577,29 +577,29 @@ def _get_session_context_for_handoff(project_dir: str) -> dict:
 
 
 def get_checkpoint_data(project_dir: str = "") -> dict:
-    """Load the latest checkpoint data — per-project first, then global fallback."""
+    """Checkpoints and handoffs are one construct now, stored in the ring buffer.
+    Return the latest ring entry, falling back to any pre-unification single-slot
+    latest_checkpoint.json so old data still surfaces (no migration needed)."""
+    data = get_handoff_data(project_dir)
+    if data:
+        return data
+
     candidates = []
-
     if project_dir:
-        norm = _normalize_path(project_dir)
-        manifest = _get_manifest()
-        proj_info = manifest.get("projects", {}).get(norm)
+        proj_info = _get_manifest().get("projects", {}).get(_normalize_path(project_dir))
         if proj_info:
-            pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
-            candidates.append(pdir / "latest_checkpoint.json")
-
+            candidates.append(
+                Path.home() / ".claude_engram" / "projects" / proj_info["hash"] / "latest_checkpoint.json"
+            )
     candidates.append(
         Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
     )
-
     for checkpoint_file in candidates:
-        if not checkpoint_file.exists():
-            continue
         try:
-            data = json.loads(checkpoint_file.read_text())
-            age_hours = (time.time() - data.get("timestamp", 0)) / 3600
-            if age_hours < 48:
-                return data
+            if checkpoint_file.exists():
+                data = json.loads(checkpoint_file.read_text())
+                if (time.time() - data.get("timestamp", 0)) / 3600 < 48:
+                    return data
         except Exception:
             continue
     return {}
@@ -619,28 +619,47 @@ def get_handoff_data(project_dir: str = "") -> dict:
         return {}
 
 
-def _format_handoff_banner(handoff: dict) -> str:
-    """One-line session-start handoff label. Surfaces kind, age, the sub-project,
-    and the files it touched, so a handoff left by a *different* concurrent
-    session (e.g. the other Claude in the same workspace) is obvious rather than
-    silently mistaken for this session's own.
+def _format_restored_context(entry: dict) -> list[str]:
+    """Render a restored checkpoint for the session-start banner. Checkpoints and
+    handoffs are one ring construct now, so this shows whichever fields the entry
+    carries -- both an auto-compaction save and a manual checkpoint read well.
 
-    project_path is just the shared workspace for both concurrent sessions, so
-    the sub-project is derived from the edited files -- those distinguish them.
+    The sub-project is derived from the edited files (project_path is just the
+    shared workspace for two concurrent sessions, so it can't tell them apart;
+    the files can) -- a restored context from the *other* Claude is then obvious.
     """
-    summary = _truncate(handoff.get("summary", "?"), 100)
-    bits = [handoff.get("kind", "auto")]
-    created = handoff.get("created", 0)
-    if created:
-        bits.append(f"{(time.time() - created) / 3600:.1f}h ago")
-    files = handoff.get("files_in_progress") or []
+    if not entry:
+        return []
+    created = entry.get("created", entry.get("timestamp", 0))
+    age = (time.time() - created) / 3600 if created else 0.0
+    files = entry.get("files_in_progress") or entry.get("files_involved") or []
+    sub = ""
     if files:
         try:
-            bits.append(Path(resolve_project_for_file(files[0])).name)
+            sub = Path(resolve_project_for_file(files[0])).name
         except Exception:
-            pass
-        bits.append(", ".join(Path(f).name for f in files[:3]))
-    return f"HANDOFF [{' | '.join(bits)}]: {summary}"
+            sub = ""
+    label = f"{entry.get('kind', 'auto')}, {age:.1f}h ago" + (f", {sub}" if sub else "")
+    headline = entry.get("summary") or entry.get("task_description") or "?"
+    out = [f"CHECKPOINT [{label}]: {_truncate(headline, 100)}"]
+
+    step = entry.get("current_step")
+    if step and step != "Context was compacted":
+        out.append(f"  Current step: {_truncate(step, 60)}")
+    if entry.get("pending_steps"):
+        out.append(f"  Pending: {len(entry['pending_steps'])} steps")
+    _trivial = {"review what was in progress", "continue work from before compaction"}
+    real_next = [
+        s for s in (entry.get("next_steps") or [])
+        if s and s.strip().lower() not in _trivial
+    ]
+    if real_next:
+        out.append("  Next: " + "; ".join(_truncate(s, 60) for s in real_next[:3]))
+    if files:
+        out.append(f"  Files: {', '.join(Path(f).name for f in files[:5])}")
+    if entry.get("warnings"):
+        out.append("  Warnings: " + "; ".join(_truncate(w, 60) for w in entry["warnings"][:3]))
+    return out
 
 
 # NOTE: detect_complex_task REMOVED - too many false positives
@@ -1026,50 +1045,15 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         lines.append("Claude Engram session auto-started")
         lines.append("")
 
-        # AUTO-LOAD CHECKPOINT/HANDOFF
-        checkpoint = get_checkpoint_data(project_dir)
-        handoff = get_handoff_data(project_dir)
-
-        if checkpoint or handoff:
+        # AUTO-LOAD restored context (checkpoint + handoff are one ring construct)
+        restored = get_handoff_data(project_dir)
+        if restored:
             lines.append("---")
             lines.append("")
             lines.append("CONTEXT RESTORED FROM PREVIOUS SESSION")
             lines.append("")
-
-            if checkpoint:
-                age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
-                lines.append(f"CHECKPOINT ({age_hours:.1f}h ago):")
-                lines.append(
-                    f"  Task: {_truncate(checkpoint.get('task_description', 'Unknown'), 80)}"
-                )
-                lines.append(
-                    f"  Current step: {_truncate(checkpoint.get('current_step', 'Unknown'), 60)}"
-                )
-                if checkpoint.get("completed_steps"):
-                    lines.append(f"  Done: {len(checkpoint['completed_steps'])} steps")
-                    for step in checkpoint["completed_steps"][-3:]:
-                        lines.append(f"    - {_truncate(step, 60)}")
-                if checkpoint.get("pending_steps"):
-                    lines.append(f"  Pending: {len(checkpoint['pending_steps'])} steps")
-                    for step in checkpoint["pending_steps"][:3]:
-                        lines.append(f"    - {_truncate(step, 60)}")
-                if checkpoint.get("files_involved"):
-                    lines.append(
-                        f"  Files: {', '.join(Path(f).name for f in checkpoint['files_involved'][:5])}"
-                    )
-                lines.append("")
-
-            if handoff:
-                lines.append("HANDOFF MESSAGE:")
-                lines.append(
-                    f"  {_truncate(handoff.get('summary', 'No summary'), 100)}"
-                )
-                if handoff.get("next_steps"):
-                    lines.append("  Next steps:")
-                    for step in handoff["next_steps"][:3]:
-                        lines.append(f"    - {_truncate(step, 60)}")
-                lines.append("")
-
+            lines.extend(_format_restored_context(restored))
+            lines.append("")
             lines.append("CONTINUE FROM WHERE YOU LEFT OFF")
             lines.append("")
             lines.append("---")
@@ -2624,44 +2608,9 @@ def main():
             state = load_state()
             files_edited = state.get("files_edited_this_session", [])
 
-            checkpoint_dir = Path.home() / ".claude_engram" / "checkpoints"
-            checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-            checkpoint = {
-                "task_id": f"auto_compact_{int(time.time())}",
-                "task_description": f"Auto-saved before {trigger} compaction",
-                "current_step": "Context was compacted",
-                "completed_steps": [],
-                "pending_steps": [],
-                "files_involved": files_edited[:10],
-                "key_decisions": [],
-                "blockers": [],
-                "timestamp": time.time(),
-                "metadata": {"project_path": project_dir, "trigger": trigger},
-                "handoff_summary": f"Context compacted ({trigger}). {len(files_edited)} files were being edited.",
-                "handoff_context_needed": [],
-                "handoff_warnings": [],
-            }
-
-            # Save as latest checkpoint — per-project + global
-            try:
-                norm = _normalize_path(project_dir)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pdir = Path.home() / ".claude_engram" / "projects" / proj_info["hash"]
-                    pdir.mkdir(parents=True, exist_ok=True)
-                    pf = pdir / "latest_checkpoint.json"
-                    temp = pf.with_suffix(".json.tmp")
-                    temp.write_text(json_module.dumps(checkpoint, indent=2))
-                    temp.replace(pf)
-            except Exception:
-                pass
-
-            latest = checkpoint_dir / "latest_checkpoint.json"
-            temp = latest.with_suffix(".json.tmp")
-            temp.write_text(json_module.dumps(checkpoint, indent=2))
-            temp.replace(latest)
+            # Checkpoint + handoff are one ring construct now: the single-slot
+            # latest_checkpoint.json write was dropped, and the ring entry below
+            # carries the task/step fields too.
 
             # Build rich handoff with session context
             ctx = _get_session_context_for_handoff(project_dir)
@@ -2697,6 +2646,10 @@ def main():
                 "decisions": ctx["decisions"],
                 "mistakes": ctx["mistakes"],
                 "trigger": trigger,
+                "task_description": f"Auto-saved before {trigger} compaction",
+                "current_step": "Context was compacted",
+                "completed_steps": [],
+                "pending_steps": [],
             }
 
             # Durable store: ring buffer + guarded latest pointer (see stop_json).
@@ -2823,16 +2776,11 @@ def main():
                     f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
                 )
 
-            # Check for checkpoint/handoff to restore (skip on compact — PostCompact handles it)
-            checkpoint = get_checkpoint_data(project_dir) if source != "compact" else {}
-            handoff = get_handoff_data(project_dir) if source != "compact" else {}
-            if checkpoint:
-                age_hours = (time.time() - checkpoint.get("timestamp", 0)) / 3600
-                lines.append(
-                    f"CHECKPOINT ({age_hours:.1f}h ago): {_truncate(checkpoint.get('task_description', '?'), 80)}"
-                )
-            if handoff:
-                lines.append(_format_handoff_banner(handoff))
+            # Restored context: checkpoint + handoff are one ring construct now;
+            # show it once. (Skip on compact — PostCompact handles re-injection.)
+            restored = get_handoff_data(project_dir) if source != "compact" else {}
+            if restored:
+                lines.extend(_format_restored_context(restored))
 
             # Session mining: show last session context (read-only, no building)
             try:
