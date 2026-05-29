@@ -5,7 +5,7 @@ Combines 66 tools into ~20 tools using operation parameters.
 Reduces token overhead from ~20K to ~5K per message.
 """
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 
 TOOL_DEFINITIONS = [
@@ -604,3 +604,63 @@ TOOL_DEFINITIONS = [
         },
     ),
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# MCP tool annotations ("agent-native signals")
+# ─────────────────────────────────────────────────────────────────────────
+# Tell MCP clients (and Claude Code's permission system) which tools are safe
+# to call without prompting, plus a human-friendly display title. Applied here
+# in one place so the read-only set is auditable at a glance.
+#
+# - readOnlyHint=True  -> pure read/analyze tools: no state mutation, no side
+#   effects (also marked idempotent). Clients can call these freely.
+# - readOnlyHint=False -> the operation-enum tools bundle reads AND writes
+#   under one name, so they may mutate; claiming read-only would be dishonest.
+#   (destructive/idempotent are left unset because they vary per operation.)
+# - openWorldHint=False everywhere -> all tools are local (project files,
+#   local storage, a local Ollama); none reach the open internet.
+_TOOL_TITLES = {
+    "claude_engram_status": "Engram Status",
+    "session_start": "Load Session Context",
+    "session_end": "Session Summary",
+    "pre_edit_check": "Pre-Edit Check",
+    "memory": "Memory",
+    "work": "Work Log",
+    "scope": "Task Scope Guard",
+    "loop": "Loop Guard",
+    "context": "Checkpoint & Handoff",
+    "convention": "Coding Conventions",
+    "output": "Output Validator",
+    "scout_search": "Scout Search",
+    "scout_analyze": "Scout Analyze",
+    "file_summarize": "Summarize File",
+    "deps_map": "Map Dependencies",
+    "impact_analyze": "Analyze Impact",
+    "find_similar_issues": "Find Similar Issues",
+    "audit_batch": "Audit Code",
+    "session_mine": "Mine Sessions",
+}
+
+# Tools that only read/analyze — no state mutation, no side effects.
+_READ_ONLY_TOOLS = {
+    "claude_engram_status",
+    "pre_edit_check",
+    "scout_search",
+    "scout_analyze",
+    "file_summarize",
+    "deps_map",
+    "impact_analyze",
+    "find_similar_issues",
+    "audit_batch",
+    "output",
+}
+
+for _tool in TOOL_DEFINITIONS:
+    _read_only = _tool.name in _READ_ONLY_TOOLS
+    _tool.annotations = ToolAnnotations(
+        title=_TOOL_TITLES.get(_tool.name),
+        readOnlyHint=_read_only,
+        idempotentHint=True if _read_only else None,
+        openWorldHint=False,
+    )
