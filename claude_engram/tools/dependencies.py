@@ -10,10 +10,7 @@ Maps out:
 import os
 import re
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..llm import LLMClient
+from typing import Optional
 
 from ..schema import MiniClaudeResponse, WorkLog
 
@@ -27,9 +24,6 @@ class DependencyMapper:
     - What would break if I changed this file?
     - What's the dependency graph for this module?
     """
-
-    def __init__(self, llm: "LLMClient"):
-        self.llm = llm
 
     def map_file(
         self,

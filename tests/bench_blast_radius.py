@@ -71,9 +71,9 @@ check("leaf module silent", pc.blast_radius(str(root / "pkg" / "top.py"), str(ro
 check("non-py silent", pc.blast_radius("x.md", str(root)) == "")
 
 print("\n--- 4. impact_analyze reads the cache ---")
-deps = ImpactAnalyzer(None)._dependents_via_index(root / "pkg" / "base.py", str(root))
+deps = ImpactAnalyzer()._dependents_via_index(root / "pkg" / "base.py", str(root))
 check("impact uses index dependents", deps is not None and "pkg/mid.py" in deps and "pkg/top.py" in deps)
-check("impact leaf -> empty (authoritative)", ImpactAnalyzer(None)._dependents_via_index(root / "pkg" / "top.py", str(root)) == [])
+check("impact leaf -> empty (authoritative)", ImpactAnalyzer()._dependents_via_index(root / "pkg" / "top.py", str(root)) == [])
 
 print("\n--- 5. Auto-migration of pre-reverse-edge index ---")
 idx_file = idx_dir / "code_index.json"

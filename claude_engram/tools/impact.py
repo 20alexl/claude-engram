@@ -12,11 +12,8 @@ the ripple effects. This tool helps me:
 import os
 import re
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from dataclasses import dataclass, field
-
-if TYPE_CHECKING:
-    from ..llm import LLMClient
 
 from ..schema import MiniClaudeResponse, WorkLog
 
@@ -62,9 +59,6 @@ class ImpactAnalyzer:
     - Where those symbols are used
     - The overall risk of changes
     """
-
-    def __init__(self, llm: "LLMClient"):
-        self.llm = llm
 
     def analyze(
         self,
