@@ -94,6 +94,22 @@ def get_state_file() -> Path:
     return base / "hook_state.json"
 
 
+def _prune_session_states(max_age_days: float = 7.0):
+    """Delete per-session hook-state files older than ``max_age_days``. They
+    accumulate one-per-session under ~/.claude_engram/sessions/; each session
+    keys its own, so a stale one is never read again — pure clutter."""
+    sessions_dir = Path.home() / ".claude_engram" / "sessions"
+    if not sessions_dir.is_dir():
+        return
+    cutoff = time.time() - max_age_days * 86400
+    for f in sessions_dir.glob("*.json"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            pass
+
+
 def load_state() -> dict:
     """Load hook state."""
     state_file = get_state_file()
@@ -109,7 +125,6 @@ def load_state() -> dict:
         "edits_without_pre_check": 0,
         "edits_without_loop_record": 0,
         "tests_without_record": 0,
-        "errors_without_log": 0,
         "checkpoint_reminded": False,  # Track if we've shown checkpoint reminder
         "last_session_start": None,
         "last_session_end": None,
@@ -198,6 +213,12 @@ def mark_session_started(project_dir: str):
     _increment_tool_usage(state, "session_start")
     save_state(state)
 
+    # Prune stale per-session state files (one accumulates per session).
+    try:
+        _prune_session_states()
+    except Exception:
+        pass
+
     # Also create the marker file (in ~/.claude_engram/ for Windows compatibility)
     marker = Path.home() / ".claude_engram" / "session_active"
     try:
@@ -276,7 +297,6 @@ def mark_mistake_logged():
     """Mark that work_log_mistake was called."""
     state = load_state()
     state["last_mistake_log"] = time.time()
-    state["errors_without_log"] = 0
     _increment_tool_usage(state, "work_log_mistake")
     save_state(state)
 
@@ -2313,11 +2333,6 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                     except Exception:
                         pass
 
-            # Reset error counter since we logged it
-            state = load_state()
-            state["errors_without_log"] = 0
-            save_state(state)
-
             return mistake_type
         except Exception:
             pass  # Silent failure
@@ -2579,12 +2594,8 @@ def main():
                         ):
                             record_search_failure(file_path[:50])
 
-                    # Track error counter
-                    state = load_state()
-                    state["errors_without_log"] = state.get("errors_without_log", 0) + 1
-                    save_state(state)
-
-                    # No nag — if auto-log didn't capture it, it wasn't worth tracking
+                    # No nag, no counter — if auto-log didn't capture it, it
+                    # wasn't worth tracking.
 
                     result = "\n".join(lines).strip()
                     # Only emit the tag when we actually tracked something —
