@@ -485,24 +485,21 @@ class ImpactAnalyzer:
         self, report: ImpactReport, work_log: WorkLog
     ) -> MiniClaudeResponse:
         """Build the response from an impact report."""
-        # Format exports for output
+        # Format exports/usages as readable strings. The shared response
+        # renderer (MiniClaudeResponse.to_formatted_string) only pretty-prints
+        # memory-shaped dicts ({id, content, relevance}); any other dict falls
+        # back to str(dict), which leaked raw Python dicts into the output.
+        # Plain strings render cleanly, one per line.
         exports_data = [
-            {
-                "name": s.name,
-                "kind": s.kind,
-                "line": s.line,
-                "public": s.is_public,
-            }
+            f"{s.name} ({s.kind}, line {s.line}, {'public' if s.is_public else 'private'})"
             for s in report.exported_symbols
         ]
 
-        # Format usages (limit to avoid huge output)
-        usages_data = {}
+        usages_data = []
         for symbol, usages in report.symbol_usages.items():
-            usages_data[symbol] = [
-                {"file": u.file, "line": u.line, "context": u.context}
-                for u in usages[:5]  # Limit per symbol
-            ]
+            locs = ", ".join(f"{u.file}:{u.line}" for u in usages[:5])
+            more = "" if len(usages) <= 5 else f" (+{len(usages) - 5} more)"
+            usages_data.append(f"{symbol} - {locs}{more}")
 
         data = {
             "file": report.file,

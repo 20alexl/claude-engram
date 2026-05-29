@@ -185,10 +185,18 @@ def _project_hash_dir(project_dir: str) -> "Path | None":
 
 def _handoff_candidate_dirs(project_dir: str = "") -> list:
     """Ordered dirs to search for a handoff: nearest project first, then any
-    ancestor project registered in the manifest, then the global dir last.
+    ancestor project registered in the manifest. The global checkpoints dir is
+    used ONLY as a fallback — appended just when no project-specific dir was
+    found.
 
-    The walk-up means a sub-project's own handoff wins over the shared global
-    slot, so retrieval no longer returns the wrong (root) project's handoff."""
+    Every handoff for a registered project is written to BOTH its own ring and
+    the global ring, so the global ring is a cross-project superset. Appending
+    it unconditionally made *merged* reads (handoff_history / checkpoint_list /
+    get_by_index) surface OTHER projects' handoffs under a project-scoped
+    query. Scoping to the project's own ring (plus ancestor projects, which
+    legitimately cascade) keeps list/index project-clean; read_latest is
+    unaffected since the project's own entry already wins. Unregistered
+    projects (no own ring) still resolve via the global fallback."""
     storage = get_engram_storage_dir()
     projects = _get_manifest().get("projects", {})
     dirs: list = []
@@ -207,5 +215,6 @@ def _handoff_candidate_dirs(project_dir: str = "") -> list:
             if parent == p:
                 break
             p = parent
-    dirs.append(storage / "checkpoints")
+    if not dirs:
+        dirs.append(storage / "checkpoints")
     return dirs

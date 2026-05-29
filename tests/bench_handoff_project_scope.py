@@ -1,15 +1,20 @@
 """
-Benchmark: HANDOFF.md project-scoping.
+Benchmark: HANDOFF.md project-scoping + handoff candidate-dir scoping.
 
-Guards the v0.6.x fix that made the human-readable HANDOFF.md companion
-project-aware instead of a single global file:
-  1. The body is stamped with **Project:** <path>.
-  2. A project-scoped copy is written beside the project's ring
-     (projects/<hash>/HANDOFF.md), in addition to the global mirror.
-  3. Two projects do not clobber each other's HANDOFF.md.
-  4. An unregistered project (_project_hash_dir -> None) degrades to the
-     global mirror only (no crash), matching the ring's own behaviour.
-  5. create_handoff's response points markdown_file at the project copy.
+Guards the v0.6.x fixes that made handoffs project-aware instead of leaking
+across a multi-project workspace:
+  HANDOFF.md (the human-readable companion):
+    1. The body is stamped with **Project:** <path>.
+    2. A project-scoped copy is written beside the project's ring
+       (projects/<hash>/HANDOFF.md), in addition to the global mirror.
+    3. Two projects do not clobber each other's HANDOFF.md.
+    4. An unregistered project (_project_hash_dir -> None) degrades to the
+       global mirror only (no crash).
+    5. create_handoff's response points markdown_file at the project copy.
+  Candidate-dir resolution (checkpoint_list / get_by_index scoping):
+    6. A registered project resolves to its OWN ring and EXCLUDES the global
+       catch-all (so a merged list/index no longer surfaces other projects).
+    7. An unregistered project still falls back to the global dir.
 
 Run: python tests/bench_handoff_project_scope.py
 """
@@ -114,12 +119,34 @@ def test_unregistered_project_degrades_to_global():
               r.data.get("markdown_file") == str(global_md))
 
 
+def test_candidate_dirs_scoping():
+    print("Candidate-dir scoping (registered drops global catch-all; unregistered falls back):")
+    from claude_engram.hooks import paths
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        key = paths._normalize_path("E:/ws/projA")
+        # Redirect storage + manifest so _handoff_candidate_dirs sees exactly
+        # one registered project (projA -> aaaa1111).
+        paths.get_engram_storage_dir = lambda: tmp
+        paths._get_manifest = lambda: {"projects": {key: {"hash": "aaaa1111"}}}
+        glob = tmp / "checkpoints"
+        own = tmp / "projects" / "aaaa1111"
+
+        dirs = paths._handoff_candidate_dirs("E:/ws/projA")
+        check("registered project resolves to its own ring", own in dirs)
+        check("registered project EXCLUDES the global catch-all", glob not in dirs)
+
+        dirs2 = paths._handoff_candidate_dirs("E:/ws/unknown")
+        check("unregistered project falls back to global only", dirs2 == [glob])
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("HANDOFF.md Project-Scoping Benchmark")
     print("=" * 60)
     test_project_scoped_handoff_md()
     test_unregistered_project_degrades_to_global()
+    test_candidate_dirs_scoping()
     print("-" * 60)
     print(f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}")
     sys.exit(1 if _fails else 0)

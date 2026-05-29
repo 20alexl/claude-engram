@@ -26,6 +26,12 @@ from pathlib import Path
 
 MAX_EVENTS = 1000
 
+# "context" was the single coarse injection kind before v0.6 split it into
+# "memory" + "prediction". Live logging no longer emits it; only stale entries
+# already in the global ring still carry it, so it's flagged as legacy in the
+# human-readable summary (it self-heals as the bounded ring rolls over).
+_LEGACY_KINDS = {"context"}
+
 
 class OutcomeLog:
     VERSION = 1
@@ -156,8 +162,9 @@ def format_reflection(r: dict) -> str:
         s = per_kind[kind]
         seen = s["before_pass"] + s["before_fail"]
         rate = f"{(s['before_pass'] / seen * 100):.0f}% pre-pass" if seen else "no test yet"
+        label = f"{kind} (legacy, pre-split)" if kind in _LEGACY_KINDS else kind
         lines.append(
-            f"  {kind}: injected {s['injected']} | preceded {s['before_pass']} pass, "
+            f"  {label}: injected {s['injected']} | preceded {s['before_pass']} pass, "
             f"{s['before_fail']} fail ({rate})"
         )
     return "\n".join(lines)

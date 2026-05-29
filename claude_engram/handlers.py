@@ -1828,6 +1828,10 @@ class Handlers:
             )
             if not results:
                 return [TextContent(type="text", text="No results")]
+            # Render each entry once, here, with its hybrid score. Do NOT also
+            # pass them as data["memories"]: to_formatted_string would re-render
+            # the same entries from data, printing every result twice (once with
+            # the hybrid score, once with the relevance rating).
             lines = [
                 f"Found {len(results)} results (hybrid: keyword + scored + vector):"
             ]
@@ -1837,7 +1841,6 @@ class Handlers:
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
-                data={"memories": [e.model_dump() for e, _ in results]},
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "embed_all":
