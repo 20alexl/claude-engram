@@ -240,13 +240,24 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except ImportError:
                 pass
 
-        # Phase 5: Auto-cleanup (dedup + broken removal, every session end)
+        # Phase 5: Auto-cleanup (dedup + broken removal) AND keep memory
+        # embeddings fresh. embed_all_memories is incremental (only new entries),
+        # so hybrid_search "just works" without a manual embed_all — fixing the
+        # stale embeddings.npy. Both reuse one store; embedding has its own try
+        # so a cleanup failure never blocks it.
         if mode in ("post_session", "bootstrap", "full"):
             try:
                 from claude_engram.tools.memory import MemoryStore
 
                 store = MemoryStore(storage_dir=engram_storage_dir)
-                store.cleanup_memories(project_path, dry_run=False)
+                try:
+                    store.cleanup_memories(project_path, dry_run=False)
+                except Exception:
+                    pass
+                try:
+                    store.embed_all_memories(project_path)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
