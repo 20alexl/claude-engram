@@ -178,6 +178,20 @@ class ContextGuard:
         except Exception:
             pass
 
+        # Emit the human-readable HANDOFF.md companion when this save carries
+        # session-handoff content, so checkpoint_save is a full superset of the
+        # (deprecated) handoff_create — same artifact, one primary call.
+        if handoff_summary or pending_steps:
+            try:
+                self._write_handoff_md(
+                    summary=handoff_summary or task_description,
+                    next_steps=pending_steps or [],
+                    context_needed=handoff_context_needed or [],
+                    warnings=handoff_warnings or [],
+                )
+            except Exception:
+                pass
+
         work_log.what_worked.append(f"checkpoint saved: {task_id}")
 
         progress_pct = (
@@ -217,27 +231,44 @@ class ContextGuard:
         self,
         task_id: Optional[str] = None,
         project_path: Optional[str] = None,
+        index: int = 0,
     ) -> MiniClaudeResponse:
         """
         Restore task state from a checkpoint.
 
         Call this at the start of a session to continue previous work.
-        If no task_id provided, restores the latest checkpoint.
-        Checks per-project first, then global fallback.
+        If no task_id provided, restores the latest checkpoint. ``index>0``
+        reaches an older entry from the unified ring (parity with the
+        deprecated handoff_get). Checks per-project first, then global fallback.
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("restoring checkpoint")
 
         data = None
         # Ring buffer is the unified source of truth — read it first.
+        # index=0 -> promoted latest; index>0 -> older entry, newest-first.
         if not task_id:
             try:
                 from claude_engram import handoff_store as _hs
                 from claude_engram.hooks.remind import _handoff_candidate_dirs
 
-                data = _hs.read_latest(_handoff_candidate_dirs(project_path or ""))
+                dirs = _handoff_candidate_dirs(project_path or "")
+                if index and index > 0:
+                    data = _hs.get_by_index(dirs, index)
+                else:
+                    data = _hs.read_latest(dirs)
             except Exception:
                 data = None
+
+        # An explicit index addresses the ring only — never fall back to the
+        # single-slot legacy file (that would silently return the wrong entry).
+        if data is None and index and index > 0:
+            return MiniClaudeResponse(
+                status="not_found",
+                confidence="high",
+                reasoning=f"No checkpoint at index {index} — use checkpoint_list to see how many exist",
+                work_log=work_log,
+            )
 
         if data is None:
             # Back-compat: pre-unification single-slot checkpoint files.
@@ -288,12 +319,21 @@ class ContextGuard:
         # Build a summary for easy re-orientation. Use .get throughout: a unified
         # ring entry may be handoff-shaped (no task/step fields) or checkpoint-shaped.
         _completed = data.get("completed_steps", [])
-        _pending = data.get("pending_steps", [])
-        summary_lines = [
-            f"**Task:** {data.get('task_description') or data.get('summary', 'Unknown')}",
-            f"**Current step:** {data.get('current_step', '-')}",
-            f"**Progress:** {len(_completed)}/{len(_completed) + len(_pending)} steps",
-        ]
+        _pending = data.get("pending_steps", []) or data.get("next_steps", [])
+        # A unified ring entry may be checkpoint-shaped (task/step fields) or
+        # handoff-shaped (summary only). Render only the fields that exist so a
+        # pure handoff doesn't print "Current step: -" / "Progress: 0/0".
+        _has_task_state = bool(
+            data.get("task_description") or data.get("current_step") or _completed
+        )
+        headline = data.get("task_description") or data.get("summary", "Unknown")
+        summary_lines = [f"**{'Task' if _has_task_state else 'Handoff'}:** {headline}"]
+        if data.get("current_step"):
+            summary_lines.append(f"**Current step:** {data['current_step']}")
+        if _completed or _pending:
+            summary_lines.append(
+                f"**Progress:** {len(_completed)}/{len(_completed) + len(_pending)} steps"
+            )
 
         if data.get("blockers"):
             summary_lines.append(f"**Blockers:** {', '.join(data['blockers'])}")
@@ -303,16 +343,17 @@ class ContextGuard:
                 f"**Key decisions:** {len(data['key_decisions'])} recorded"
             )
 
-        # Include handoff info if present
+        # Include handoff info if present. Skip when the summary is already the
+        # headline (handoff-shaped entry) so it isn't printed twice.
         handoff_summary = data.get("handoff_summary")
-        handoff_context = data.get("handoff_context_needed", [])
-        handoff_warnings = data.get("handoff_warnings", [])
+        handoff_context = data.get("handoff_context_needed", []) or data.get("context_needed", [])
+        handoff_warnings = data.get("handoff_warnings", []) or data.get("warnings", [])
 
-        if handoff_summary:
+        if handoff_summary and handoff_summary != headline:
             summary_lines.extend(
                 [
                     "",
-                    "## Handoff from previous session:",
+                    "## Handoff note:",
                     handoff_summary,
                 ]
             )
@@ -769,6 +810,39 @@ class ContextGuard:
         # Default: needs manual verification
         return {"step": step, "status": "manual", "valid": True}
 
+    def _write_handoff_md(
+        self,
+        summary: str,
+        next_steps: list[str],
+        context_needed: Optional[list[str]] = None,
+        warnings: Optional[list[str]] = None,
+    ):
+        """Render the human-readable HANDOFF.md companion (single latest file,
+        mirroring latest_handoff.json). Shared by save_checkpoint and the
+        deprecated create_handoff so the artifact is identical either way."""
+        md_lines = [
+            "# Session Handoff",
+            f"*Created: {time.strftime('%Y-%m-%d %H:%M')}*",
+            "",
+            "## Summary",
+            summary,
+            "",
+            "## Next Steps",
+        ]
+        for i, step in enumerate(next_steps, 1):
+            md_lines.append(f"{i}. {step}")
+        if context_needed:
+            md_lines.extend(["", "## Context Needed"])
+            for ctx in context_needed:
+                md_lines.append(f"- {ctx}")
+        if warnings:
+            md_lines.extend(["", "## Warnings"])
+            for warn in warnings:
+                md_lines.append(f"- {warn}")
+        handoff_md = self.storage_dir / "HANDOFF.md"
+        handoff_md.write_text("\n".join(md_lines), encoding="utf-8")
+        return handoff_md
+
     def create_handoff(
         self,
         summary: str,
@@ -818,32 +892,8 @@ class ContextGuard:
             with open(handoff_file, "w") as f:
                 json.dump(handoff, f, indent=2)
 
-        # Also create a markdown version for easy reading
-        md_lines = [
-            "# Session Handoff",
-            f"*Created: {time.strftime('%Y-%m-%d %H:%M')}*",
-            "",
-            "## Summary",
-            summary,
-            "",
-            "## Next Steps",
-        ]
-        for i, step in enumerate(next_steps, 1):
-            md_lines.append(f"{i}. {step}")
-
-        if context_needed:
-            md_lines.extend(["", "## Context Needed"])
-            for ctx in context_needed:
-                md_lines.append(f"- {ctx}")
-
-        if warnings:
-            md_lines.extend(["", "## Warnings"])
-            for warn in warnings:
-                md_lines.append(f"- {warn}")
-
-        handoff_md = self.storage_dir / "HANDOFF.md"
-        with open(handoff_md, "w") as f:
-            f.write("\n".join(md_lines))
+        # Human-readable companion (shared writer with checkpoint_save).
+        handoff_md = self._write_handoff_md(summary, next_steps, context_needed, warnings)
 
         work_log.what_worked.append("handoff document created")
 
@@ -975,7 +1025,7 @@ class ContextGuard:
         return MiniClaudeResponse(
             status="success",
             confidence="high",
-            reasoning=f"{len(hist)} handoff(s) in history (handoff_get index=N to retrieve):",
+            reasoning=f"{len(hist)} checkpoint(s) in history (checkpoint_restore index=N to retrieve):",
             work_log=work_log,
             data={"handoffs": items},
         )

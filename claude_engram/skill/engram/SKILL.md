@@ -44,11 +44,11 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results)
 
 ## Context Protection
-- `context(checkpoint_save, ...)` — save task state for compaction/session recovery
-- `context(checkpoint_restore)` — restore last checkpoint
-- `context(handoff_create, ..., project_path="...")` — create handoff for next session
-- `context(handoff_get, project_path="...", index=0)` — retrieve handoff (0 = latest, N = older from history)
-- `context(handoff_list, project_path="...")` — list handoff history newest-first with index, age, kind, summary
+Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are primary; `handoff_*` are deprecated aliases.
+- `context(checkpoint_save, ...)` — save task/session state for compaction/recovery (add handoff_summary/handoff_context_needed/handoff_warnings to bridge to the next session; emits HANDOFF.md)
+- `context(checkpoint_restore, project_path="...", index=0)` — restore a checkpoint (0 = latest, N = older from history)
+- `context(checkpoint_list, project_path="...")` — list the unified history newest-first (index, age, kind, summary)
+- `context(handoff_create | handoff_get | handoff_list, ...)` — deprecated aliases of the checkpoint_* ops above
 - `context(instruction_add, instruction="...", reason="...", project_path="...")` — add a rule (routes to memory system)
 - `context(instruction_list, project_path="...")` — list all rules
 - `context(instruction_delete, memory_id="...", project_path="...")` — delete a rule by ID
@@ -83,6 +83,6 @@ context(
 - Scorer server auto-starts on demand (no silent degradation)
 - Session mining runs in background after SessionEnd
 - Bootstrap: first session on new project auto-mines existing history
-- Handoffs are durable: stored in a ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one; manual always wins; retrieve any entry via `handoff_get(index=N)` or browse with `handoff_list`
-- Checkpoints and handoffs are per-project (multi-project workspaces don't clobber each other)
+- Checkpoints/handoffs are durable: one ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one; manual always wins; retrieve any entry via `checkpoint_restore(index=N)` or browse with `checkpoint_list`
+- Checkpoints are per-project (multi-project workspaces don't clobber each other)
 - Subagents: memory injection and output are skipped (saves context), but file edits are still tracked

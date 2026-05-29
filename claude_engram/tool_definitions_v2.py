@@ -308,18 +308,18 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="context",
-        description="""Context protection for long tasks. Operations:
-- checkpoint_save: Save task state (task_description, current_step, completed_steps, pending_steps, files_involved)
-- checkpoint_restore: Restore last checkpoint (task_id optional)
-- checkpoint_list: List saved checkpoints
+        description="""Context protection for long tasks. Checkpoint and handoff are ONE construct (a durable ring) — checkpoint_* are the primary names; handoff_* are deprecated aliases kept for back-compat. Operations:
+- checkpoint_save: Save task/session state (task_description, current_step, completed_steps, pending_steps [= next steps], files_involved; optional handoff_summary/handoff_context_needed/handoff_warnings for the next session). Emits HANDOFF.md when handoff content is present.
+- checkpoint_restore: Restore a checkpoint (index=0 latest, index=N older from history; task_id optional)
+- checkpoint_list: List the unified checkpoint/handoff history newest-first (index, age, kind, summary), retrievable via checkpoint_restore index=N
 - verify_completion: Claim task done + verify (task, evidence, verification_steps)
 - instruction_add: Register a rule (routes to memory system — instructions ARE rules)
 - instruction_list: List all rules (alias for list_rules)
 - instruction_delete: Delete a rule by ID (memory_id)
 - instruction_reinforce: Get all rules for reinforcement
-- handoff_create: Create session handoff (handoff_summary, pending_steps, handoff_context_needed, handoff_warnings)
-- handoff_get: Retrieve a handoff (project_path; index=0 latest, index=N older from history)
-- handoff_list: List handoff history newest-first with index, age, kind, summary""",
+- handoff_create: [deprecated alias of checkpoint_save] handoff_summary, next_steps, handoff_context_needed, handoff_warnings
+- handoff_get: [deprecated alias of checkpoint_restore] retrieve by index (0 latest, N older)
+- handoff_list: [deprecated alias of checkpoint_list] list history newest-first""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -355,7 +355,7 @@ TOOL_DEFINITIONS = [
                 },
                 "index": {
                     "type": "integer",
-                    "description": "For handoff_get: 0 = latest handoff, N>0 = older handoff from history (see handoff_list)",
+                    "description": "For checkpoint_restore/handoff_get: 0 = latest, N>0 = older entry from history (see checkpoint_list)",
                 },
                 "task": {"type": "string", "description": "For verify: task to verify"},
                 "evidence": {

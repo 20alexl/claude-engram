@@ -662,39 +662,31 @@ class Handlers:
             except Exception:
                 pass  # Non-critical if hooks aren't available
 
-        # Check for and auto-restore any existing checkpoints or handoffs
+        # Auto-restore the latest unified checkpoint/handoff. Checkpoint and
+        # handoff are one ring entry now, so read once (no double display).
         checkpoint_info = ""
         try:
-            # Try to restore checkpoint
-            checkpoint_result = self.context_guard.restore_checkpoint(project_path=project_path)
-            if checkpoint_result.status == "success" and checkpoint_result.data:
-                cpd = checkpoint_result.data
+            restored = self.context_guard.restore_checkpoint(project_path=project_path)
+            if restored.status == "success" and restored.data:
+                cpd = restored.data
+                headline = cpd.get("task_description") or cpd.get("summary", "Unknown")
                 checkpoint_info = "\n\n" + "=" * 50 + "\n"
-                checkpoint_info += "RESTORED CHECKPOINT FROM PREVIOUS SESSION:\n"
+                checkpoint_info += "RESTORED FROM PREVIOUS SESSION:\n"
                 checkpoint_info += "=" * 50 + "\n"
-                checkpoint_info += f"Task: {cpd.get('task_description', 'Unknown')}\n"
-                checkpoint_info += f"Step: {cpd.get('current_step', 'Unknown')}\n"
-                if cpd.get("pending_steps"):
-                    checkpoint_info += f"Pending: {', '.join(cpd['pending_steps'][:3])}\n"
+                checkpoint_info += f"Summary: {headline}\n"
+                if cpd.get("current_step"):
+                    checkpoint_info += f"Step: {cpd['current_step']}\n"
+                _next = cpd.get("pending_steps") or cpd.get("next_steps") or []
+                if _next:
+                    checkpoint_info += "Next steps:\n"
+                    for step in _next[:5]:
+                        checkpoint_info += f"  • {step}\n"
+                _warns = cpd.get("warnings") or cpd.get("handoff_warnings") or []
+                if _warns:
+                    checkpoint_info += "Warnings:\n"
+                    for warn in _warns:
+                        checkpoint_info += f"  • {warn}\n"
                 checkpoint_info += "\nCONTINUE FROM WHERE YOU LEFT OFF"
-
-            # Also check for handoff
-            handoff_result = self.context_guard.get_handoff(project_path=project_path)
-            if handoff_result.status == "success" and handoff_result.data:
-                handoff = handoff_result.data
-                if handoff.get("summary"):
-                    checkpoint_info += "\n\n" + "=" * 50 + "\n"
-                    checkpoint_info += "HANDOFF FROM PREVIOUS SESSION:\n"
-                    checkpoint_info += "=" * 50 + "\n"
-                    checkpoint_info += f"Summary: {handoff.get('summary', 'N/A')}\n"
-                    if handoff.get("next_steps"):
-                        checkpoint_info += "Next steps:\n"
-                        for step in handoff["next_steps"]:
-                            checkpoint_info += f"  • {step}\n"
-                    if handoff.get("warnings"):
-                        checkpoint_info += "Warnings:\n"
-                        for warn in handoff["warnings"]:
-                            checkpoint_info += f"  • {warn}\n"
         except Exception as e:
             checkpoint_info = f"\n\nCould not restore checkpoint: {e}"
 
@@ -1430,14 +1422,18 @@ class Handlers:
         self,
         task_id: str | None,
         project_path: str | None = None,
+        index: int = 0,
     ) -> list[TextContent]:
-        """Restore task state from a checkpoint."""
-        response = self.context_guard.restore_checkpoint(task_id, project_path=project_path)
+        """Restore task state from a checkpoint (index>0 reaches older ring entries)."""
+        response = self.context_guard.restore_checkpoint(
+            task_id, project_path=project_path, index=index
+        )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_checkpoint_list(self) -> list[TextContent]:
-        """List all saved checkpoints."""
-        response = self.context_guard.list_checkpoints()
+    async def context_checkpoint_list(self, project_path: str = "") -> list[TextContent]:
+        """List the unified checkpoint/handoff history (the ring), newest-first,
+        retrievable via checkpoint_restore index=N."""
+        response = self.context_guard.list_handoffs(project_path=project_path or "")
         return [TextContent(type="text", text=response.to_formatted_string())]
 
     async def context_instruction_add(
@@ -2187,9 +2183,13 @@ class Handlers:
                 handoff_warnings=self._coerce_list(args.get("handoff_warnings")),
             )
         elif operation == "checkpoint_restore":
-            return await self.context_checkpoint_restore(args.get("task_id"), project_path=args.get("project_path"))
+            return await self.context_checkpoint_restore(
+                args.get("task_id"),
+                project_path=args.get("project_path"),
+                index=int(args.get("index") or 0),
+            )
         elif operation == "checkpoint_list":
-            return await self.context_checkpoint_list()
+            return await self.context_checkpoint_list(project_path=args.get("project_path", ""))
         elif operation == "verify_completion":
             return await self.verify_completion(
                 task=args.get("task", ""),
