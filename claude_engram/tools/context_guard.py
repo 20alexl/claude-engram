@@ -148,28 +148,35 @@ class ContextGuard:
         temp_file.write_text(json.dumps(checkpoint_data, indent=2))
         temp_file.replace(checkpoint_file)
 
-        # Save per-project if project_path provided
-        if project_path:
-            try:
-                from claude_engram.hooks.remind import _normalize_path, _get_manifest
-                norm = _normalize_path(project_path)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pdir = self.storage_dir.parent / "projects" / proj_info["hash"]
-                    pdir.mkdir(parents=True, exist_ok=True)
-                    pf = pdir / "latest_checkpoint.json"
-                    temp_pf = pf.with_suffix(".json.tmp")
-                    temp_pf.write_text(json.dumps(checkpoint_data, indent=2))
-                    temp_pf.replace(pf)
-            except Exception:
-                pass
+        # Persist to the durable ring buffer — checkpoints and handoffs are one
+        # construct now. kind="manual" so the promotion guard always keeps a
+        # deliberate save; the bridge-field aliases let the unified reader/banner
+        # render it like any other checkpoint. (The single-slot latest_checkpoint
+        # writes were dropped; old files are still read via the restore fallback.)
+        checkpoint_data["kind"] = "manual"
+        checkpoint_data["created"] = checkpoint.timestamp
+        checkpoint_data["summary"] = handoff_summary or task_description
+        checkpoint_data["files_in_progress"] = checkpoint.files_involved
+        checkpoint_data["next_steps"] = checkpoint.pending_steps
+        checkpoint_data["context_needed"] = checkpoint.handoff_context_needed
+        checkpoint_data["warnings"] = checkpoint.handoff_warnings
+        checkpoint_data["decisions"] = checkpoint.key_decisions
+        try:
+            from claude_engram import handoff_store as _hs
+            from claude_engram.hooks.remind import (
+                _project_hash_dir,
+                _global_handoff_dir,
+            )
 
-        # Also save as "latest" for easy recovery (atomic) — global fallback
-        latest_file = self.storage_dir / "latest_checkpoint.json"
-        temp_latest = latest_file.with_suffix(".json.tmp")
-        temp_latest.write_text(json.dumps(checkpoint_data, indent=2))
-        temp_latest.replace(latest_file)
+            _hs.write_handoff(
+                checkpoint_data,
+                [
+                    _project_hash_dir(project_path) if project_path else None,
+                    _global_handoff_dir(),
+                ],
+            )
+        except Exception:
+            pass
 
         work_log.what_worked.append(f"checkpoint saved: {task_id}")
 
@@ -221,39 +228,52 @@ class ContextGuard:
         work_log = WorkLog()
         work_log.what_i_tried.append("restoring checkpoint")
 
-        checkpoint_file = None
-        if task_id:
-            checkpoint_file = self.storage_dir / f"{task_id}.json"
-        elif project_path:
+        data = None
+        # Ring buffer is the unified source of truth — read it first.
+        if not task_id:
             try:
-                from claude_engram.hooks.remind import _normalize_path, _get_manifest
-                norm = _normalize_path(project_path)
-                manifest = _get_manifest()
-                proj_info = manifest.get("projects", {}).get(norm)
-                if proj_info:
-                    pf = self.storage_dir.parent / "projects" / proj_info["hash"] / "latest_checkpoint.json"
-                    if pf.exists():
-                        checkpoint_file = pf
+                from claude_engram import handoff_store as _hs
+                from claude_engram.hooks.remind import _handoff_candidate_dirs
+
+                data = _hs.read_latest(_handoff_candidate_dirs(project_path or ""))
             except Exception:
-                pass
+                data = None
 
-        if not checkpoint_file:
-            checkpoint_file = self.storage_dir / "latest_checkpoint.json"
+        if data is None:
+            # Back-compat: pre-unification single-slot checkpoint files.
+            checkpoint_file = None
+            if task_id:
+                checkpoint_file = self.storage_dir / f"{task_id}.json"
+            elif project_path:
+                try:
+                    from claude_engram.hooks.remind import _normalize_path, _get_manifest
+                    norm = _normalize_path(project_path)
+                    manifest = _get_manifest()
+                    proj_info = manifest.get("projects", {}).get(norm)
+                    if proj_info:
+                        pf = self.storage_dir.parent / "projects" / proj_info["hash"] / "latest_checkpoint.json"
+                        if pf.exists():
+                            checkpoint_file = pf
+                except Exception:
+                    pass
 
-        if not checkpoint_file.exists():
-            return MiniClaudeResponse(
-                status="not_found",
-                confidence="high",
-                reasoning="No checkpoint found to restore",
-                work_log=work_log,
-                suggestions=["Start fresh with save_checkpoint when you begin a task"],
-            )
+            if not checkpoint_file:
+                checkpoint_file = self.storage_dir / "latest_checkpoint.json"
 
-        with open(checkpoint_file) as f:
-            data = json.load(f)
+            if not checkpoint_file.exists():
+                return MiniClaudeResponse(
+                    status="not_found",
+                    confidence="high",
+                    reasoning="No checkpoint found to restore",
+                    work_log=work_log,
+                    suggestions=["Start fresh with save_checkpoint when you begin a task"],
+                )
 
-        # Calculate how old the checkpoint is
-        age_hours = (time.time() - data.get("timestamp", 0)) / 3600
+            with open(checkpoint_file) as f:
+                data = json.load(f)
+
+        # Calculate how old the checkpoint is (ring entries use 'created')
+        age_hours = (time.time() - data.get("timestamp", data.get("created", 0))) / 3600
 
         work_log.what_worked.append(
             f"checkpoint restored from {age_hours:.1f} hours ago"
@@ -265,11 +285,14 @@ class ContextGuard:
                 f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant"
             )
 
-        # Build a summary for easy re-orientation
+        # Build a summary for easy re-orientation. Use .get throughout: a unified
+        # ring entry may be handoff-shaped (no task/step fields) or checkpoint-shaped.
+        _completed = data.get("completed_steps", [])
+        _pending = data.get("pending_steps", [])
         summary_lines = [
-            f"**Task:** {data['task_description']}",
-            f"**Current step:** {data['current_step']}",
-            f"**Progress:** {len(data['completed_steps'])}/{len(data['completed_steps']) + len(data['pending_steps'])} steps",
+            f"**Task:** {data.get('task_description') or data.get('summary', 'Unknown')}",
+            f"**Current step:** {data.get('current_step', '-')}",
+            f"**Progress:** {len(_completed)}/{len(_completed) + len(_pending)} steps",
         ]
 
         if data.get("blockers"):
@@ -302,9 +325,10 @@ class ContextGuard:
         # Add handoff warnings to main warnings
         warnings.extend(handoff_warnings)
 
+        _pending_sug = data.get("pending_steps", []) or data.get("next_steps", [])
         suggestions = [
-            f"Continue with: {data['current_step']}",
-            f"Remaining steps: {', '.join(data['pending_steps'][:3])}{'...' if len(data['pending_steps']) > 3 else ''}",
+            f"Continue with: {data.get('current_step') or data.get('summary', 'previous work')}",
+            f"Remaining steps: {', '.join(_pending_sug[:3])}{'...' if len(_pending_sug) > 3 else ''}",
         ]
 
         return MiniClaudeResponse(
