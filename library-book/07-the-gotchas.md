@@ -110,11 +110,11 @@ export CLAUDE_ENGRAM_MODEL="gemma3:4b"
 
 **Symptom:** Ollama isn't running but Claude Engram seems to work fine.
 
-**Cause:** Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, LLM-based convention checking, and memory consolidation. All hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving) work without Ollama.
+**Cause:** Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, LLM-based convention checking, and `session_mine(reflect)` insights. All hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving, code index, pre-edit import verification, blast-radius) work without Ollama.
 
 **Fix:** Nothing to fix. Just know that `claude_engram_status` will report "failed" if Ollama is down, but that only affects the LLM-powered tools.
 
-**Lesson:** Claude Engram has two layers: the hook system (no external deps) and the LLM tools (requires Ollama). They're independent.
+**Lesson:** Claude Engram has two layers: the hook/analysis system (no external deps — pure ast/regex) and the LLM tools (requires Ollama). They're independent.
 
 ---
 
@@ -134,6 +134,42 @@ python install.py
 ```
 
 **Lesson:** The venv is not disposable. It's the runtime environment.
+
+---
+
+### Gotcha: Pre-edit import verification is Python-only and advisory
+
+**Symptom:** You edit a TypeScript or Go file and don't get any import warnings, even for broken imports.
+
+**Cause:** The code index (`mining/code_index.py`) uses Python's `ast` module. It only indexes `.py` files. Non-Python files are not parsed, and `hooks/precheck.py` silently degrades to no output for them.
+
+**Fix:** Nothing to fix — it's intentional scope. For non-Python projects, `impact_analyze` and `deps_map` still provide blast-radius and dependency info, just without the symbol-level import check.
+
+**Lesson:** Pre-edit import verification is Python-only. It is also advisory: it warns but never blocks. A missing warning doesn't mean the import is valid.
+
+---
+
+### Gotcha: Code index is sub-project scoped — workspace root won't index sibling projects
+
+**Symptom:** You run from a workspace root containing `projectA/` and `projectB/`. The code index built for the workspace doesn't know about symbols in `projectB/` when you're working in `projectA/`.
+
+**Cause:** The index walk stops at project boundaries (dirs containing `pyproject.toml`, `package.json`, `.git`, `CLAUDE.md`, etc.). Each sub-project gets its own index. This is deliberate — a pooled cross-project symbol table would cause V7/V8-style cross-pollution.
+
+**Fix:** Nothing to fix. When the hook fires for a file in `projectA/`, it resolves the index for `projectA/` only. Impact analysis across projects still works via `impact_analyze` with an explicit `project_root`.
+
+**Lesson:** The code index mirrors the memory system's sub-project scoping: per-project, not workspace-wide.
+
+---
+
+### Gotcha: Two concurrent sessions can drop a few outcome log events
+
+**Symptom:** `session_mine(reflect)` shows injection precision that seems slightly off, missing a few injections or test results.
+
+**Cause:** The outcome log (`mining/outcomes.py`) and per-session state are global/shared files. Under two concurrent Claude Code sessions, the last writer wins on each atomic write, so a small number of events from the other session can be overwritten.
+
+**Fix:** Nothing to fix. The outcome log is bounded (1000 events) and atomic per write, so it's correct for single sessions. For concurrent sessions, precision metrics are approximate — tolerable for a tuning signal.
+
+**Lesson:** Don't run two sessions doing heavy editing simultaneously if you care about precise reflect metrics. One-session workflows are fully accurate.
 
 ---
 

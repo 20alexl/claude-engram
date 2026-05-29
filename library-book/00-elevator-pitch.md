@@ -6,7 +6,7 @@
 
 ## What is Claude Engram?
 
-Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also provides a local LLM (via Ollama) for semantic code search and analysis.
+Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also builds a per-project code index (symbol table, imports, reverse-dependency edges) and uses it to warn proactively about broken imports before edits land. A local LLM (via Ollama) powers semantic code search and analysis, but the core system — hooks, memory, code index, pre-edit checks — runs without it.
 
 ## Who is it for?
 
@@ -35,6 +35,8 @@ Before Claude Engram, you either:
 #   → Past mistakes for this file are surfaced
 #   → Loop detection warns at 3+ edits
 #   → The 3 most relevant memories are injected, ranked by file match + recency
+#   → If the edit adds an import that doesn't resolve (Python), a warning fires
+#   → If the file being edited is imported by other modules, those importers are listed
 
 # When a Bash command fails:
 #   → The error is auto-logged as a mistake (ImportError, TypeError, etc.)
@@ -48,11 +50,12 @@ Before Claude Engram, you either:
 
 # When the session stops:
 #   → Handoff saved with last assistant message for next session
+#   → Code index updated incrementally (changed files only)
 ```
 
 ## The One-Liner
 
-> Persistent memory, mistake tracking, and context survival for Claude Code — mostly automatic, powered by hooks.
+> Persistent memory, mistake tracking, proactive code-awareness, and context survival for Claude Code — mostly automatic, powered by hooks.
 
 ---
 

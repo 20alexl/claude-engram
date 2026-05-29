@@ -112,13 +112,21 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Apply
 
 ## Safety Checks
 
-### Before Editing (usually automatic)
+### Before Editing (automatic)
+
+Before every Edit or Write, hooks fire automatically:
+
+- **Memory injection** — top 3 scored memories for the file are shown (`<engram-context>`)
+- **Import/export check** — if an import won't resolve (name not exported, module not found), you get a terse `<engram-precheck>` warning with the closest suggestion (Python only, advisory)
+- **Blast-radius** — if the file is imported by 2 or more other modules, the importers are listed (`<engram-blast-radius>`) so you see the damage radius before touching it
+- **Loop warning** — fires when the same file has been edited 3+ times without a passing test
+
+You rarely need to call `pre_edit_check` manually. It's available for an explicit impact check:
 
 ```python
+# Rarely needed — the PreToolUse hook runs this automatically
 pre_edit_check(file_path="auth/middleware.py")
 ```
-
-Returns: past mistakes for this file, loop risk level, scope status, and scored contextual memories.
 
 Memory injection is path-aware: a mistake stored for `v7/auth/middleware.py` will not fire when editing `v8/auth/middleware.py` even if the basename matches. Generic filenames (`__init__.py`, `index.js`) require a full-path signal; specific filenames still match by name.
 
@@ -141,33 +149,35 @@ loop(operation="reset")    # Clear after changing approach
 
 ## Context Protection
 
+Checkpoints and handoffs are one construct (a durable ring buffer). `checkpoint_*` are the primary names; `handoff_*` exist as deprecated aliases for back-compat.
+
 ### Save a Checkpoint
 
 ```python
 context(operation="checkpoint_save", task_description="Refactoring auth module", current_step="Updating middleware", completed_steps=["Extracted JWT validation", "Added tests"], pending_steps=["Update routes", "Migration"], files_involved=["auth/middleware.py", "auth/jwt.py"])
 ```
 
-### Create a Handoff
+Add `handoff_summary`, `handoff_context_needed`, and `handoff_warnings` to bridge the state to the next session (emits HANDOFF.md):
 
 ```python
-context(operation="handoff_create", handoff_summary="Auth refactor 60% done. Middleware updated, routes pending.", next_steps=["Update route handlers to use new middleware", "Run full test suite"], handoff_context_needed=["The JWT validation was moved from routes to middleware"], handoff_warnings=["Don't edit auth/legacy.py — it's being removed in the next PR"])
+context(operation="checkpoint_save", task_description="Auth refactor", handoff_summary="Auth refactor 60% done. Middleware updated, routes pending.", handoff_context_needed=["JWT validation moved from routes to middleware"], handoff_warnings=["Don't edit auth/legacy.py — being removed in next PR"])
 ```
 
-### Retrieve a Handoff
+### Restore a Checkpoint
 
 ```python
-# Retrieve the latest handoff (default)
-context(operation="handoff_get", project_path="/path")
+# Restore the latest checkpoint
+context(operation="checkpoint_restore")
 
-# Retrieve an older handoff by index (0 = latest, 1 = previous, ...)
-context(operation="handoff_get", project_path="/path", index=2)
+# Restore an older entry by index (0 = latest, 1 = previous, ...)
+context(operation="checkpoint_restore", index=2)
 ```
 
-### Browse Handoff History
+### Browse Checkpoint History
 
 ```python
-# List all stored handoffs newest-first with index, age, kind (manual|auto), and summary
-context(operation="handoff_list", project_path="/path")
+# List all checkpoints newest-first with index, age, kind (manual|auto), and summary
+context(operation="checkpoint_list", project_path="/path")
 ```
 
 ---
@@ -189,6 +199,24 @@ impact_analyze(file_path="models/user.py", project_root="/path")
 ```
 
 Shows what depends on a file, what it exports, and risk level for changes.
+
+### Audit Files (LLM)
+
+```python
+# Audit one or more files for bugs, missing error handling, security issues, TODOs, anti-patterns
+audit_batch(file_paths=["src/auth.py", "src/models/*.py"], min_severity="warning")
+```
+
+`min_severity`: `"critical"` (bugs only) | `"warning"` (bugs + smells) | `"info"` (everything).
+
+### Lint a Code Snippet (no LLM)
+
+```python
+# Fast structural/naming lint of an inline snippet — no I/O, no Ollama required
+audit_batch(code="def f(a,b,c,d,e,f): ...", language="python")
+```
+
+Checks long functions, vague names, deep nesting, too many parameters. Use this for quick checks before committing a block of new code.
 
 ---
 

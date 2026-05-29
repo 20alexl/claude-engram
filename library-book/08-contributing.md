@@ -98,7 +98,23 @@ No formal linter configured yet. Follow existing patterns:
 | Change hook memory injection | `tools/memory.py` `HotMemoryReader` class |
 | Add a new intent scorer | `hooks/intent.py` templates + `hooks/scorer_server.py` scoring logic |
 | Fix a bug in session management | `tools/session.py` or `hooks/remind.py` session handlers |
+| Extend the code index (new language, new symbol type) | `mining/code_index.py` `CodeIndex` class |
+| Change pre-edit import/export verification | `hooks/precheck.py` `check_imports()` |
+| Change injection outcome logging or precision metrics | `mining/outcomes.py` `OutcomeLog` class |
 | Update documentation | `library-book/` chapters or root `README.md` / `CLAUDE.md` |
+
+### Mining pipeline phases
+
+The session miner runs as a background subprocess. Phases in order:
+
+| Phase | What it does | Module |
+|-------|-------------|--------|
+| 1 | Parse JSONL session log, extract raw messages | `mining/jsonl_reader.py` |
+| 2 | Extract decisions, mistakes, approaches from messages | `mining/extractors.py` |
+| 3 | Build semantic search embeddings | `mining/search.py` |
+| 4 | Detect patterns (struggles, recurring errors, correlations) | `mining/patterns.py` |
+| 5 | Auto-refresh AllMiniLM embeddings for hybrid_search | `mining/search.py` (embed refresh) |
+| 6 | Incremental code index update (symbol table per project) | `mining/code_index.py` |
 
 ## How Decisions Are Made
 

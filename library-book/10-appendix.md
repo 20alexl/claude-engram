@@ -30,7 +30,7 @@ Unified check before editing: past mistakes, loop risk, scope status, scored mem
 
 ---
 
-### `memory` Tool (18 operations)
+### `memory` Tool (20 operations)
 
 All operations require `operation` and `project_path`.
 
@@ -40,9 +40,9 @@ All operations require `operation` and `project_path`.
 | `recall` | — | Get all memories for project |
 | `forget` | — | Clear all project memories |
 | `search` | `file_path?`, `tags?`, `query?`, `limit?` | Find memories by criteria |
-| `clusters` | `cluster_id?` | View grouped memories |
-| `cleanup` | `dry_run?`, `min_relevance?`, `max_age_days?` | Dedupe + archive + decay |
-| `consolidate` | `tag?`, `dry_run?` | LLM-powered merge of related memories |
+| `hybrid_search` | `query`, `file_path?`, `tags?`, `limit?` | Semantic + keyword + scored search (best retrieval) |
+| `embed_all` | — | Generate AllMiniLM embeddings for all memories |
+| `cleanup` | `dry_run?`, `min_relevance?`, `max_age_days?` | Dedupe + archive + decay (clustering is internal) |
 | `add_rule` | `content`, `reason?` | Add permanent rule (never decays) |
 | `list_rules` | — | Get all rules for project |
 | `modify` | `memory_id`, `content?`, `relevance?`, `category?` | Edit a memory |
@@ -54,6 +54,8 @@ All operations require `operation` and `project_path`.
 | `restore` | `memory_id` | Bring archived memory back to active |
 | `archive_search` | `query?`, `tags?`, `limit?` | Search cold tier |
 | `archive_status` | — | Hot vs archive counts |
+| `list_mistakes` | — | View tracked mistakes with IDs, files, age |
+| `acknowledge_mistake` | `memory_id` | Archive a learned mistake (stops pre-edit warnings) |
 
 ### `work` Tool
 
@@ -84,17 +86,17 @@ All operations require `operation` and `project_path`.
 
 ### `context` Tool
 
+Checkpoint and handoff are one unified ring buffer. `checkpoint_*` are the primary names; `handoff_*` are deprecated aliases kept for backward compatibility.
+
 | Operation | Parameters | Description |
 |-----------|-----------|-------------|
-| `checkpoint_save` | `task_description`, `current_step?`, `completed_steps?`, `pending_steps?`, `files_involved?` | Save task state |
-| `checkpoint_restore` | `task_id?` | Restore (latest if no ID) |
-| `checkpoint_list` | — | List all checkpoints |
+| `checkpoint_save` | `task_description`, `current_step?`, `completed_steps?`, `pending_steps?`, `files_involved?`, `handoff_summary?`, `handoff_context_needed?`, `handoff_warnings?` | Save task state; emits HANDOFF.md when handoff content is present |
+| `checkpoint_restore` | `index?`, `task_id?` | Restore a checkpoint: `index=0` latest, `index=N` older from history |
+| `checkpoint_list` | — | List unified checkpoint/handoff history newest-first (index, age, kind, summary) |
 | `verify_completion` | `task`, `verification_steps`, `evidence?` | Claim + verify done |
-| `instruction_add` | `instruction`, `reason?`, `importance?` | Register critical rule |
-| `instruction_reinforce` | — | Get instructions to remember |
-| `handoff_create` | `handoff_summary`, `next_steps`, `handoff_context_needed?`, `handoff_warnings?` | Create session handoff |
-| `handoff_get` | `project_path?`, `index?` | Retrieve a handoff; `index=0` = latest, `index=N` = older from history |
-| `handoff_list` | `project_path?` | List handoff history newest-first with index, age, kind, and summary |
+| `handoff_create` | `handoff_summary`, `next_steps`, `handoff_context_needed?`, `handoff_warnings?` | [deprecated alias of checkpoint_save] |
+| `handoff_get` | `project_path?`, `index?` | [deprecated alias of checkpoint_restore] |
+| `handoff_list` | `project_path?` | [deprecated alias of checkpoint_list] |
 
 ### `convention` Tool
 
@@ -128,7 +130,7 @@ All operations require `operation` and `project_path`.
 
 | Operation | Parameters | Description |
 |-----------|-----------|-------------|
-| `search` | `query`, `project_path`, `limit?`, `method?` | Semantic search across past conversations |
+| `search` | `query`, `project_path`, `limit?`, `method?`, `since?`, `until?` | Semantic search across past conversations |
 | `decisions` | `query`, `project_path` | Find when/why a decision was made, with context |
 | `replay` | `file_path`, `project_path`, `limit?` | Find discussions about a specific file |
 | `struggles` | `project_path` | Files/areas with repeated difficulty |
@@ -141,6 +143,7 @@ All operations require `operation` and `project_path`.
 | `reindex` | `project_path`, `mode?` | Trigger background re-indexing (post_session, bootstrap, full) |
 | `predict` | `file_path`, `project_path` | Predict context needed for a file edit |
 | `cross_project` | — | Patterns across all projects |
+| `reflect` | `project_path` | Injection precision report: which context kinds (memory/prediction/precheck/blast) precede passing tests, plus LLM-synthesized insights from recurring mistakes/patterns |
 
 ---
 
@@ -215,6 +218,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │       ├── embeddings_index.json  # ID-to-row mapping for embeddings.npy
 │       ├── embeddings_pending.json # Hook embedding writes (merged on load)
 │       ├── handoff_history.json   # Per-project capped ring buffer (last 20 handoffs)
+│       ├── code_index.json        # Per-project symbol index (exports, imports, classes, functions)
 │       ├── session_index.json     # Session metadata + offset cursors
 │       ├── session_embeddings.npy # Conversation chunk embeddings for search
 │       ├── session_embeddings_index.json # Chunk-to-session mapping

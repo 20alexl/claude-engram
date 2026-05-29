@@ -41,12 +41,25 @@
 | Recurring error grouping by normalized signature | Stable | v0.5.0 |
 | Idempotent version-stamped migrations | Stable | v0.5.0 |
 
+## Done / Shipped (v0.6)
+
+| Feature | Notes |
+|---------|-------|
+| Tool surface consolidation (21 → 19) | Removed `code_pattern_check` (dup of `convention`); folded `code_quality_check` into `audit_batch` (file-paths mode vs inline code/language mode); `instruction_*` context ops removed (use `memory add_rule`); `checkpoint_*` are now primary, `handoff_*` are deprecated aliases. |
+| Per-project code index (`mining/code_index.py`) | Miner Phase 6. AST/regex symbol table per project: exports, classes, methods+signatures, imports, reverse-dependency edges. Sub-project scoped, mtime-incremental, LLM-free. |
+| Pre-edit import/export verification (`hooks/precheck.py`) | Capability 1. Warns before an edit if an import won't resolve against the code index; suggests the closest valid name. Advisory, Python-only, conservative (stays silent on anything it can't verify with high confidence). |
+| Blast-radius on pre-edit | Capability 4. Lists all importers of a shared module before an edit; `impact_analyze` reads this cache instead of scanning cold. |
+| Outcome feedback loop (`mining/outcomes.py`) | Capability 6. Logs injection kinds (memory/prediction/precheck/blast) + following test pass/fail; `session_mine(reflect)` surfaces injection precision and LLM-synthesized insights. |
+| Hybrid search auto-refresh (miner Phase 5) | `memory(hybrid_search)` no longer requires a prior `embed_all` — the miner auto-refreshes embeddings. |
+
 ## What's Next
 
 - [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.
 - [ ] **Split `remind.py`** — At ~2800 lines, it works but is hard to maintain. Split into `hooks/prompt.py`, `hooks/edit.py`, `hooks/bash.py`, etc.
 - [ ] **Ollama-powered session summaries** — Use local LLM to generate human-readable session summaries instead of metadata-only.
 - [ ] **Obsidian export** — Export session insights, decisions, and project timelines as Obsidian-compatible markdown with wikilinks.
+- [ ] **Multi-language symbol indexing** — Extend code index beyond Python (tree-sitter for JS/TS/Rust/Go). Currently Python-only (ast).
+- [ ] **Proactive recall before Read** — Inject relevant memories before Read/Grep tool calls, not just before edits. Requires a PreToolUse Read hook (not yet implemented).
 
 ## What's Aspirational
 

@@ -41,7 +41,8 @@ Archiving also happens automatically during `cleanup`:
 
 ```python
 memory(operation="cleanup", dry_run=False, project_path="/path")
-# This: removes broken → deduplicates → archives old → decays → clusters
+# This: removes broken → deduplicates → archives old → decays
+# Note: memory clustering is internal to cleanup; there is no standalone agent-callable op for it.
 ```
 
 ### Memory Scoring Algorithm
@@ -142,22 +143,79 @@ memory(operation="add_rule", content="...", project_path="/home/user/projects")
 
 ---
 
-## Handoff History
+## Checkpoint / Handoff History
 
-Handoffs are stored in a capped ring buffer (last 20 per project, plus a global slot). Use `handoff_list` to browse and `handoff_get` with an `index` to retrieve a specific entry.
+Checkpoints and handoffs are a single unified ring buffer (last 20 per project, plus a global slot). `checkpoint_save` is the primary write op; `handoff_create` is a deprecated alias. Use `checkpoint_list` to browse history and `checkpoint_restore` with `index=N` to retrieve a specific entry.
 
 ```python
-# See all stored handoffs, newest-first (index, age, kind: manual|auto, summary)
-context(operation="handoff_list", project_path="/path")
+# Save task state (optionally with handoff content for the next session)
+context(
+    operation="checkpoint_save",
+    task_description="Refactoring auth module",
+    current_step="Step 2: token refresh",
+    completed_steps=["Step 1: provider config"],
+    pending_steps=["Step 3: tests"],
+    files_involved=["auth.py", "oauth.py"],
+    project_path="/path"
+)
 
-# Retrieve by index (0 = latest, 1 = previous session, etc.)
-context(operation="handoff_get", project_path="/path", index=0)
-context(operation="handoff_get", project_path="/path", index=3)
+# Browse the unified ring, newest-first (index, age, kind: manual|auto, summary)
+context(operation="checkpoint_list", project_path="/path")
+
+# Restore by index (0 = latest, N = older entry)
+context(operation="checkpoint_restore", project_path="/path", index=0)
+context(operation="checkpoint_restore", project_path="/path", index=3)
 ```
 
-The `kind` field tells you whether the handoff was written manually (`handoff_create`) or automatically by the Stop/PreCompact hook. Manual handoffs always win: an auto-handoff with no files edited and no decisions never overwrites a substantive one.
+The `kind` field tells you whether the entry was written manually or automatically by the Stop/PreCompact hook. Manual checkpoints always win: an auto-checkpoint with no files edited and no decisions never overwrites a substantive one.
 
-Reads walk up from the nearest project to ancestor projects to the global slot — a sub-project's handoff is not shadowed by the shared global slot.
+Reads walk up from the nearest project to ancestor projects to the global slot — a sub-project's entry is not shadowed by the shared global slot.
+
+`handoff_create`, `handoff_get`, and `handoff_list` remain as deprecated aliases and work identically.
+
+---
+
+## Session Mine: Reflect
+
+`session_mine(reflect)` tells you how well the injection pipeline is actually working. It reports:
+
+- **Injection precision** — which context kinds (memory, prediction, precheck, blast) appeared before tests that passed. High precision means the right context is landing before the right edits.
+- **LLM-synthesized insights** — patterns across recurring mistakes and struggles, synthesized by the local LLM (gemma3:12b) into actionable observations.
+
+```python
+session_mine(operation="reflect", project_path="/path/to/project")
+```
+
+Use this after a long session or when injection feels noisy. The output will show which injection types are correlated with success and flag any systematic gaps (e.g., precheck firing but not blast, or memories injected on files that never fail).
+
+This op requires Ollama for the insights portion. Precision data is always available; the LLM synthesis section is skipped if Ollama is unavailable.
+
+---
+
+## Code-Index-Backed Pre-Edit Signals
+
+The miner builds a per-project code index (`projects/<hash>/code_index.json`) incrementally during Phase 6 of background mining. The index records per-module exports, classes, functions, and raw imports using only `ast` — no LLM, no network. It updates automatically whenever files change (mtime-keyed, deleted files pruned).
+
+Two hook-level signals are emitted before every Edit/Write, visible in hook output:
+
+**`<engram-precheck>`** — import/export verification. Checks proposed edit content for import statements that won't resolve against the index: a name not exported by a known internal module, or an internal module path that doesn't exist. Capped at 2 findings; conservatively silent on relative imports, stdlib, `import *`, or anything it cannot verify with high confidence.
+
+**`<engram-blast-radius>`** — dependency fan-out. Shows how many project modules import the file being edited and lists them. Silent for near-leaf modules (< 3 dependents). Reads cached reverse-edges from the index — no filesystem walk at hook time.
+
+```
+<engram-precheck>
+- `utils.helpers`: name `format_date` not found in exports [did you mean `format_datetime`?]
+</engram-precheck>
+
+<engram-blast-radius>
+- `core.session` is imported by 7 module(s): auth.login, auth.oauth, api.views, ...
+  Check these callers if you change its signatures or exports.
+</engram-blast-radius>
+```
+
+Both signals appear in the `reflect` output as `precheck` and `blast` precision buckets. `impact_analyze` also reads the cached index (reverse edges) for faster blast-radius estimates.
+
+The index is scoped to a single project — sub-projects each get their own index, preventing cross-version symbol pollution.
 
 ---
 
