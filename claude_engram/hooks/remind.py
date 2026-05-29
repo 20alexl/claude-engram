@@ -3089,6 +3089,27 @@ def main():
                 except Exception:
                     pass
 
+                # Pre-edit import/export verification off the code index (P1).
+                # Reads the PROPOSED content; advisory + conservative + silent
+                # on anything it can't verify with high confidence.
+                try:
+                    ti = data.get("tool_input", {}) if isinstance(data, dict) else {}
+                    proposed = ti.get("new_string") or ti.get("content") or ""
+                    if not proposed and isinstance(ti.get("edits"), list):
+                        proposed = "\n".join(
+                            e.get("new_string", "")
+                            for e in ti["edits"]
+                            if isinstance(e, dict)
+                        )
+                    if proposed:
+                        from claude_engram.hooks.precheck import precheck_edit
+
+                        pc = precheck_edit(file_path, proposed, project_dir)
+                        if pc:
+                            result = (result or "") + "\n" + pc
+                except Exception:
+                    pass
+
                 if result:
                     hook_output = {
                         "hookSpecificOutput": {

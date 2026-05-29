@@ -329,6 +329,25 @@ class CodeIndex:
     def resolve_symbol(self, name: str) -> list[str]:
         return self._data.get("symbol_to_modules", {}).get(name, [])
 
+    def module_paths(self) -> set[str]:
+        return {rec.get("module_path", "") for rec in self.modules.values()}
+
+    def is_module(self, dotted: str) -> bool:
+        return dotted in self.module_paths()
+
+    def is_package_prefix(self, dotted: str) -> bool:
+        """True if ``dotted`` names a package (a module, or the prefix of one) —
+        covers namespace packages with no own __init__ record."""
+        if not dotted:
+            return False
+        pref = dotted + "."
+        return any(mp == dotted or mp.startswith(pref) for mp in self.module_paths())
+
+    def known_roots(self) -> set[str]:
+        """Top-level package names this index covers — used to decide whether an
+        import is internal (verifiable) vs external/stdlib (leave alone)."""
+        return {mp.split(".")[0] for mp in self.module_paths() if mp}
+
     def all_symbols(self) -> list[str]:
         return list(self._data.get("symbol_to_modules", {}))
 
