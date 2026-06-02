@@ -141,6 +141,48 @@ def get_session_files(project_path: str) -> list[Path]:
     return files
 
 
+def _last_message_ts(jsonl_path: Path) -> str:
+    """ISO timestamp of the last parseable message — reflects real conversation
+    activity, unlike file mtime (which a read/index/backup pass can bump). Reads
+    only the file tail."""
+    try:
+        with open(jsonl_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 65536))
+            tail = f.read().decode("utf-8", errors="replace")
+        for line in reversed(tail.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                continue
+            ts = msg.get("timestamp") or ""
+            if ts:
+                return str(ts)
+    except Exception:
+        pass
+    return ""
+
+
+def get_live_transcript(project_path: str) -> Optional[Path]:
+    """The actively-written transcript for a project: among the most-recent
+    files, the one whose LAST message is newest. More reliable than file mtime
+    alone, so the 'live session' selection no longer flips between transcripts
+    across calls."""
+    files = get_session_files(project_path)
+    if not files:
+        return None
+    best, best_ts = files[0], ""
+    for f in files[:8]:  # mtime-sorted prefilter; pick the newest last-message
+        ts = _last_message_ts(f)
+        if ts > best_ts:
+            best, best_ts = f, ts
+    return best
+
+
 def iter_messages(
     jsonl_path: Path,
     start_offset: int = 0,

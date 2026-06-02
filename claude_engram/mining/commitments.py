@@ -20,7 +20,7 @@ content word.
 
 import re
 
-from .jsonl_reader import get_session_files, iter_messages
+from .jsonl_reader import get_live_transcript, iter_messages
 
 # Durable, explicitly-deferred commitments — worth surfacing whenever they were
 # said. These markers are deliberately rare.
@@ -93,10 +93,9 @@ def extract_commitments(project_path: str) -> dict:
     Returns ``{"session", "scanned_messages", "deferred_open", "inflight_open"}``
     or ``{"error": ...}``.
     """
-    files = get_session_files(project_path)
-    if not files:
+    live = get_live_transcript(project_path)
+    if live is None:
         return {"error": "no live transcript found for this project"}
-    live = files[0]
 
     per_msg: list[list[str]] = []  # sentences grouped by assistant message
     try:
