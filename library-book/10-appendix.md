@@ -249,7 +249,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
-### v0.6.1 — 2026-06-01
+### v0.7.0 — 2026-06-01
 
 - **`session_mine(commitments)`** — reads the LIVE session transcript (newest *.jsonl, picked by newest last-message timestamp) for open-loop items the post-session mining index cannot see. DEFERRED channel scans ~450 recent messages for next-session/remaining/TODO/follow-up/defer language; IN-FLIGHT channel scans last ~30 messages for "I'll"/"let me"/"next" actions. Heuristic, LLM-free.
 - **Typed search (`session_mine(search, kind=...)`)** — every search hit is now classified by kind (`decision`/`next-step`/`error`/`narration`) using regex, no LLM. Pass `kind` to filter results to one type.

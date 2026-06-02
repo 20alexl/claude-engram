@@ -187,7 +187,7 @@ STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
     (
-        "0.6.1:redate_downrank_consolidations",
+        "0.7.0:redate_downrank_consolidations",
         False,
         _redate_downrank_stale_consolidations,
     ),
