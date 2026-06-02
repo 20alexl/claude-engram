@@ -31,9 +31,11 @@ class RecurringError:
     """An error that appears across multiple sessions."""
 
     error_type: str
-    message_pattern: str  # Common substring
+    message_pattern: str  # Normalized signature (grouping key only)
     session_count: int
     sessions: list[str] = field(default_factory=list)  # session IDs
+    example: str = ""  # A concrete, un-templated instance — keeps it actionable
+    fix: str = ""  # how_to_avoid, when one was recorded
 
 
 @dataclass
@@ -190,6 +192,16 @@ def _normalize_error_msg(msg: str) -> str:
     return " ".join(msg.split())[:120]
 
 
+def _clip(s: str, n: int) -> str:
+    """Collapse whitespace and truncate at a word boundary, so an identifier is
+    never cut mid-token (which made surfaced errors like '...checkpoint_ma'
+    unreadable)."""
+    s = " ".join((s or "").split())
+    if len(s) <= n:
+        return s
+    return s[:n].rsplit(" ", 1)[0] + "…"
+
+
 def detect_recurring_errors(
     sessions: dict[str, dict],
     project_path: str,
@@ -218,6 +230,8 @@ def detect_recurring_errors(
 
     # Collect errors from all extraction files
     error_occurrences: dict[str, list[str]] = {}  # error_key -> [session_ids]
+    error_examples: dict[str, str] = {}  # error_key -> longest concrete description
+    error_fixes: dict[str, str] = {}  # error_key -> first how_to_avoid seen
 
     for ext_file in extractions_dir.glob("*.json"):
         try:
@@ -237,6 +251,15 @@ def detect_recurring_errors(
                 norm_msg = _normalize_error_msg(raw_msg)
                 sig = f"{error_type}: {norm_msg}" if norm_msg else error_type
                 error_occurrences.setdefault(sig, []).append(session_id)
+                # Keep one concrete, un-templated instance (longest = most
+                # context) plus a fix if recorded, so the surfaced pattern
+                # stays actionable instead of "<name> has no attribute <name>".
+                full = desc.strip()
+                if len(full) > len(error_examples.get(sig, "")):
+                    error_examples[sig] = full
+                fix = (mistake.get("how_to_avoid") or mistake.get("fix") or "").strip()
+                if fix and not error_fixes.get(sig):
+                    error_fixes[sig] = fix
         except Exception:
             continue
 
@@ -251,6 +274,8 @@ def detect_recurring_errors(
                     message_pattern=sig,
                     session_count=len(unique_sessions),
                     sessions=unique_sessions[:10],
+                    example=_clip(error_examples.get(sig, ""), 200),
+                    fix=_clip(error_fixes.get(sig, ""), 160),
                 )
             )
 

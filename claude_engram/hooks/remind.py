@@ -2908,10 +2908,20 @@ def main():
                             if recurring:
                                 lines.append("Recurring errors:")
                                 for e in recurring:
-                                    label = e.get("message_pattern") or e["error_type"]
+                                    # Prefer a concrete instance over the
+                                    # templated signature (which strips the
+                                    # identifiers that make it actionable).
+                                    label = (
+                                        e.get("example")
+                                        or e.get("message_pattern")
+                                        or e["error_type"]
+                                    )
                                     lines.append(
                                         f"  - {label} ({e['session_count']} sessions)"
                                     )
+                                    fix = e.get("fix")
+                                    if fix:
+                                        lines.append(f"    fix: {fix}")
                         except Exception:
                             pass
             except Exception:

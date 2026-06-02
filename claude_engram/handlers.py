@@ -2255,7 +2255,11 @@ class Handlers:
                 return [TextContent(type="text", text="No recurring error patterns.")]
             lines = ["Recurring errors:"]
             for e in errors:
-                lines.append(f"  {e.error_type}: {e.session_count} sessions")
+                # Show a concrete instance, not the <name>-templated signature.
+                detail = e.example or e.message_pattern or e.error_type
+                lines.append(f"  {detail} ({e.session_count} sessions)")
+                if e.fix:
+                    lines.append(f"    fix: {e.fix}")
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "correlations":

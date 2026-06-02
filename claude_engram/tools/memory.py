@@ -2900,6 +2900,7 @@ Create ONE consolidated memory that:
 2. Removes redundancy
 3. Is clear and actionable
 4. Keeps the most important details
+5. Does NOT assert completion or absolute current-state claims like "X is complete", "fully working", or "done" — point-in-time status rots fast and then keeps re-injecting as if still true. State any time-sensitive fact with its date, and prefer durable facts (architecture, decisions, file locations, gotchas) over transient status.
 
 Output ONLY the consolidated memory text (no explanation):"""
 
@@ -2926,16 +2927,24 @@ Output ONLY the consolidated memory text (no explanation):"""
         if not proj:
             return None
 
-        # Calculate max relevance from group
+        # Cap the consolidated summary below the group max: a point-in-time
+        # blob should never outrank a fresh, specific memory in the injection
+        # scorer — that's what let a stale "X is complete" summary keep
+        # dominating every edit.
         max_relevance = max(e.relevance for e in entries)
+        consolidated_relevance = min(max_relevance, 8)
+
+        # Stamp the consolidation date into the content so staleness is visible
+        # at injection time (these summaries are point-in-time, not evergreen).
+        stamp = time.strftime("%Y-%m-%d")
 
         # Create new consolidated entry (always discovery — mistakes don't consolidate)
         new_entry = MemoryEntry(
             id=self._generate_entry_id(consolidated_content),
-            content=f"[Consolidated from {len(entries)} memories] {consolidated_content}",
+            content=f"[Consolidated {stamp} from {len(entries)} memories] {consolidated_content}",
             category="discovery",
             source="consolidation",
-            relevance=max_relevance,
+            relevance=consolidated_relevance,
             tags=list(set(t for e in entries for t in e.tags)),
             related_files=list(set(f for e in entries for f in e.related_files)),
         )
