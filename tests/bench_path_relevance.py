@@ -40,19 +40,45 @@ if __name__ == "__main__":
 
     print("Cross-version / cross-dir false positives are rejected:")
     check("V7 full-path related does NOT match V8 edit", S(V8, [V7], "") < GATE)
-    check("V7 path in content does NOT match V8 __init__.py", S(V8, [], f"import from '{V7}'") < GATE)
-    check("bare __init__.py related does NOT match (generic)", S(V8, ["__init__.py"], "") < GATE)
-    check("__init__.py name-drop in content does NOT match (generic)", S(V8, [], "see __init__.py") < GATE)
-    check("engine.py V7 full path does NOT match V8 engine.py", S(ENG_V8, [ENG_V7], "") < GATE)
-    check("unrelated file does not match", S(V8, ["E:/other/proj/server.py"], "server crash") == 0.0)
+    check(
+        "V7 path in content does NOT match V8 __init__.py",
+        S(V8, [], f"import from '{V7}'") < GATE,
+    )
+    check(
+        "bare __init__.py related does NOT match (generic)",
+        S(V8, ["__init__.py"], "") < GATE,
+    )
+    check(
+        "__init__.py name-drop in content does NOT match (generic)",
+        S(V8, [], "see __init__.py") < GATE,
+    )
+    check(
+        "engine.py V7 full path does NOT match V8 engine.py",
+        S(ENG_V8, [ENG_V7], "") < GATE,
+    )
+    check(
+        "unrelated file does not match",
+        S(V8, ["E:/other/proj/server.py"], "server crash") == 0.0,
+    )
 
     print("Genuine relevance is preserved:")
     check("same V8 full path matches", S(V8, [V8], "") == 1.0)
-    check("relative V8 path (suffix of edit) matches", S(V8, ["V8/cortex/core/training/losses/__init__.py"], "") == 1.0)
+    check(
+        "relative V8 path (suffix of edit) matches",
+        S(V8, ["V8/cortex/core/training/losses/__init__.py"], "") == 1.0,
+    )
     check("full path in content matches", S(V8, [], f"error in {V8}") >= GATE)
-    check("bare engine.py related matches engine.py edit", S(ENG_V8, ["engine.py"], "") >= GATE)
-    check("specific filename in content matches", S(ENG_V8, [], "touched engine.py earlier") >= GATE)
+    check(
+        "bare engine.py related matches engine.py edit",
+        S(ENG_V8, ["engine.py"], "") >= GATE,
+    )
+    check(
+        "specific filename in content matches",
+        S(ENG_V8, [], "touched engine.py earlier") >= GATE,
+    )
 
     print("-" * 60)
-    print(f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}")
+    print(
+        f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}"
+    )
     sys.exit(1 if _fails else 0)

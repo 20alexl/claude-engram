@@ -30,14 +30,23 @@ def check(name, cond):
 
 def test_extractor():
     print("extract_file_refs (the root #5 fix):")
-    check("captures relative path with dirs",
-          "V7/cortex/x.py" in extract_file_refs("import from V7/cortex/x.py"))
-    check("captures Windows drive path",
-          "E:/ws/V8/engine.py" in extract_file_refs("err in E:/ws/V8/engine.py at line 3"))
-    check("captures bare basename when no dir",
-          "middleware.py" in extract_file_refs("fix middleware.py now"))
-    check("never returns a bare extension token",
-          "py" not in extract_file_refs("a.py and b.py changed"))
+    check(
+        "captures relative path with dirs",
+        "V7/cortex/x.py" in extract_file_refs("import from V7/cortex/x.py"),
+    )
+    check(
+        "captures Windows drive path",
+        "E:/ws/V8/engine.py"
+        in extract_file_refs("err in E:/ws/V8/engine.py at line 3"),
+    )
+    check(
+        "captures bare basename when no dir",
+        "middleware.py" in extract_file_refs("fix middleware.py now"),
+    )
+    check(
+        "never returns a bare extension token",
+        "py" not in extract_file_refs("a.py and b.py changed"),
+    )
 
 
 def test_migrations():
@@ -50,15 +59,29 @@ def test_migrations():
         (storage / "manifest.json").write_text(
             json.dumps({"version": "v3", "projects": {"e:/ws/proj": {"hash": h}}})
         )
-        mem = {"entries": [
-            {"id": "m1",
-             "content": "ImportError: cannot import X from 'e:/ws/proj/V7/core/__init__.py'",
-             "related_files": ["__init__.py"]},
-            {"id": "m2", "content": "no files referenced here", "related_files": []},
-        ]}
+        mem = {
+            "entries": [
+                {
+                    "id": "m1",
+                    "content": "ImportError: cannot import X from 'e:/ws/proj/V7/core/__init__.py'",
+                    "related_files": ["__init__.py"],
+                },
+                {
+                    "id": "m2",
+                    "content": "no files referenced here",
+                    "related_files": [],
+                },
+            ]
+        }
         (storage / "projects" / h / "memory.json").write_text(json.dumps(mem))
         (storage / "projects" / h / "latest_handoff.json").write_text(
-            json.dumps({"created": 111, "summary": "old manual handoff", "next_steps": ["do x"]})
+            json.dumps(
+                {
+                    "created": 111,
+                    "summary": "old manual handoff",
+                    "next_steps": ["do x"],
+                }
+            )
         )
 
         mem_file = storage / "projects" / h / "memory.json"
@@ -67,30 +90,55 @@ def test_migrations():
         r1 = M.run(storage_dir=str(storage), include_heavy=False)
         check("cheap step applied", "0.5.0:seed_handoff_history" in r1["applied"])
         check("heavy reported pending", r1["pending_heavy"] is True)
-        check("handoff history seeded", (storage / "projects" / h / "handoff_history.json").exists())
-        seeded = json.loads((storage / "projects" / h / "handoff_history.json").read_text())
-        check("seeded history preserves the old handoff", seeded["handoffs"][0]["summary"] == "old manual handoff")
-        check("related_files untouched by cheap run",
-              json.loads(mem_file.read_text())["entries"][0]["related_files"] == ["__init__.py"])
+        check(
+            "handoff history seeded",
+            (storage / "projects" / h / "handoff_history.json").exists(),
+        )
+        seeded = json.loads(
+            (storage / "projects" / h / "handoff_history.json").read_text()
+        )
+        check(
+            "seeded history preserves the old handoff",
+            seeded["handoffs"][0]["summary"] == "old manual handoff",
+        )
+        check(
+            "related_files untouched by cheap run",
+            json.loads(mem_file.read_text())["entries"][0]["related_files"]
+            == ["__init__.py"],
+        )
 
         # Heavy run: upgrades related_files to full paths.
         r2 = M.run(storage_dir=str(storage), include_heavy=True)
         check("heavy step applied", "0.5.0:reextract_related_files" in r2["applied"])
         m1 = json.loads(mem_file.read_text())["entries"][0]
-        check("related_files upgraded to full path",
-              any(f.endswith("V7/core/__init__.py") for f in m1["related_files"]))
-        check("bare __init__.py dropped (covered by full path)", "__init__.py" not in m1["related_files"])
+        check(
+            "related_files upgraded to full path",
+            any(f.endswith("V7/core/__init__.py") for f in m1["related_files"]),
+        )
+        check(
+            "bare __init__.py dropped (covered by full path)",
+            "__init__.py" not in m1["related_files"],
+        )
 
         # Idempotency.
         r3 = M.run(storage_dir=str(storage), include_heavy=True)
         check("idempotent — nothing re-applied", r3["applied"] == [])
-        check("heavy_pending false after full migration", M.heavy_pending(storage_dir=str(storage)) is False)
+        check(
+            "heavy_pending false after full migration",
+            M.heavy_pending(storage_dir=str(storage)) is False,
+        )
 
     # Fresh install (no manifest) is a clean no-op.
     with tempfile.TemporaryDirectory() as td2:
         r4 = M.run(storage_dir=td2, include_heavy=False)
-        check("fresh install is a no-op", r4["applied"] == [] and r4["pending_heavy"] is False)
-        check("fresh install: heavy not pending", M.heavy_pending(storage_dir=td2) is False)
+        check(
+            "fresh install is a no-op",
+            r4["applied"] == [] and r4["pending_heavy"] is False,
+        )
+        check(
+            "fresh install: heavy not pending",
+            M.heavy_pending(storage_dir=td2) is False,
+        )
 
 
 if __name__ == "__main__":
@@ -100,5 +148,7 @@ if __name__ == "__main__":
     test_extractor()
     test_migrations()
     print("-" * 60)
-    print(f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}")
+    print(
+        f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}"
+    )
     sys.exit(1 if _fails else 0)

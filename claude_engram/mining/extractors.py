@@ -469,10 +469,16 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         if key in seen or len(content) < 10:
             return
         seen.add(key)
-        decisions.append(Decision(
-            content=content, reasoning=reasoning, timestamp=ts,
-            source=source, related_files=files, confidence=confidence,
-        ))
+        decisions.append(
+            Decision(
+                content=content,
+                reasoning=reasoning,
+                timestamp=ts,
+                source=source,
+                related_files=files,
+                confidence=confidence,
+            )
+        )
 
     # Phase 1: Structural detection (works without scorer)
     for i, fm in enumerate(flow):
@@ -499,21 +505,30 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         if _CONFIRM_PATTERN.match(text) and prev_proposal and len(prev_proposal) > 50:
             _add(
                 f"(confirmed) {prev_proposal}",
-                fm.timestamp, prev_files, 0.7, "confirmation",
+                fm.timestamp,
+                prev_files,
+                0.7,
+                "confirmation",
             )
 
         # Pattern B: User redirects
         elif _REDIRECT_PATTERN.match(text) and len(text) > 10:
             _add(
                 _summarize_decision(text),
-                fm.timestamp, prev_files, 0.75, "redirect",
+                fm.timestamp,
+                prev_files,
+                0.75,
+                "redirect",
             )
 
         # Pattern C: Explicit decision language
         elif _EXPLICIT_DECISION_PATTERN.search(text):
             _add(
                 _summarize_decision(text),
-                fm.timestamp, prev_files, 0.8, "explicit",
+                fm.timestamp,
+                prev_files,
+                0.8,
+                "explicit",
             )
 
     # Phase 2: Semantic scoring as bonus (catches decisions structural misses)
@@ -521,7 +536,11 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
     for i, fm in enumerate(flow):
         if fm.msg_type == "user" and fm.user_text:
             text = fm.user_text.strip()
-            if 15 < len(text) < 500 and not text.startswith("<") and not text.startswith("{"):
+            if (
+                15 < len(text) < 500
+                and not text.startswith("<")
+                and not text.startswith("{")
+            ):
                 if not text.rstrip("?").endswith("?"):
                     semantic_candidates.append((text, fm.timestamp))
 
@@ -532,7 +551,10 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
             if score >= 0.55:
                 _add(
                     _summarize_decision(text),
-                    ts, [], score, "semantic",
+                    ts,
+                    [],
+                    score,
+                    "semantic",
                 )
 
     return decisions
@@ -748,7 +770,9 @@ def run_extraction_pipeline(
         for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
             messages.append(msg)
 
-        session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(".jsonl", "")
+        session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(
+            ".jsonl", ""
+        )
         subagents_dir = session_dir / "subagents"
         if subagents_dir.exists():
             for sub_jsonl in subagents_dir.glob("*.jsonl"):

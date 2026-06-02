@@ -31,7 +31,11 @@ from pathlib import Path
 
 
 def _storage(storage_dir=None) -> Path:
-    return Path(storage_dir).expanduser() if storage_dir else Path.home() / ".claude_engram"
+    return (
+        Path(storage_dir).expanduser()
+        if storage_dir
+        else Path.home() / ".claude_engram"
+    )
 
 
 def _manifest_path(storage: Path) -> Path:
@@ -242,7 +246,11 @@ def migrate(storage_dir=None, include_heavy: bool = True) -> dict:
     """Locked entry point for synchronous full migration (install.py, CLI)."""
     if include_heavy:
         if _locked():
-            return {"applied": [], "errors": ["migration already running"], "pending_heavy": True}
+            return {
+                "applied": [],
+                "errors": ["migration already running"],
+                "pending_heavy": True,
+            }
         _LOCK.parent.mkdir(parents=True, exist_ok=True)
         _LOCK.write_text(str(os.getpid()))
     try:

@@ -314,7 +314,9 @@ class MemoryStore:
                 dirty = False
                 for entry in proj.entries:
                     if not entry.id:
-                        entry.id = self._generate_entry_id(entry.content, project_path=norm_path)
+                        entry.id = self._generate_entry_id(
+                            entry.content, project_path=norm_path
+                        )
                         dirty = True
                 if dirty:
                     self._projects[norm_path] = proj
@@ -351,7 +353,11 @@ class MemoryStore:
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
                     loaded = self._np.load(str(npy_file))
-                    if len(loaded.shape) == 2 and loaded.shape[1] == 384 and loaded.shape[0] == len(ids):
+                    if (
+                        len(loaded.shape) == 2
+                        and loaded.shape[1] == 384
+                        and loaded.shape[0] == len(ids)
+                    ):
                         matrix = loaded
                     else:
                         ids = []
@@ -2405,7 +2411,11 @@ class MemoryStore:
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
                     matrix = self._np.load(str(npy_file), mmap_mode="r")
-                    if len(matrix.shape) == 2 and matrix.shape[1] == 384 and matrix.shape[0] == len(ids):
+                    if (
+                        len(matrix.shape) == 2
+                        and matrix.shape[1] == 384
+                        and matrix.shape[0] == len(ids)
+                    ):
                         return ids, matrix
                 except Exception:
                     pass
@@ -2731,7 +2741,9 @@ class MemoryStore:
                 and len(existing_data) > 0
             ):
                 all_ids = list(existing_ids)
-                all_vecs = [existing_data[i].tolist() for i in range(len(existing_data))]
+                all_vecs = [
+                    existing_data[i].tolist() for i in range(len(existing_data))
+                ]
             elif isinstance(existing_data, dict):
                 all_ids = list(existing_ids)
                 all_vecs = [existing_data[mid] for mid in existing_ids]
@@ -3165,7 +3177,9 @@ class HotMemoryReader:
         # File match (0.35) — path-aware (see _file_match_score): a shared
         # basename across diverging paths is not a match, and generic names
         # need a full-path signal.
-        file_score = _file_match_score(ctx_file, related_files, content) if ctx_file else 0.0
+        file_score = (
+            _file_match_score(ctx_file, related_files, content) if ctx_file else 0.0
+        )
         score += SCORE_WEIGHTS["file_match"] * file_score
 
         # Tag overlap (0.20)

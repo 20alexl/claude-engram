@@ -148,17 +148,19 @@ def _extract_tool_chunks(
             if len(preview) < 20:
                 continue
 
-            chunks.append((
-                ChunkIndex(
-                    session_id=session_id,
-                    jsonl_file=jsonl_file,
-                    msg_offset=msg_offset,
-                    timestamp=ts,
-                    msg_type="tool",
-                    preview=preview[:300],
-                ),
-                preview[:500],
-            ))
+            chunks.append(
+                (
+                    ChunkIndex(
+                        session_id=session_id,
+                        jsonl_file=jsonl_file,
+                        msg_offset=msg_offset,
+                        timestamp=ts,
+                        msg_type="tool",
+                        preview=preview[:300],
+                    ),
+                    preview[:500],
+                )
+            )
 
         elif name in ("Edit", "Write"):
             fp = inp.get("file_path", "")
@@ -182,18 +184,20 @@ def _extract_tool_chunks(
             if is_error and result_text:
                 preview += f"\n  ERROR: {result_text[:100]}"
 
-            chunks.append((
-                ChunkIndex(
-                    session_id=session_id,
-                    jsonl_file=jsonl_file,
-                    msg_offset=msg_offset,
-                    timestamp=ts,
-                    msg_type="tool",
-                    preview=preview[:300],
-                    related_files=[fname],
-                ),
-                preview[:500],
-            ))
+            chunks.append(
+                (
+                    ChunkIndex(
+                        session_id=session_id,
+                        jsonl_file=jsonl_file,
+                        msg_offset=msg_offset,
+                        timestamp=ts,
+                        msg_type="tool",
+                        preview=preview[:300],
+                        related_files=[fname],
+                    ),
+                    preview[:500],
+                )
+            )
 
         # Read tools skipped — "[read] filename" has near-zero search value
         # and bloats the index. File paths are captured in related_files on edits.
@@ -300,7 +304,12 @@ def build_session_embeddings(
             # Tool chunks: pair previous assistant (tool_use) with current user (tool_result)
             if prev_msg and msg.get("type") == "user":
                 for tool_chunk, tool_text in _extract_tool_chunks(
-                    prev_msg, msg, session_id, jfile, msg_idx, ts,
+                    prev_msg,
+                    msg,
+                    session_id,
+                    jfile,
+                    msg_idx,
+                    ts,
                 ):
                     new_chunks.append(tool_chunk)
                     new_texts.append(tool_text)
@@ -320,7 +329,11 @@ def build_session_embeddings(
 
                     # Assistant text from subagents (their findings/analysis)
                     for text in extract_assistant_text(msg):
-                        if len(text) < 50 or text.startswith("```") or text.startswith("{"):
+                        if (
+                            len(text) < 50
+                            or text.startswith("```")
+                            or text.startswith("{")
+                        ):
                             continue
                         files = extract_file_edits(msg)
                         chunk = ChunkIndex(
@@ -338,7 +351,12 @@ def build_session_embeddings(
                     # Tool chunks from subagents too
                     if sub_prev_msg and msg.get("type") == "user":
                         for tool_chunk, tool_text in _extract_tool_chunks(
-                            sub_prev_msg, msg, session_id, sub_jsonl.name, sub_msg_idx, ts,
+                            sub_prev_msg,
+                            msg,
+                            session_id,
+                            sub_jsonl.name,
+                            sub_msg_idx,
+                            ts,
                         ):
                             tool_chunk.msg_type = "subagent_tool"
                             new_chunks.append(tool_chunk)

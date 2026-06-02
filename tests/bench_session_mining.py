@@ -57,12 +57,14 @@ def _ts(offset_min=0):
 
 
 def _user_msg(text, session_id, offset_min=0):
-    return json.dumps({
-        "type": "user",
-        "message": {"role": "user", "content": text},
-        "sessionId": session_id,
-        "timestamp": _ts(offset_min),
-    })
+    return json.dumps(
+        {
+            "type": "user",
+            "message": {"role": "user", "content": text},
+            "sessionId": session_id,
+            "timestamp": _ts(offset_min),
+        }
+    )
 
 
 def _assistant_msg(text, session_id, offset_min=0, tool_use=None, thinking=None):
@@ -71,34 +73,42 @@ def _assistant_msg(text, session_id, offset_min=0, tool_use=None, thinking=None)
         content.append({"type": "thinking", "thinking": thinking})
     content.append({"type": "text", "text": text})
     if tool_use:
-        content.append({
-            "type": "tool_use",
-            "id": f"tu_{uuid.uuid4().hex[:8]}",
-            "name": tool_use["name"],
-            "input": tool_use.get("input", {}),
-        })
-    return json.dumps({
-        "type": "assistant",
-        "message": {"role": "assistant", "content": content},
-        "sessionId": session_id,
-        "timestamp": _ts(offset_min),
-    })
+        content.append(
+            {
+                "type": "tool_use",
+                "id": f"tu_{uuid.uuid4().hex[:8]}",
+                "name": tool_use["name"],
+                "input": tool_use.get("input", {}),
+            }
+        )
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {"role": "assistant", "content": content},
+            "sessionId": session_id,
+            "timestamp": _ts(offset_min),
+        }
+    )
 
 
 def _tool_result_msg(content, session_id, is_error=False, offset_min=0):
-    return json.dumps({
-        "type": "user",
-        "message": {
-            "role": "user",
-            "content": [{
-                "type": "tool_result",
-                "content": content,
-                "is_error": is_error,
-            }],
-        },
-        "sessionId": session_id,
-        "timestamp": _ts(offset_min),
-    })
+    return json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "content": content,
+                        "is_error": is_error,
+                    }
+                ],
+            },
+            "sessionId": session_id,
+            "timestamp": _ts(offset_min),
+        }
+    )
 
 
 def _write_synthetic_session(tmpdir, session_id=None, n_exchanges=10):
@@ -108,30 +118,47 @@ def _write_synthetic_session(tmpdir, session_id=None, n_exchanges=10):
 
     lines = []
     for i in range(n_exchanges):
-        lines.append(_user_msg(f"User message {i}: please fix the auth module", session_id, i))
-        lines.append(_assistant_msg(
-            f"I'll fix the auth module. Here's the change for step {i}.",
-            session_id, i,
-            tool_use={"name": "Edit", "input": {
-                "file_path": f"/project/src/auth.py",
-                "old_string": f"old_code_{i}",
-                "new_string": f"new_code_{i}",
-            }},
-            thinking=f"Thinking about step {i}: need to update auth logic",
-        ))
-        lines.append(_tool_result_msg(f"File edited successfully", session_id, offset_min=i))
+        lines.append(
+            _user_msg(f"User message {i}: please fix the auth module", session_id, i)
+        )
+        lines.append(
+            _assistant_msg(
+                f"I'll fix the auth module. Here's the change for step {i}.",
+                session_id,
+                i,
+                tool_use={
+                    "name": "Edit",
+                    "input": {
+                        "file_path": f"/project/src/auth.py",
+                        "old_string": f"old_code_{i}",
+                        "new_string": f"new_code_{i}",
+                    },
+                },
+                thinking=f"Thinking about step {i}: need to update auth logic",
+            )
+        )
+        lines.append(
+            _tool_result_msg(f"File edited successfully", session_id, offset_min=i)
+        )
 
     # Add an error exchange
     lines.append(_user_msg("Run the tests now", session_id, n_exchanges))
-    lines.append(_assistant_msg(
-        "Running tests.",
-        session_id, n_exchanges,
-        tool_use={"name": "Bash", "input": {"command": "pytest tests/"}},
-    ))
-    lines.append(_tool_result_msg(
-        "TypeError: expected str got int\n  File auth.py line 42",
-        session_id, is_error=True, offset_min=n_exchanges,
-    ))
+    lines.append(
+        _assistant_msg(
+            "Running tests.",
+            session_id,
+            n_exchanges,
+            tool_use={"name": "Bash", "input": {"command": "pytest tests/"}},
+        )
+    )
+    lines.append(
+        _tool_result_msg(
+            "TypeError: expected str got int\n  File auth.py line 42",
+            session_id,
+            is_error=True,
+            offset_min=n_exchanges,
+        )
+    )
 
     jsonl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return jsonl_path
@@ -156,11 +183,13 @@ def test_path_conversion() -> list[tuple[str, bool, str]]:
     for path, expected in cases:
         result = path_to_dir_name(path)
         passed = result == expected
-        results.append((
-            f"path_to_dir_name({path!r})",
-            passed,
-            f"got {result!r}" if not passed else "",
-        ))
+        results.append(
+            (
+                f"path_to_dir_name({path!r})",
+                passed,
+                f"got {result!r}" if not passed else "",
+            )
+        )
 
     return results
 
@@ -181,11 +210,13 @@ def test_resolve_jsonl_dir() -> list[tuple[str, bool, str]]:
         # resolve_jsonl_dir won't find this (it uses the real ~/.claude),
         # but we can test the path conversion + session file discovery directly
         files = list(fake_proj_dir.glob("*.jsonl"))
-        results.append((
-            f"Synthetic JSONL created",
-            len(files) == 1,
-            f"found {len(files)}",
-        ))
+        results.append(
+            (
+                f"Synthetic JSONL created",
+                len(files) == 1,
+                f"found {len(files)}",
+            )
+        )
 
         # Test get_session_files on the fake dir (it takes a project path, not dir)
         # Just verify the file is valid JSONL
@@ -196,11 +227,13 @@ def test_resolve_jsonl_dir() -> list[tuple[str, bool, str]]:
             except json.JSONDecodeError:
                 valid = False
                 break
-        results.append((
-            f"Synthetic JSONL is valid",
-            valid,
-            "",
-        ))
+        results.append(
+            (
+                f"Synthetic JSONL is valid",
+                valid,
+                "",
+            )
+        )
 
     return results
 
@@ -217,20 +250,24 @@ def test_session_files() -> list[tuple[str, bool, str]]:
 
         files = sorted(Path(tmpdir).glob("*.jsonl"), key=lambda f: -f.stat().st_mtime)
 
-        results.append((
-            f"Found {len(files)} session files",
-            len(files) == 2,
-            "",
-        ))
+        results.append(
+            (
+                f"Found {len(files)} session files",
+                len(files) == 2,
+                "",
+            )
+        )
 
         if len(files) >= 2:
             newest = files[0].stat().st_mtime
             second = files[1].stat().st_mtime
-            results.append((
-                "Sorted newest first",
-                newest >= second,
-                "",
-            ))
+            results.append(
+                (
+                    "Sorted newest first",
+                    newest >= second,
+                    "",
+                )
+            )
 
     return results
 
@@ -248,22 +285,28 @@ def test_streaming_parser() -> list[tuple[str, bool, str]]:
             count += 1
             types.add(msg.get("type", "?"))
 
-        results.append((
-            f"Parsed {count} messages",
-            count > 0,
-            "",
-        ))
-        results.append((
-            f"Found types: {types}",
-            "user" in types and "assistant" in types,
-            "",
-        ))
+        results.append(
+            (
+                f"Parsed {count} messages",
+                count > 0,
+                "",
+            )
+        )
+        results.append(
+            (
+                f"Found types: {types}",
+                "user" in types and "assistant" in types,
+                "",
+            )
+        )
         # 10 exchanges * 3 msgs each + 3 error msgs = 33
-        results.append((
-            f"Expected ~33 messages, got {count}",
-            count == 33,
-            "",
-        ))
+        results.append(
+            (
+                f"Expected ~33 messages, got {count}",
+                count == 33,
+                "",
+            )
+        )
 
     return results
 
@@ -279,16 +322,20 @@ def test_read_tail() -> list[tuple[str, bool, str]]:
         tail = read_tail(session_file, n_messages=20)
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"Tail read {len(tail)} msgs in {elapsed_ms:.0f}ms",
-            len(tail) == 20,
-            f"got {len(tail)}",
-        ))
-        results.append((
-            "Tail read under 500ms",
-            elapsed_ms < 500,
-            f"{elapsed_ms:.0f}ms",
-        ))
+        results.append(
+            (
+                f"Tail read {len(tail)} msgs in {elapsed_ms:.0f}ms",
+                len(tail) == 20,
+                f"got {len(tail)}",
+            )
+        )
+        results.append(
+            (
+                "Tail read under 500ms",
+                elapsed_ms < 500,
+                f"{elapsed_ms:.0f}ms",
+            )
+        )
 
     return results
 
@@ -339,21 +386,27 @@ def test_session_index() -> list[tuple[str, bool, str]]:
         meta = build_index_for_session(session_file)
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"Indexed session ({session_file.stat().st_size / 1024:.0f}KB) in {elapsed_ms:.0f}ms",
-            True,
-            "",
-        ))
-        results.append((
-            f"Session ID: {meta.session_id[:12]}",
-            len(meta.session_id) > 0,
-            "",
-        ))
-        results.append((
-            f"Messages: {meta.message_count}",
-            meta.message_count > 0,
-            "",
-        ))
+        results.append(
+            (
+                f"Indexed session ({session_file.stat().st_size / 1024:.0f}KB) in {elapsed_ms:.0f}ms",
+                True,
+                "",
+            )
+        )
+        results.append(
+            (
+                f"Session ID: {meta.session_id[:12]}",
+                len(meta.session_id) > 0,
+                "",
+            )
+        )
+        results.append(
+            (
+                f"Messages: {meta.message_count}",
+                meta.message_count > 0,
+                "",
+            )
+        )
 
         # Test persistence
         idx_dir = Path(tmpdir) / "index"
@@ -364,18 +417,22 @@ def test_session_index() -> list[tuple[str, bool, str]]:
 
         idx2 = SessionIndex(idx_dir / "session_index.json")
         loaded = idx2.get_session(meta.session_id)
-        results.append((
-            "Index persists and reloads",
-            loaded is not None,
-            "",
-        ))
+        results.append(
+            (
+                "Index persists and reloads",
+                loaded is not None,
+                "",
+            )
+        )
 
         summary = idx2.get_latest_session_summary()
-        results.append((
-            "Latest session summary works",
-            summary is not None,
-            f"summary={summary}" if summary is None else "",
-        ))
+        results.append(
+            (
+                "Latest session summary works",
+                summary is not None,
+                f"summary={summary}" if summary is None else "",
+            )
+        )
 
     return results
 
@@ -405,16 +462,20 @@ def test_index_performance() -> list[tuple[str, bool, str]]:
         idx.save()
         elapsed = time.perf_counter() - t0
 
-        results.append((
-            f"All {len(session_files)} sessions ({total_bytes / 1024:.0f}KB) in {elapsed:.1f}s",
-            elapsed < 10,
-            "",
-        ))
-        results.append((
-            f"Total messages: {idx.get_total_messages()}",
-            idx.get_total_messages() > 0,
-            "",
-        ))
+        results.append(
+            (
+                f"All {len(session_files)} sessions ({total_bytes / 1024:.0f}KB) in {elapsed:.1f}s",
+                elapsed < 10,
+                "",
+            )
+        )
+        results.append(
+            (
+                f"Total messages: {idx.get_total_messages()}",
+                idx.get_total_messages() > 0,
+                "",
+            )
+        )
 
         # Read-only speed
         t0 = time.perf_counter()
@@ -422,11 +483,13 @@ def test_index_performance() -> list[tuple[str, bool, str]]:
         summary = idx2.get_latest_session_summary()
         read_ms = (time.perf_counter() - t0) * 1000
 
-        results.append((
-            f"Read-only load + summary: {read_ms:.1f}ms",
-            read_ms < 50,
-            "",
-        ))
+        results.append(
+            (
+                f"Read-only load + summary: {read_ms:.1f}ms",
+                read_ms < 50,
+                "",
+            )
+        )
 
     return results
 
@@ -449,11 +512,13 @@ def test_incremental_processing() -> list[tuple[str, bool, str]]:
 
         # Check needs_processing
         needs, offset = idx.needs_processing(session_file)
-        results.append((
-            "Already-indexed file skipped",
-            not needs,
-            f"needs={needs}, offset={offset}" if needs else "",
-        ))
+        results.append(
+            (
+                "Already-indexed file skipped",
+                not needs,
+                f"needs={needs}, offset={offset}" if needs else "",
+            )
+        )
 
     return results
 
@@ -467,95 +532,140 @@ def test_tool_chunk_extraction() -> list[tuple[str, bool, str]]:
     session_id = _make_session_id()
 
     # Bash command with output
-    assistant = json.loads(_assistant_msg(
-        "Running tests.", session_id,
-        tool_use={"name": "Bash", "input": {"command": "pytest tests/ -v"}},
-    ))
-    user_result = json.loads(_tool_result_msg(
-        "PASSED: 5 tests\nFAILED: 2 tests\ntest_auth.py::test_login FAILED",
-        session_id,
-    ))
-    chunks = _extract_tool_chunks(assistant, user_result, session_id, "test.jsonl", 1, _ts())
-    results.append((
-        f"Bash chunk extracted: {len(chunks)}",
-        len(chunks) == 1,
-        f"got {len(chunks)}" if len(chunks) != 1 else "",
-    ))
+    assistant = json.loads(
+        _assistant_msg(
+            "Running tests.",
+            session_id,
+            tool_use={"name": "Bash", "input": {"command": "pytest tests/ -v"}},
+        )
+    )
+    user_result = json.loads(
+        _tool_result_msg(
+            "PASSED: 5 tests\nFAILED: 2 tests\ntest_auth.py::test_login FAILED",
+            session_id,
+        )
+    )
+    chunks = _extract_tool_chunks(
+        assistant, user_result, session_id, "test.jsonl", 1, _ts()
+    )
+    results.append(
+        (
+            f"Bash chunk extracted: {len(chunks)}",
+            len(chunks) == 1,
+            f"got {len(chunks)}" if len(chunks) != 1 else "",
+        )
+    )
     if chunks:
         preview = chunks[0][0].preview
-        results.append((
-            "Bash preview has command",
-            "pytest" in preview,
-            preview[:80],
-        ))
-        results.append((
-            "Bash chunk type is 'tool'",
-            chunks[0][0].msg_type == "tool",
-            "",
-        ))
+        results.append(
+            (
+                "Bash preview has command",
+                "pytest" in preview,
+                preview[:80],
+            )
+        )
+        results.append(
+            (
+                "Bash chunk type is 'tool'",
+                chunks[0][0].msg_type == "tool",
+                "",
+            )
+        )
 
     # Bash error
-    error_result = json.loads(_tool_result_msg(
-        "TypeError: expected str got int\n  File auth.py, line 42\n  in validate_token",
-        session_id, is_error=True,
-    ))
-    chunks = _extract_tool_chunks(assistant, error_result, session_id, "test.jsonl", 2, _ts())
+    error_result = json.loads(
+        _tool_result_msg(
+            "TypeError: expected str got int\n  File auth.py, line 42\n  in validate_token",
+            session_id,
+            is_error=True,
+        )
+    )
+    chunks = _extract_tool_chunks(
+        assistant, error_result, session_id, "test.jsonl", 2, _ts()
+    )
     if chunks:
-        results.append((
-            "Error preview captured",
-            "TypeError" in chunks[0][0].preview,
-            "",
-        ))
+        results.append(
+            (
+                "Error preview captured",
+                "TypeError" in chunks[0][0].preview,
+                "",
+            )
+        )
 
     # Edit tool
-    edit_assistant = json.loads(_assistant_msg(
-        "Fixing auth.", session_id,
-        tool_use={"name": "Edit", "input": {
-            "file_path": "/project/src/auth.py",
-            "old_string": "def validate(token):",
-            "new_string": "def validate(token: str) -> bool:",
-        }},
-    ))
+    edit_assistant = json.loads(
+        _assistant_msg(
+            "Fixing auth.",
+            session_id,
+            tool_use={
+                "name": "Edit",
+                "input": {
+                    "file_path": "/project/src/auth.py",
+                    "old_string": "def validate(token):",
+                    "new_string": "def validate(token: str) -> bool:",
+                },
+            },
+        )
+    )
     edit_result = json.loads(_tool_result_msg("File edited.", session_id))
-    chunks = _extract_tool_chunks(edit_assistant, edit_result, session_id, "test.jsonl", 3, _ts())
-    results.append((
-        f"Edit chunk extracted: {len(chunks)}",
-        len(chunks) == 1,
-        "",
-    ))
-    if chunks:
-        results.append((
-            "Edit has file in related_files",
-            "auth.py" in chunks[0][0].related_files,
+    chunks = _extract_tool_chunks(
+        edit_assistant, edit_result, session_id, "test.jsonl", 3, _ts()
+    )
+    results.append(
+        (
+            f"Edit chunk extracted: {len(chunks)}",
+            len(chunks) == 1,
             "",
-        ))
-        results.append((
-            "Edit preview has old→new",
-            "validate" in chunks[0][0].preview,
-            chunks[0][0].preview[:80],
-        ))
+        )
+    )
+    if chunks:
+        results.append(
+            (
+                "Edit has file in related_files",
+                "auth.py" in chunks[0][0].related_files,
+                "",
+            )
+        )
+        results.append(
+            (
+                "Edit preview has old→new",
+                "validate" in chunks[0][0].preview,
+                chunks[0][0].preview[:80],
+            )
+        )
 
     # Read tool — should be skipped (low search value)
-    read_assistant = json.loads(_assistant_msg(
-        "Reading config.", session_id,
-        tool_use={"name": "Read", "input": {"file_path": "/project/config.yaml"}},
-    ))
+    read_assistant = json.loads(
+        _assistant_msg(
+            "Reading config.",
+            session_id,
+            tool_use={"name": "Read", "input": {"file_path": "/project/config.yaml"}},
+        )
+    )
     read_result = json.loads(_tool_result_msg("key: value", session_id))
-    chunks = _extract_tool_chunks(read_assistant, read_result, session_id, "test.jsonl", 4, _ts())
-    results.append((
-        "Read tool skipped (no chunk)",
-        len(chunks) == 0,
-        f"got {len(chunks)}" if chunks else "",
-    ))
+    chunks = _extract_tool_chunks(
+        read_assistant, read_result, session_id, "test.jsonl", 4, _ts()
+    )
+    results.append(
+        (
+            "Read tool skipped (no chunk)",
+            len(chunks) == 0,
+            f"got {len(chunks)}" if chunks else "",
+        )
+    )
 
     # Non-tool message pair should produce nothing
     plain_user = json.loads(_user_msg("Just a question", session_id))
-    chunks = _extract_tool_chunks(plain_user, plain_user, session_id, "test.jsonl", 5, _ts())
-    results.append((
-        "Non-tool pair produces no chunks",
-        len(chunks) == 0,
-        "",
-    ))
+    chunks = _extract_tool_chunks(
+        plain_user, plain_user, session_id, "test.jsonl", 5, _ts()
+    )
+    results.append(
+        (
+            "Non-tool pair produces no chunks",
+            len(chunks) == 0,
+            "",
+        )
+    )
 
     return results
 
@@ -583,19 +693,23 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
 
         state = load_state()
         edited = state.get("files_edited_this_session", [])
-        results.append((
-            f"Files tracked: {len(edited)}",
-            len(edited) >= 2,
-            "",
-        ))
+        results.append(
+            (
+                f"Files tracked: {len(edited)}",
+                len(edited) >= 2,
+                "",
+            )
+        )
 
         # Simulate test failure
         _auto_record_test(False, "AssertionError: expected 5 got 3")
-        results.append((
-            "Test failure recorded",
-            True,
-            "",
-        ))
+        results.append(
+            (
+                "Test failure recorded",
+                True,
+                "",
+            )
+        )
 
         # Check test result has file context
         loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
@@ -605,12 +719,16 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
             if test_results:
                 last = test_results[-1]
                 has_files = "files_since_last_test" in last
-                file_names = [Path(f).name for f in last.get("files_since_last_test", [])]
-                results.append((
-                    f"Test result has file context: {file_names}",
-                    has_files,
-                    "",
-                ))
+                file_names = [
+                    Path(f).name for f in last.get("files_since_last_test", [])
+                ]
+                results.append(
+                    (
+                        f"Test result has file context: {file_names}",
+                        has_files,
+                        "",
+                    )
+                )
             else:
                 results.append(("Test results exist", False, "empty"))
         else:

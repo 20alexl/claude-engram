@@ -42,7 +42,6 @@ class TaskCheckpoint:
     handoff_warnings: list[str] = field(default_factory=list)
 
 
-
 class ContextGuard:
     """
     Guards against context loss and ensures task continuity.
@@ -267,12 +266,21 @@ class ContextGuard:
                 checkpoint_file = self.storage_dir / f"{task_id}.json"
             elif project_path:
                 try:
-                    from claude_engram.hooks.remind import _normalize_path, _get_manifest
+                    from claude_engram.hooks.remind import (
+                        _normalize_path,
+                        _get_manifest,
+                    )
+
                     norm = _normalize_path(project_path)
                     manifest = _get_manifest()
                     proj_info = manifest.get("projects", {}).get(norm)
                     if proj_info:
-                        pf = self.storage_dir.parent / "projects" / proj_info["hash"] / "latest_checkpoint.json"
+                        pf = (
+                            self.storage_dir.parent
+                            / "projects"
+                            / proj_info["hash"]
+                            / "latest_checkpoint.json"
+                        )
                         if pf.exists():
                             checkpoint_file = pf
                 except Exception:
@@ -287,7 +295,9 @@ class ContextGuard:
                     confidence="high",
                     reasoning="No checkpoint found to restore",
                     work_log=work_log,
-                    suggestions=["Start fresh with save_checkpoint when you begin a task"],
+                    suggestions=[
+                        "Start fresh with save_checkpoint when you begin a task"
+                    ],
                 )
 
             with open(checkpoint_file) as f:
@@ -336,7 +346,9 @@ class ContextGuard:
         # Include handoff info if present. Skip when the summary is already the
         # headline (handoff-shaped entry) so it isn't printed twice.
         handoff_summary = data.get("handoff_summary")
-        handoff_context = data.get("handoff_context_needed", []) or data.get("context_needed", [])
+        handoff_context = data.get("handoff_context_needed", []) or data.get(
+            "context_needed", []
+        )
         handoff_warnings = data.get("handoff_warnings", []) or data.get("warnings", [])
 
         if (
@@ -373,9 +385,7 @@ class ContextGuard:
         ]
         suggestions = []
         if not _current:
-            suggestions.append(
-                f"Continue with: {data.get('summary', 'previous work')}"
-            )
+            suggestions.append(f"Continue with: {data.get('summary', 'previous work')}")
         if _pending_sug:
             suggestions.append(
                 f"Remaining steps: {', '.join(_pending_sug[:3])}{'...' if len(_pending_sug) > 3 else ''}"
@@ -847,9 +857,7 @@ class ContextGuard:
             ],
         )
 
-    def get_handoff(
-        self, project_path: str = "", index: int = 0
-    ) -> MiniClaudeResponse:
+    def get_handoff(self, project_path: str = "", index: int = 0) -> MiniClaudeResponse:
         """
         Retrieve a handoff document from the durable store.
 
@@ -952,9 +960,7 @@ class ContextGuard:
 
         items = []
         for i, h in enumerate(hist):
-            age_h = (
-                time.time() - h.get("created", h.get("created_at", 0))
-            ) / 3600
+            age_h = (time.time() - h.get("created", h.get("created_at", 0))) / 3600
             kind = h.get("kind", "auto")
             summary = (h.get("summary", "") or "")[:80]
             items.append(f"[{i}] ({kind}, {age_h:.0f}h) {summary}")

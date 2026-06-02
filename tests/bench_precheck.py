@@ -44,8 +44,8 @@ idx_dir = Path(tempfile.mkdtemp(prefix="pc_idx_"))
 (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
 (root / "pkg" / "mod.py").write_text(
     '__all__ = ["Processor", "build"]\n'
-    'class Processor: pass\n'
-    'def build(): pass\n',
+    "class Processor: pass\n"
+    "def build(): pass\n",
     encoding="utf-8",
 )
 idx = build_code_index(str(root), idx_dir)
@@ -74,14 +74,19 @@ check("stdlib multi silent", n("import os, sys, json") == 0)
 check("star import silent", n("from pkg.mod import *") == 0)
 check("package import silent", n("import pkg") == 0)
 check("known module import silent", n("import pkg.mod") == 0)
-check("multiline paren import silent", n("from pkg.mod import (\n    Processor,\n)") == 0)
+check(
+    "multiline paren import silent", n("from pkg.mod import (\n    Processor,\n)") == 0
+)
 
 print("\n--- 3. Cap + formatting ---")
 many = "from pkg.mod import A\nfrom pkg.mod import B\nfrom pkg.mod import C\n"
 check("findings capped at 2", n(many) == 2)
 check("empty -> no banner", format_precheck([]) == "")
 banner = format_precheck(["x not exported"])
-check("banner wraps", banner.startswith("<engram-precheck>") and banner.endswith("</engram-precheck>"))
+check(
+    "banner wraps",
+    banner.startswith("<engram-precheck>") and banner.endswith("</engram-precheck>"),
+)
 
 print("\n--- 4. Entry-point degradation ---")
 check("non-py file silent", precheck_edit("notes.md", "from pkg.mod import Nope") == "")
@@ -89,6 +94,8 @@ check("no-import text silent", precheck_edit("x.py", "y = 1") == "")
 check("parse drops alias", _parse_imported_names("a as b, c") == ["a", "c"])
 
 print("\n" + "=" * 70)
-print(f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}")
+print(
+    f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}"
+)
 print("=" * 70)
 sys.exit(1 if fails else 0)

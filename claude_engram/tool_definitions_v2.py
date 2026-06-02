@@ -320,11 +320,35 @@ TOOL_DEFINITIONS = [
                     ],
                     "description": "Which context operation to perform",
                 },
-                "task_description": {"type": "string", "description": "For checkpoint_save: what task is in progress"},
-                "current_step": {"type": "string", "description": "For checkpoint_save: which step you're currently on"},
-                "completed_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: list of completed steps"},
-                "pending_steps": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: list of remaining steps"},
-                "files_involved": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}], "description": "For checkpoint_save: files being worked on"},
+                "task_description": {
+                    "type": "string",
+                    "description": "For checkpoint_save: what task is in progress",
+                },
+                "current_step": {
+                    "type": "string",
+                    "description": "For checkpoint_save: which step you're currently on",
+                },
+                "completed_steps": {
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
+                    "description": "For checkpoint_save: list of completed steps",
+                },
+                "pending_steps": {
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
+                    "description": "For checkpoint_save: list of remaining steps",
+                },
+                "files_involved": {
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
+                    "description": "For checkpoint_save: files being worked on",
+                },
                 "task_id": {
                     "type": "string",
                     "description": "For restore: specific checkpoint",
@@ -335,28 +359,46 @@ TOOL_DEFINITIONS = [
                 },
                 "task": {"type": "string", "description": "For verify: task to verify"},
                 "evidence": {
-                    "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
                     "description": "For verify: proof",
                 },
                 "verification_steps": {
-                    "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
                     "description": "For verify: checks",
                 },
-                "project_path": {"type": "string", "description": "Project directory path"},
+                "project_path": {
+                    "type": "string",
+                    "description": "Project directory path",
+                },
                 "handoff_summary": {
                     "type": "string",
                     "description": "For handoff_create: summary for next session",
                 },
                 "next_steps": {
-                    "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
                     "description": "For handoff_create: what to do next",
                 },
                 "handoff_context_needed": {
-                    "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
                     "description": "For handoff_create: context the next session needs",
                 },
                 "handoff_warnings": {
-                    "oneOf": [{"type": "array", "items": {"type": "string"}}, {"type": "string"}],
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "string"}},
+                        {"type": "string"},
+                    ],
                     "description": "For handoff_create: warnings for next session",
                 },
             },
@@ -383,17 +425,36 @@ TOOL_DEFINITIONS = [
                     "enum": ["add", "get", "check", "remove"],
                     "description": "Which convention operation to perform",
                 },
-                "project_path": {"type": "string", "description": "Absolute path to the project directory"},
-                "rule": {"type": "string", "description": "For add/remove: the convention rule text (e.g., 'Always use snake_case for function names')"},
+                "project_path": {
+                    "type": "string",
+                    "description": "Absolute path to the project directory",
+                },
+                "rule": {
+                    "type": "string",
+                    "description": "For add/remove: the convention rule text (e.g., 'Always use snake_case for function names')",
+                },
                 "category": {
                     "type": "string",
                     "enum": ["naming", "architecture", "style", "pattern", "avoid"],
                     "description": "For add/get: convention category to organize rules",
                 },
-                "reason": {"type": "string", "description": "For add: why this convention exists (e.g., 'Consistency with stdlib')"},
-                "examples": {"type": "array", "items": {"type": "string"}, "description": "For add: code examples showing correct usage"},
-                "importance": {"type": "integer", "description": "For add: priority 1-10, higher = more important to enforce"},
-                "code_or_filename": {"type": "string", "description": "For check: code snippet or filename to validate against conventions"},
+                "reason": {
+                    "type": "string",
+                    "description": "For add: why this convention exists (e.g., 'Consistency with stdlib')",
+                },
+                "examples": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For add: code examples showing correct usage",
+                },
+                "importance": {
+                    "type": "integer",
+                    "description": "For add: priority 1-10, higher = more important to enforce",
+                },
+                "code_or_filename": {
+                    "type": "string",
+                    "description": "For check: code snippet or filename to validate against conventions",
+                },
             },
             "required": ["operation", "project_path"],
         },
@@ -411,12 +472,32 @@ TOOL_DEFINITIONS = [
                     "enum": ["validate_code", "validate_result"],
                     "description": "Which validation operation to perform",
                 },
-                "code": {"type": "string", "description": "For validate_code: the code snippet to analyze for silent failure patterns"},
-                "context": {"type": "string", "description": "For validate_code: what this code is supposed to do (helps detect semantic failures)"},
-                "output": {"type": "string", "description": "For validate_result: the actual command/tool output to validate"},
-                "expected_format": {"type": "string", "description": "For validate_result: expected output format (e.g., 'JSON array', 'CSV with headers')"},
-                "should_contain": {"type": "array", "items": {"type": "string"}, "description": "For validate_result: strings that must appear in valid output"},
-                "should_not_contain": {"type": "array", "items": {"type": "string"}, "description": "For validate_result: strings that indicate failure (e.g., 'Error', 'undefined')"},
+                "code": {
+                    "type": "string",
+                    "description": "For validate_code: the code snippet to analyze for silent failure patterns",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "For validate_code: what this code is supposed to do (helps detect semantic failures)",
+                },
+                "output": {
+                    "type": "string",
+                    "description": "For validate_result: the actual command/tool output to validate",
+                },
+                "expected_format": {
+                    "type": "string",
+                    "description": "For validate_result: expected output format (e.g., 'JSON array', 'CSV with headers')",
+                },
+                "should_contain": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For validate_result: strings that must appear in valid output",
+                },
+                "should_not_contain": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "For validate_result: strings that indicate failure (e.g., 'Error', 'undefined')",
+                },
             },
             "required": ["operation"],
         },
@@ -436,7 +517,11 @@ TOOL_DEFINITIONS = [
             "properties": {
                 "query": {"type": "string", "description": "What to search for"},
                 "directory": {"type": "string", "description": "Directory to search"},
-                "max_results": {"type": "integer", "default": 10, "description": "Maximum number of results to return"},
+                "max_results": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Maximum number of results to return",
+                },
             },
             "required": ["query", "directory"],
         },
@@ -447,8 +532,14 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "code": {"type": "string", "description": "The code snippet to analyze"},
-                "question": {"type": "string", "description": "Specific question about the code (e.g., 'What are the edge cases?', 'Is this thread-safe?')"},
+                "code": {
+                    "type": "string",
+                    "description": "The code snippet to analyze",
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Specific question about the code (e.g., 'What are the edge cases?', 'Is this thread-safe?')",
+                },
             },
             "required": ["code", "question"],
         },
@@ -459,7 +550,10 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "Absolute path to the file to summarize"},
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to summarize",
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["quick", "detailed"],
@@ -476,9 +570,19 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "Absolute path to the file to analyze"},
-                "include_reverse": {"type": "boolean", "default": False, "description": "If true, also find all files that import this file (reverse dependencies)"},
-                "project_root": {"type": "string", "description": "Project root directory for resolving relative imports"},
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file to analyze",
+                },
+                "include_reverse": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, also find all files that import this file (reverse dependencies)",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project root directory for resolving relative imports",
+                },
             },
             "required": ["file_path"],
         },
@@ -489,9 +593,18 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "Absolute path to the file being changed"},
-                "project_root": {"type": "string", "description": "Project root directory for scanning dependents"},
-                "proposed_changes": {"type": "string", "description": "Description of planned changes (helps assess which exports are affected)"},
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the file being changed",
+                },
+                "project_root": {
+                    "type": "string",
+                    "description": "Project root directory for scanning dependents",
+                },
+                "proposed_changes": {
+                    "type": "string",
+                    "description": "Description of planned changes (helps assess which exports are affected)",
+                },
             },
             "required": ["file_path", "project_root"],
         },
@@ -502,14 +615,25 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "file_paths": {"type": "array", "items": {"type": "string"}, "description": "Files mode: file paths or glob patterns to audit (e.g., ['src/auth.py', 'src/models/*.py'])"},
+                "file_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Files mode: file paths or glob patterns to audit (e.g., ['src/auth.py', 'src/models/*.py'])",
+                },
                 "min_severity": {
                     "type": "string",
                     "enum": ["critical", "warning", "info"],
                     "description": "Files mode: minimum severity to report: 'critical' (bugs only), 'warning' (bugs + smells), 'info' (everything)",
                 },
-                "code": {"type": "string", "description": "Inline mode: code snippet to lint for structural/naming quality (instead of file_paths)"},
-                "language": {"type": "string", "default": "python", "description": "Inline mode: language for the snippet (python, javascript, typescript, go, rust)"},
+                "code": {
+                    "type": "string",
+                    "description": "Inline mode: code snippet to lint for structural/naming quality (instead of file_paths)",
+                },
+                "language": {
+                    "type": "string",
+                    "default": "python",
+                    "description": "Inline mode: language for the snippet (python, javascript, typescript, go, rust)",
+                },
             },
             "required": [],
         },
@@ -520,10 +644,24 @@ TOOL_DEFINITIONS = [
         inputSchema={
             "type": "object",
             "properties": {
-                "issue_pattern": {"type": "string", "description": "Regex pattern to search for (e.g., 'except:\\s*pass', 'TODO|FIXME|HACK', 'password\\s*=\\s*[\"\\']')"},
-                "project_path": {"type": "string", "description": "Absolute path to the project root to search"},
-                "file_extensions": {"type": "array", "items": {"type": "string"}, "description": "File extensions to include (e.g., ['.py', '.js']). Empty means all files"},
-                "exclude_paths": {"type": "array", "items": {"type": "string"}, "description": "Directory patterns to skip (e.g., ['node_modules', 'venv', '__pycache__'])"},
+                "issue_pattern": {
+                    "type": "string",
+                    "description": "Regex pattern to search for (e.g., 'except:\\s*pass', 'TODO|FIXME|HACK', 'password\\s*=\\s*[\"\\']')",
+                },
+                "project_path": {
+                    "type": "string",
+                    "description": "Absolute path to the project root to search",
+                },
+                "file_extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File extensions to include (e.g., ['.py', '.js']). Empty means all files",
+                },
+                "exclude_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Directory patterns to skip (e.g., ['node_modules', 'venv', '__pycache__'])",
+                },
             },
             "required": ["issue_pattern", "project_path"],
         },

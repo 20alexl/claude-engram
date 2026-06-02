@@ -139,7 +139,7 @@ def _import_targets(imports: list[str], importer: str, is_pkg: bool) -> set[str]
     for imp in imports:
         if imp.startswith("from "):
             try:
-                mod, names = imp[len("from "):].split(" import ", 1)
+                mod, names = imp[len("from ") :].split(" import ", 1)
             except ValueError:
                 continue
             mod = mod.strip()
@@ -246,10 +246,14 @@ def extract_module(source: str, rel_path: str) -> Optional[dict]:
             for t in node.targets:
                 if isinstance(t, ast.Name):
                     assigned.append(t.id)
-                    if t.id == "__all__" and isinstance(node.value, (ast.List, ast.Tuple)):
+                    if t.id == "__all__" and isinstance(
+                        node.value, (ast.List, ast.Tuple)
+                    ):
                         vals = []
                         for el in node.value.elts:
-                            if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                            if isinstance(el, ast.Constant) and isinstance(
+                                el.value, str
+                            ):
                                 vals.append(el.value)
                         dunder_all = vals
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
@@ -444,9 +448,7 @@ def _iter_python_files(root: Path, max_files: int) -> tuple[list[Path], bool]:
     for dirpath, dirnames, filenames in os.walk(root):
         # prune skip dirs and hidden dirs
         dirnames[:] = [
-            d
-            for d in dirnames
-            if d not in SKIP_DIRS and not d.startswith(".")
+            d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")
         ]
         # do not descend into nested sub-projects (but allow the root itself)
         if dirpath != root_str:

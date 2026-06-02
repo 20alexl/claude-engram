@@ -48,26 +48,45 @@ print("\n--- 1. Correlation ---")
 check("total injections", r["total_injections"] == 4)
 check("outcomes tally", r["outcomes"] == {"pass": 2, "fail": 1})
 check("context injected x2", pk["context"]["injected"] == 2)
-check("context preceded 1 pass + 1 fail", pk["context"]["before_pass"] == 1 and pk["context"]["before_fail"] == 1)
-check("precheck preceded only pass", pk["precheck"]["before_pass"] == 1 and pk["precheck"]["before_fail"] == 0)
-check("blast preceded only pass", pk["blast"]["before_pass"] == 1 and pk["blast"]["before_fail"] == 0)
+check(
+    "context preceded 1 pass + 1 fail",
+    pk["context"]["before_pass"] == 1 and pk["context"]["before_fail"] == 1,
+)
+check(
+    "precheck preceded only pass",
+    pk["precheck"]["before_pass"] == 1 and pk["precheck"]["before_fail"] == 0,
+)
+check(
+    "blast preceded only pass",
+    pk["blast"]["before_pass"] == 1 and pk["blast"]["before_fail"] == 0,
+)
 
 print("\n--- 2. Cross-session isolation ---")
 # B's outcome must not have bumped A-only kinds (precheck stays at 1 pass, 0 fail)
-check("session B isolated from A kinds", pk["precheck"]["before_pass"] == 1 and "blast" not in (set(pk) - {"blast", "context", "precheck"}))
+check(
+    "session B isolated from A kinds",
+    pk["precheck"]["before_pass"] == 1
+    and "blast" not in (set(pk) - {"blast", "context", "precheck"}),
+)
 check("blast not double-counted", pk["blast"]["injected"] == 1)
 
 print("\n--- 3. Persistence ---")
 log.save()
 log2 = OutcomeLog(p)
 r2 = log2.reflect()
-check("reload reflects same", r2["total_injections"] == 4 and r2["outcomes"] == {"pass": 2, "fail": 1})
+check(
+    "reload reflects same",
+    r2["total_injections"] == 4 and r2["outcomes"] == {"pass": 2, "fail": 1},
+)
 
 print("\n--- 4. Formatting ---")
 txt = format_reflection(r)
 check("format names kinds", "context" in txt and "precheck" in txt and "blast" in txt)
 check("format shows pre-pass rate", "pre-pass" in txt)
-check("empty -> friendly message", format_reflection({"events": 0}).startswith("No injection outcomes"))
+check(
+    "empty -> friendly message",
+    format_reflection({"events": 0}).startswith("No injection outcomes"),
+)
 
 print("\n--- 5. Empty / no-kinds guards ---")
 empty = OutcomeLog(Path(tempfile.mkdtemp(prefix="oc2_")) / "e.json")
@@ -75,6 +94,8 @@ empty.record_injection("x.py", [], "Z")  # no kinds -> ignored
 check("no-kind injection ignored", empty.reflect()["total_injections"] == 0)
 
 print("\n" + "=" * 70)
-print(f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}")
+print(
+    f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}"
+)
 print("=" * 70)
 sys.exit(1 if fails else 0)

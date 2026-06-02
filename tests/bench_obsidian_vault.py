@@ -483,7 +483,9 @@ def test_hot_memory_reader(paths: dict) -> list[tuple[str, bool, str]]:
         # Seed memories — rules always pass, but mistakes/discoveries need
         # file-relevance to inject (prevents generic noise)
         store.remember_discovery(
-            root, "Vault convention: always use wikilinks", category="discovery",
+            root,
+            "Vault convention: always use wikilinks",
+            category="discovery",
             related_files=[paths["project_note"]],
         )
         store.add_rule(root, "Link notes bidirectionally")

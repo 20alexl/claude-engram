@@ -550,7 +550,13 @@ def get_scope_status() -> dict:
 
 def _get_session_context_for_handoff(project_dir: str) -> dict:
     """Pull recent decisions and mistakes from memory for richer handoffs."""
-    context = {"decisions": [], "mistakes": [], "prompts": 0, "tests": 0, "slow_tools": []}
+    context = {
+        "decisions": [],
+        "mistakes": [],
+        "prompts": 0,
+        "tests": 0,
+        "slow_tools": [],
+    }
     try:
         state = load_state()
         context["prompts"] = state.get("prompts_this_session", 0)
@@ -580,6 +586,7 @@ def _get_session_context_for_handoff(project_dir: str) -> dict:
             return context
 
         import json as json_mod
+
         memories = json_mod.loads(mem_file.read_text()).get("entries", [])
         for m in memories:
             created = m.get("created_at", 0)
@@ -606,10 +613,16 @@ def get_checkpoint_data(project_dir: str = "") -> dict:
 
     candidates = []
     if project_dir:
-        proj_info = _get_manifest().get("projects", {}).get(_normalize_path(project_dir))
+        proj_info = (
+            _get_manifest().get("projects", {}).get(_normalize_path(project_dir))
+        )
         if proj_info:
             candidates.append(
-                Path.home() / ".claude_engram" / "projects" / proj_info["hash"] / "latest_checkpoint.json"
+                Path.home()
+                / ".claude_engram"
+                / "projects"
+                / proj_info["hash"]
+                / "latest_checkpoint.json"
             )
     candidates.append(
         Path.home() / ".claude_engram" / "checkpoints" / "latest_checkpoint.json"
@@ -670,7 +683,8 @@ def _format_restored_context(entry: dict) -> list[str]:
         out.append(f"  Pending: {len(entry['pending_steps'])} steps")
     _trivial = {"review what was in progress", "continue work from before compaction"}
     real_next = [
-        s for s in (entry.get("next_steps") or [])
+        s
+        for s in (entry.get("next_steps") or [])
         if s and s.strip().lower() not in _trivial
     ]
     if real_next:
@@ -678,7 +692,9 @@ def _format_restored_context(entry: dict) -> list[str]:
     if files:
         out.append(f"  Files: {', '.join(Path(f).name for f in files[:5])}")
     if entry.get("warnings"):
-        out.append("  Warnings: " + "; ".join(_truncate(w, 60) for w in entry["warnings"][:3]))
+        out.append(
+            "  Warnings: " + "; ".join(_truncate(w, 60) for w in entry["warnings"][:3])
+        )
     return out
 
 
@@ -1785,7 +1801,10 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
 
     # --- Directive markers (0.25 max) ---
     directive_patterns = [
-        (r"\blet'?s\s+(use|switch|go\s+with|change|adopt|move|try|replace|remove|drop|keep|stick|rewrite|migrate|do\s+it)\b", 0.25),
+        (
+            r"\blet'?s\s+(use|switch|go\s+with|change|adopt|move|try|replace|remove|drop|keep|stick|rewrite|migrate|do\s+it)\b",
+            0.25,
+        ),
         (r"\bwe\s+should\b", 0.25),
         (r"\bfrom\s+now\s+on\b", 0.25),
         (r"\bgoing\s+forward\b", 0.2),
@@ -1901,7 +1920,11 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
     """
     prompt_lower = prompt.lower().strip()
 
-    if len(prompt_lower) < 25 or prompt_lower.startswith("/") or prompt_lower.startswith("<"):
+    if (
+        len(prompt_lower) < 25
+        or prompt_lower.startswith("/")
+        or prompt_lower.startswith("<")
+    ):
         return
 
     try:
@@ -2134,11 +2157,13 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
     # Only log mistakes that reference actual project files in the traceback.
     # Errors in <string> (inline python), temp dirs, or pip packages are transient noise.
-    has_project_file = bool(re.search(
-        r'File "(?!<)(?!.*[\\/](?:site-packages|dist-packages|venv|\.venv|tmp|temp)[\\/])'
-        r'[^"]+\.py"',
-        output,
-    ))
+    has_project_file = bool(
+        re.search(
+            r'File "(?!<)(?!.*[\\/](?:site-packages|dist-packages|venv|\.venv|tmp|temp)[\\/])'
+            r'[^"]+\.py"',
+            output,
+        )
+    )
     if not has_project_file and ("Traceback" in output or "File " in output):
         return ""
 
@@ -2226,7 +2251,9 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
                 fpath = fm.group(1)
                 if fpath.startswith("<"):
                     continue
-                if re.search(r'[\\/](?:site-packages|dist-packages|venv|\.venv)[\\/]', fpath):
+                if re.search(
+                    r"[\\/](?:site-packages|dist-packages|venv|\.venv)[\\/]", fpath
+                ):
                     continue
                 fname = Path(fpath).name
                 if fname not in seen_files:
@@ -2475,7 +2502,9 @@ def main():
 
                     # Skip output for subagents — don't waste their context
                     if not is_subagent:
-                        loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
+                        loop_file = (
+                            Path.home() / ".claude_engram" / "loop_detector.json"
+                        )
                         edit_count = 1
                         if loop_file.exists():
                             try:
@@ -2663,11 +2692,11 @@ def main():
                     f"Decisions this session: " + "; ".join(ctx["decisions"])
                 )
             if ctx["mistakes"]:
-                summary_parts.append(
-                    f"Errors hit: " + "; ".join(ctx["mistakes"])
-                )
+                summary_parts.append(f"Errors hit: " + "; ".join(ctx["mistakes"]))
             if ctx["prompts"]:
-                summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests this session.")
+                summary_parts.append(
+                    f"{ctx['prompts']} prompts, {ctx['tests']} tests this session."
+                )
             if ctx["slow_tools"]:
                 summary_parts.append("Slow tools: " + "; ".join(ctx["slow_tools"]))
 
@@ -2754,7 +2783,9 @@ def main():
                         f"Files in progress: {', '.join(Path(f).name for f in files[:5])}"
                     )
                 if decisions:
-                    lines.append(f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}")
+                    lines.append(
+                        f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}"
+                    )
 
             # PostCompact has no hookSpecificOutput in Claude Code's schema.
             # Print as plain stdout — Claude Code shows this as hook output.
@@ -2912,7 +2943,9 @@ def main():
                                     # is workspace-pooled) is obvious, not mistaken
                                     # for this one's.
                                     try:
-                                        proj = Path(resolve_project_for_file(s["file_path"])).name
+                                        proj = Path(
+                                            resolve_project_for_file(s["file_path"])
+                                        ).name
                                     except Exception:
                                         proj = ""
                                     loc = (
@@ -3011,15 +3044,21 @@ def main():
 
                 if files_edited or last_message:
                     ctx = _get_session_context_for_handoff(project_dir)
-                    summary_parts = [f"Session stopped. {len(files_edited)} files edited."]
+                    summary_parts = [
+                        f"Session stopped. {len(files_edited)} files edited."
+                    ]
                     if ctx["decisions"]:
                         summary_parts.append(
                             "Decisions: " + "; ".join(ctx["decisions"])
                         )
                     if ctx["prompts"]:
-                        summary_parts.append(f"{ctx['prompts']} prompts, {ctx['tests']} tests.")
+                        summary_parts.append(
+                            f"{ctx['prompts']} prompts, {ctx['tests']} tests."
+                        )
                     if ctx["slow_tools"]:
-                        summary_parts.append("Slow tools: " + "; ".join(ctx["slow_tools"]))
+                        summary_parts.append(
+                            "Slow tools: " + "; ".join(ctx["slow_tools"])
+                        )
 
                     handoff = {
                         "created": time.time(),

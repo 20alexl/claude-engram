@@ -167,7 +167,9 @@ def get_hooks_config():
     script_dir = Path(__file__).parent.resolve()
 
     if is_windows():
-        python_exe = str(script_dir / "venv" / "Scripts" / "python.exe").replace("\\", "/")
+        python_exe = str(script_dir / "venv" / "Scripts" / "python.exe").replace(
+            "\\", "/"
+        )
     else:
         python_exe = str(script_dir / "venv" / "bin" / "python")
 
@@ -185,10 +187,16 @@ def get_hooks_config():
     return {
         "hooks": {
             "UserPromptSubmit": [
-                {"matcher": "", "hooks": [_hook("prompt_json", 2000, "Capturing decisions...")]}
+                {
+                    "matcher": "",
+                    "hooks": [_hook("prompt_json", 2000, "Capturing decisions...")],
+                }
             ],
             "PreToolUse": [
-                {"matcher": "Edit|Write", "hooks": [_hook("pre_edit_json", status="Checking memories...")]}
+                {
+                    "matcher": "Edit|Write",
+                    "hooks": [_hook("pre_edit_json", status="Checking memories...")],
+                }
             ],
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},
@@ -198,20 +206,29 @@ def get_hooks_config():
                 {"matcher": "", "hooks": [_hook("tool_failure_json")]}
             ],
             "PreCompact": [
-                {"matcher": "", "hooks": [_hook("pre_compact_json", 2000, "Saving checkpoint...")]}
+                {
+                    "matcher": "",
+                    "hooks": [_hook("pre_compact_json", 2000, "Saving checkpoint...")],
+                }
             ],
             "PostCompact": [
                 {"matcher": "", "hooks": [_hook("post_compact_json", 2000)]}
             ],
             "SessionStart": [
-                {"matcher": "", "hooks": [_hook("session_start_json", 2000, "Restoring session...")]}
+                {
+                    "matcher": "",
+                    "hooks": [
+                        _hook("session_start_json", 2000, "Restoring session...")
+                    ],
+                }
             ],
             "Stop": [
-                {"matcher": "", "hooks": [_hook("stop_json", 2000, "Saving session...")]}
+                {
+                    "matcher": "",
+                    "hooks": [_hook("stop_json", 2000, "Saving session...")],
+                }
             ],
-            "SessionEnd": [
-                {"matcher": "", "hooks": [_hook("session_end_json", 1500)]}
-            ],
+            "SessionEnd": [{"matcher": "", "hooks": [_hook("session_end_json", 1500)]}],
         }
     }
 

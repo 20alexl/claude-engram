@@ -61,17 +61,33 @@ class OutcomeLog:
         tmp.replace(self._path)
         self._dirty = False
 
-    def record_injection(self, file: str, kinds: list, session_id: str = "", ts: float = 0.0):
+    def record_injection(
+        self, file: str, kinds: list, session_id: str = "", ts: float = 0.0
+    ):
         if not kinds:
             return
         self._data.setdefault("events", []).append(
-            {"t": "inj", "file": file, "kinds": list(kinds), "sid": session_id, "ts": ts}
+            {
+                "t": "inj",
+                "file": file,
+                "kinds": list(kinds),
+                "sid": session_id,
+                "ts": ts,
+            }
         )
         self._dirty = True
 
-    def record_outcome(self, passed: bool, session_id: str = "", file: str = "", ts: float = 0.0):
+    def record_outcome(
+        self, passed: bool, session_id: str = "", file: str = "", ts: float = 0.0
+    ):
         self._data.setdefault("events", []).append(
-            {"t": "out", "passed": bool(passed), "sid": session_id, "file": file, "ts": ts}
+            {
+                "t": "out",
+                "passed": bool(passed),
+                "sid": session_id,
+                "file": file,
+                "ts": ts,
+            }
         )
         self._dirty = True
 
@@ -145,7 +161,12 @@ def reflect() -> dict:
     try:
         return OutcomeLog(_log_path()).reflect()
     except Exception:
-        return {"events": 0, "total_injections": 0, "outcomes": {"pass": 0, "fail": 0}, "per_kind": {}}
+        return {
+            "events": 0,
+            "total_injections": 0,
+            "outcomes": {"pass": 0, "fail": 0},
+            "per_kind": {},
+        }
 
 
 def format_reflection(r: dict) -> str:
@@ -161,7 +182,11 @@ def format_reflection(r: dict) -> str:
     for kind in sorted(per_kind, key=lambda k: -per_kind[k]["injected"]):
         s = per_kind[kind]
         seen = s["before_pass"] + s["before_fail"]
-        rate = f"{(s['before_pass'] / seen * 100):.0f}% pre-pass" if seen else "no test yet"
+        rate = (
+            f"{(s['before_pass'] / seen * 100):.0f}% pre-pass"
+            if seen
+            else "no test yet"
+        )
         label = f"{kind} (legacy, pre-split)" if kind in _LEGACY_KINDS else kind
         lines.append(
             f"  {label}: injected {s['injected']} | preceded {s['before_pass']} pass, "

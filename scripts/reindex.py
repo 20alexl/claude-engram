@@ -14,7 +14,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from claude_engram.mining.session_index import build_project_index, resolve_project_index
+from claude_engram.mining.session_index import (
+    build_project_index,
+    resolve_project_index,
+)
 from claude_engram.mining.search import build_session_embeddings
 
 
@@ -69,7 +72,12 @@ def main():
                         data = json.loads(f.read_text())
                         has_content = any(
                             data.get(k)
-                            for k in ("decisions", "mistakes", "approaches", "corrections")
+                            for k in (
+                                "decisions",
+                                "mistakes",
+                                "approaches",
+                                "corrections",
+                            )
                         )
                         had_scorer = data.get("scorer_available", False)
                         if not has_content or not had_scorer:

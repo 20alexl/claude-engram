@@ -1356,7 +1356,9 @@ class Handlers:
         )
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_checkpoint_list(self, project_path: str = "") -> list[TextContent]:
+    async def context_checkpoint_list(
+        self, project_path: str = ""
+    ) -> list[TextContent]:
         """List the unified checkpoint/handoff history (the ring), newest-first,
         retrievable via checkpoint_restore index=N."""
         response = self.context_guard.list_handoffs(project_path=project_path or "")
@@ -1870,27 +1872,46 @@ class Handlers:
                 files = ", ".join(e.related_files[:3]) if e.related_files else "no file"
                 lines.append(f"  [{e.id}] ({age_days}d) [{files}] {e.content[:100]}")
             lines.append("")
-            lines.append("Use memory(acknowledge_mistake, memory_id='...') to archive a learned mistake")
+            lines.append(
+                "Use memory(acknowledge_mistake, memory_id='...') to archive a learned mistake"
+            )
             response = MiniClaudeResponse(
-                status="success", confidence="high", reasoning="\n".join(lines),
+                status="success",
+                confidence="high",
+                reasoning="\n".join(lines),
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "acknowledge_mistake":
             mid = args.get("memory_id", "")
             if not mid:
-                return self._needs_clarification("No memory_id", "Which mistake to acknowledge? Use list_mistakes to see IDs.")
+                return self._needs_clarification(
+                    "No memory_id",
+                    "Which mistake to acknowledge? Use list_mistakes to see IDs.",
+                )
             proj = self.memory.get_project(project_path)
             if proj:
-                entry = next((e for e in proj.entries if e.id == mid and e.category == "mistake"), None)
+                entry = next(
+                    (
+                        e
+                        for e in proj.entries
+                        if e.id == mid and e.category == "mistake"
+                    ),
+                    None,
+                )
                 if entry:
                     entry.archived_at = time.time()
                     self.memory._save_project(self.memory._normalize_path(project_path))
                     response = MiniClaudeResponse(
-                        status="success", confidence="high",
+                        status="success",
+                        confidence="high",
                         reasoning=f"Mistake [{mid}] acknowledged and archived. It won't appear in pre-edit warnings.",
                     )
-                    return [TextContent(type="text", text=response.to_formatted_string())]
-            return self._needs_clarification(f"Mistake [{mid}] not found", "Check the ID with list_mistakes")
+                    return [
+                        TextContent(type="text", text=response.to_formatted_string())
+                    ]
+            return self._needs_clarification(
+                f"Mistake [{mid}] not found", "Check the ID with list_mistakes"
+            )
         else:
             return self._needs_clarification(
                 f"Unknown memory operation: {operation}",
@@ -1984,6 +2005,7 @@ class Handlers:
             if val.startswith("["):
                 try:
                     import json
+
                     parsed = json.loads(val)
                     if isinstance(parsed, list):
                         return parsed
@@ -2004,7 +2026,12 @@ class Handlers:
             from pathlib import Path
             import json as json_mod
 
-            inst_file = Path.home() / ".claude_engram" / "checkpoints" / "critical_instructions.json"
+            inst_file = (
+                Path.home()
+                / ".claude_engram"
+                / "checkpoints"
+                / "critical_instructions.json"
+            )
             if not inst_file.exists():
                 return
             instructions = json_mod.loads(inst_file.read_text())
@@ -2015,7 +2042,9 @@ class Handlers:
                 content = inst.get("instruction", "")
                 reason = inst.get("reason", "")
                 importance = inst.get("importance", 9)
-                self.memory.add_rule(project_path, content, reason=reason, relevance=importance)
+                self.memory.add_rule(
+                    project_path, content, reason=reason, relevance=importance
+                )
                 migrated += 1
             # Remove legacy file after migration
             inst_file.unlink()
@@ -2035,7 +2064,9 @@ class Handlers:
                 blockers=args.get("blockers"),
                 project_path=args.get("project_path"),
                 handoff_summary=args.get("handoff_summary"),
-                handoff_context_needed=self._coerce_list(args.get("handoff_context_needed")),
+                handoff_context_needed=self._coerce_list(
+                    args.get("handoff_context_needed")
+                ),
                 handoff_warnings=self._coerce_list(args.get("handoff_warnings")),
             )
         elif operation == "checkpoint_restore":
@@ -2045,18 +2076,26 @@ class Handlers:
                 index=int(args.get("index") or 0),
             )
         elif operation == "checkpoint_list":
-            return await self.context_checkpoint_list(project_path=args.get("project_path", ""))
+            return await self.context_checkpoint_list(
+                project_path=args.get("project_path", "")
+            )
         elif operation == "verify_completion":
             return await self.verify_completion(
                 task=args.get("task", ""),
-                verification_steps=self._coerce_list(args.get("verification_steps", [])),
+                verification_steps=self._coerce_list(
+                    args.get("verification_steps", [])
+                ),
                 evidence=self._coerce_list(args.get("evidence")),
             )
         elif operation == "handoff_create":
             return await self.context_handoff_create(
                 summary=args.get("handoff_summary", ""),
-                next_steps=self._coerce_list(args.get("next_steps") or args.get("pending_steps", [])),
-                context_needed=self._coerce_list(args.get("handoff_context_needed", [])),
+                next_steps=self._coerce_list(
+                    args.get("next_steps") or args.get("pending_steps", [])
+                ),
+                context_needed=self._coerce_list(
+                    args.get("handoff_context_needed", [])
+                ),
                 warnings=self._coerce_list(args.get("handoff_warnings")),
                 project_path=args.get("project_path"),
             )
@@ -2356,7 +2395,10 @@ class Handlers:
             return [TextContent(type="text", text="\n".join(lines))]
 
         elif operation == "reindex":
-            from claude_engram.mining.background import start_mining_background, get_mining_status
+            from claude_engram.mining.background import (
+                start_mining_background,
+                get_mining_status,
+            )
             import asyncio
 
             mode = args.get("mode", "full")
@@ -2441,7 +2483,9 @@ class Handlers:
                             f"  [{ins.insight_type}] ({ins.confidence:.0%}) {ins.content}"
                         )
                         if ins.related_files:
-                            lines.append(f"    Files: {', '.join(ins.related_files[:5])}")
+                            lines.append(
+                                f"    Files: {', '.join(ins.related_files[:5])}"
+                            )
             except Exception:
                 pass
             return [TextContent(type="text", text="\n".join(lines))]

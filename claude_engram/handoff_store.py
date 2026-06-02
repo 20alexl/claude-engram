@@ -194,7 +194,10 @@ def read_latest(
             h = hist[-1] if hist else None
         if not h:
             continue
-        if max_age_hours is not None and (time.time() - _created_ts(h)) / 3600 > max_age_hours:
+        if (
+            max_age_hours is not None
+            and (time.time() - _created_ts(h)) / 3600 > max_age_hours
+        ):
             continue
         return h
     return None

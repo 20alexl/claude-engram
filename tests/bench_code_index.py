@@ -41,20 +41,20 @@ idx_dir = Path(tempfile.mkdtemp(prefix="ci_idx_"))
 (root / "pkg").mkdir()
 (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
 (root / "pkg" / "mod.py").write_text(
-    'from .other import helper\n'
-    'import os\n\n'
+    "from .other import helper\n"
+    "import os\n\n"
     '__all__ = ["Processor", "build"]\n\n'
-    'class Processor(nn.Module):\n'
-    '    def __init__(self, d_model, n_layers=4, *, dropout=0.0):\n'
-    '        self.d_model = d_model\n'
-    '        self.layers = []\n'
-    '    def forward(self, x):\n'
-    '        return x\n\n'
-    'def build(cfg) -> Processor:\n'
-    '    return Processor(cfg)\n\n'
-    'def _private():\n'
-    '    pass\n\n'
-    'CONST = 5\n',
+    "class Processor(nn.Module):\n"
+    "    def __init__(self, d_model, n_layers=4, *, dropout=0.0):\n"
+    "        self.d_model = d_model\n"
+    "        self.layers = []\n"
+    "    def forward(self, x):\n"
+    "        return x\n\n"
+    "def build(cfg) -> Processor:\n"
+    "    return Processor(cfg)\n\n"
+    "def _private():\n"
+    "    pass\n\n"
+    "CONST = 5\n",
     encoding="utf-8",
 )
 # nested sub-project (boundary-stop must exclude it) + a venv (skip)
@@ -80,11 +80,15 @@ cls = m.get("classes", {}).get("Processor", {})
 check("class bases", cls.get("bases") == ["nn.Module"])
 check(
     "__init__ signature",
-    cls.get("methods", {}).get("__init__") == "(self, d_model, n_layers=4, *, dropout=0.0)",
+    cls.get("methods", {}).get("__init__")
+    == "(self, d_model, n_layers=4, *, dropout=0.0)",
 )
 check("forward signature", cls.get("methods", {}).get("forward") == "(self, x)")
 check("instance attrs captured", cls.get("attrs") == ["d_model", "layers"])
-check("function w/ return annotation", m.get("functions", {}).get("build") == "(cfg) -> Processor")
+check(
+    "function w/ return annotation",
+    m.get("functions", {}).get("build") == "(cfg) -> Processor",
+)
 check("private function recorded", "_private" in m.get("functions", {}))
 check("import os recorded", "os" in m.get("imports", []))
 check("from-import recorded", "from .other import helper" in m.get("imports", []))
@@ -112,6 +116,8 @@ check("deleted module dropped", "pkg/mod.py" not in idx3.modules)
 check("reverse map cleared after delete", idx3.resolve_symbol("Processor") == [])
 
 print("\n" + "=" * 70)
-print(f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}")
+print(
+    f"RESULTS: {'ALL PASS' if not fails else str(len(fails)) + ' FAILED: ' + str(fails)}"
+)
 print("=" * 70)
 sys.exit(1 if fails else 0)

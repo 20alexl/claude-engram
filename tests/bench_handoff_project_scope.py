@@ -71,9 +71,15 @@ def test_project_scoped_handoff_md():
         check("project-scoped HANDOFF.md written", a_md.exists())
 
         a_text = a_md.read_text(encoding="utf-8")
-        check("project stamp present in project copy", "**Project:** E:/ws/projA" in a_text)
+        check(
+            "project stamp present in project copy",
+            "**Project:** E:/ws/projA" in a_text,
+        )
         check("summary present in project copy", "Alpha work summary" in a_text)
-        check("warnings section present", "## Warnings" in a_text and "watch out A" in a_text)
+        check(
+            "warnings section present",
+            "## Warnings" in a_text and "watch out A" in a_text,
+        )
 
         # Second project must not clobber the first project's file.
         cg.create_handoff(
@@ -85,18 +91,27 @@ def test_project_scoped_handoff_md():
         )
         b_md = proj_dirs["E:/ws/projB"] / "HANDOFF.md"
         check("projB HANDOFF.md written", b_md.exists())
-        check("projA HANDOFF.md NOT clobbered by projB",
-              "Alpha work summary" in a_md.read_text(encoding="utf-8"))
-        check("global mirror reflects the latest handoff (projB)",
-              "Beta work summary" in global_md.read_text(encoding="utf-8"))
+        check(
+            "projA HANDOFF.md NOT clobbered by projB",
+            "Alpha work summary" in a_md.read_text(encoding="utf-8"),
+        )
+        check(
+            "global mirror reflects the latest handoff (projB)",
+            "Beta work summary" in global_md.read_text(encoding="utf-8"),
+        )
 
         # create_handoff response should point markdown_file at the project copy.
         r = cg.create_handoff(
-            summary="Gamma", next_steps=["g"], context_needed=[], warnings=[],
+            summary="Gamma",
+            next_steps=["g"],
+            context_needed=[],
+            warnings=[],
             project_path="E:/ws/projA",
         )
-        check("response markdown_file points at the project copy",
-              r.data.get("markdown_file") == str(a_md))
+        check(
+            "response markdown_file points at the project copy",
+            r.data.get("markdown_file") == str(a_md),
+        )
 
 
 def test_unregistered_project_degrades_to_global():
@@ -108,20 +123,30 @@ def test_unregistered_project_degrades_to_global():
         remind._global_handoff_dir = lambda: storage
         cg = ContextGuard(storage_dir=storage)
         r = cg.create_handoff(
-            summary="Orphan", next_steps=["x"], context_needed=[], warnings=[],
+            summary="Orphan",
+            next_steps=["x"],
+            context_needed=[],
+            warnings=[],
             project_path="E:/ws/unknown",
         )
         global_md = storage / "HANDOFF.md"
         check("global HANDOFF.md written for unregistered project", global_md.exists())
-        check("stamp still present when global-only",
-              "**Project:** E:/ws/unknown" in global_md.read_text(encoding="utf-8"))
-        check("markdown_file falls back to global",
-              r.data.get("markdown_file") == str(global_md))
+        check(
+            "stamp still present when global-only",
+            "**Project:** E:/ws/unknown" in global_md.read_text(encoding="utf-8"),
+        )
+        check(
+            "markdown_file falls back to global",
+            r.data.get("markdown_file") == str(global_md),
+        )
 
 
 def test_candidate_dirs_scoping():
-    print("Candidate-dir scoping (registered drops global catch-all; unregistered falls back):")
+    print(
+        "Candidate-dir scoping (registered drops global catch-all; unregistered falls back):"
+    )
     from claude_engram.hooks import paths
+
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         key = paths._normalize_path("E:/ws/projA")
@@ -148,5 +173,7 @@ if __name__ == "__main__":
     test_unregistered_project_degrades_to_global()
     test_candidate_dirs_scoping()
     print("-" * 60)
-    print(f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}")
+    print(
+        f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}"
+    )
     sys.exit(1 if _fails else 0)

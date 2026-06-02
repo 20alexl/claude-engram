@@ -247,7 +247,7 @@ def detect_recurring_errors(
                 # not the bare exception class — the full message is already
                 # stored in `description`, so this needs no schema change.
                 prefix = error_type + ": "
-                raw_msg = desc[len(prefix):] if desc.startswith(prefix) else desc
+                raw_msg = desc[len(prefix) :] if desc.startswith(prefix) else desc
                 norm_msg = _normalize_error_msg(raw_msg)
                 sig = f"{error_type}: {norm_msg}" if norm_msg else error_type
                 error_occurrences.setdefault(sig, []).append(session_id)
