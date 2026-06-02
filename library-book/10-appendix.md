@@ -126,11 +126,15 @@ Checkpoint and handoff are one unified ring buffer. `checkpoint_*` are the prima
 | `audit_batch` | `file_paths`+`min_severity?` (files) · or `code`+`language?` (inline) | Audit files, or lint a snippet for AI-slop patterns |
 | `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns |
 
+### MCP Tool Annotations
+
+All 19 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title`, `openWorldHint`). 10 read-only analysis tools (e.g., `memory(search/recall/recent/list_*)`, `session_mine`, `scope(check/status)`, `loop(check/status)`, `claude_engram_status`, `pre_edit_check`) are marked `readOnlyHint=true` and `idempotentHint=true`. Operation-enum tools that write state are marked `readOnlyHint=false`. All tools are local (`openWorldHint=false`). MCP clients and Claude Code's permission system use these annotations to skip confirmation prompts on read-only calls.
+
 ### `session_mine` Tool
 
 | Operation | Parameters | Description |
 |-----------|-----------|-------------|
-| `search` | `query`, `project_path`, `limit?`, `method?`, `since?`, `until?` | Semantic search across past conversations |
+| `search` | `query`, `project_path`, `limit?`, `method?`, `since?`, `until?`, `kind?` | Semantic search across past conversations. `kind` filters by hit type: `decision`/`next-step`/`error`/`narration` — regex-classified, LLM-free. |
 | `decisions` | `query`, `project_path` | Find when/why a decision was made, with context |
 | `replay` | `file_path`, `project_path`, `limit?` | Find discussions about a specific file |
 | `struggles` | `project_path` | Files/areas with repeated difficulty |
@@ -144,6 +148,7 @@ Checkpoint and handoff are one unified ring buffer. `checkpoint_*` are the prima
 | `predict` | `file_path`, `project_path` | Predict context needed for a file edit |
 | `cross_project` | — | Patterns across all projects |
 | `reflect` | `project_path` | Injection precision report: which context kinds (memory/prediction/precheck/blast) precede passing tests, plus LLM-synthesized insights from recurring mistakes/patterns |
+| `commitments` | `project_path` | Reads the LIVE transcript (newest *.jsonl, picked by newest last-message timestamp) for open-loop items. Two channels: DEFERRED scans ~450 recent messages for next-session/remaining/TODO/follow-up/defer mentions; IN-FLIGHT scans last ~30 messages for "I'll"/"let me"/"next" actions. Heuristic, LLM-free. The post-session mining index cannot see the open session; this op fills that gap. Run before asking "what next?" or on session resume. |
 
 ---
 
@@ -243,6 +248,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.6.1 — 2026-06-01
+
+- **`session_mine(commitments)`** — reads the LIVE session transcript (newest *.jsonl, picked by newest last-message timestamp) for open-loop items the post-session mining index cannot see. DEFERRED channel scans ~450 recent messages for next-session/remaining/TODO/follow-up/defer language; IN-FLIGHT channel scans last ~30 messages for "I'll"/"let me"/"next" actions. Heuristic, LLM-free.
+- **Typed search (`session_mine(search, kind=...)`)** — every search hit is now classified by kind (`decision`/`next-step`/`error`/`narration`) using regex, no LLM. Pass `kind` to filter results to one type.
+- **MCP tool annotations** — all 19 MCP tools carry `readOnlyHint`/`idempotentHint`/`title`/`openWorldHint` annotations. 10 read-only analysis tools are marked read-only + idempotent; write-capable tools are marked accordingly; all are local (`openWorldHint=false`). Allows MCP clients and Claude Code's permission system to skip prompts on read-only calls.
+- **Consolidation hardening + re-date/down-rank migration** — memory consolidation is more conservative; a background migration re-dates and down-ranks over-promoted entries produced by prior aggressive runs.
+- **Memory age at injection** — pre-edit hook output now shows each injected memory's age alongside its score, so Claude can weight stale memories appropriately.
+- **Per-project HANDOFF.md + `checkpoint_list` scoping** — `checkpoint_save` writes HANDOFF.md to the project directory (not only global checkpoints/); `checkpoint_list` is scoped to the active project and hides entries older than 7 days by default.
 
 ### v0.5.0 — 2026-05-28
 

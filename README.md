@@ -57,37 +57,11 @@ Hooks fire on every tool call (1-2s budget each). Heavy processing happens in a 
 
 ## Benchmarks
 
-### Integration benchmarks
+**Retrieval (recall@k):** LongMemEval 0.966 R@5 / 0.982 R@10 (500 questions), ConvoMem 0.960 (250 items), LoCoMo 0.649 R@10 (~2k questions); ~43ms/query, 112ms cross-session over 7,310 chunks.
 
-These test what the product actually does.
+**Product behavior:** eight integration suites green — decision capture (97.8% precision), error auto-capture (100% recall), compaction survival (6/6), multi-project isolation (11/11), edit-loop detection (12/12), session mining (27/27), Obsidian-vault compat (25/25).
 
-| Benchmark | What it tests | Result |
-|---|---|---|
-| **Decision Capture** (220 prompts) | Auto-detect decisions from user prompts | 97.8% precision, 36.7% recall |
-| **Injection Relevance** (50 memories, 15 cases) | Right memories surface before edits | 14/15 passed, 100% isolation |
-| **Compaction Survival** (6 scenarios) | Rules/mistakes survive context compression | 6/6 |
-| **Error Auto-Capture** (53 payloads) | Extract errors, reject noise, deduplicate | 100% recall, 97% precision |
-| **Multi-Project Scoping** (11 cases) | Sub-project isolation + workspace inheritance | 11/11 |
-| **Edit Loop Detection** (12 scenarios) | Detect spirals vs iterative improvement | 12/12 |
-| **Session Mining** (27 tests) | JSONL parsing, indexing, search, incremental processing | 27/27 |
-| **Obsidian Vault** (25 tests) | Compatibility with PARA + CLAUDE.md vault structure | 25/25 |
-
-Reproduce: `python tests/bench_integration.py`, `bench_session_mining.py`, `bench_obsidian_vault.py`, `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`
-
-### Retrieval benchmarks
-
-Retrieval-only (recall@k) — whether the right memory is found in top results.
-
-| Benchmark | Score |
-|---|---|
-| **LongMemEval** Recall@5 (500 questions) | 0.966 |
-| **LongMemEval** Recall@10 | 0.982 |
-| **ConvoMem** (250 items, 5 categories) | 0.960 |
-| **LoCoMo** R@10 (1,986 questions) | 0.649 |
-| **Speed** | 43ms/query |
-| **Cross-session search** | 112ms/query over 7310 chunks |
-
-Reproduce: `python tests/bench_longmemeval.py`, `bench_locomo.py`, `bench_convomem.py`
+Full tables and the `tests/bench_*.py` reproduction commands are in the **[library-book](./library-book/)**.
 
 ## Compatibility
 
@@ -144,33 +118,13 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 
 ## Key Features
 
-### Memory System
-- **Hybrid search** — keyword + AllMiniLM vector + reranking. No ChromaDB.
-- **Scored injection** — top 3 memories by file match, tags, recency, importance before every edit. Injection is path-aware: a shared basename across diverging paths (e.g. `V7/cortex/__init__.py` vs `V8/cortex/__init__.py`) is not a match; generic basenames need a full-path signal.
-- **Tiered storage** — hot (fast) + archive (cold, searchable, restorable). Rules and mistakes never archive.
-- **Multi-project** — memories scoped per sub-project. Workspace rules cascade down.
+**Memory** — hybrid search (keyword + AllMiniLM vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and mistakes never archive); per-sub-project scoping with cascading workspace rules.
 
-### Session Mining
-- **Structural extraction** — analyzes conversation flow (confirmations, redirects, error->fix sequences, approach changes) instead of template matching.
-- **Tool content indexing** — bash commands + output, edit diffs, and error tracebacks are searchable alongside conversation text.
-- **Batch embeddings** — 22x faster than individual calls via batched TCP protocol.
-- **Cross-session search** — 44k+ conversation chunks indexed, semantic + keyword + hybrid search.
-- **Pattern detection** — recurring struggles, error patterns, edit correlations across sessions.
-- **Predictive context** — before edits, surfaces related files and likely errors from history.
-- **Cross-project learning** — aggregates patterns across all your projects.
-- **Retroactive bootstrap** — mines all existing session history on first install.
-- **Scorer auto-start** — AllMiniLM server starts on demand if not running. No silent degradation.
-- **Live-session commitments** — `session_mine(commitments)` reads the *current* transcript (which the post-session index can't see) for deferred open-loops + in-flight actions. Run it before asking "what next?" on resume.
-- **Typed search** — `session_mine(search)` tags each hit decision / next-step / error / narration and can filter on `kind`.
+**Session mining** — structural extraction (conversation flow, not template matching) over conversation *and* tool content; cross-session semantic/keyword/hybrid search, typed by kind (decision / next-step / error) and filterable; `session_mine(commitments)` reads the *live* transcript for open loops the post-session index can't see; pattern detection, predictive context, cross-project learning; retroactive bootstrap on first install.
 
-### Lifecycle
-- **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
-- **Auto-tracks mistakes** from any failed tool. Only logs errors in project files (filters transient noise). Warns before repeat edits.
-- **Survives compaction** — checkpoints with session decisions/mistakes, re-injects after. Checkpoints are per-project scoped.
-- **Durable checkpoints** — stored in a capped ring buffer (last 20); trivial auto-saves don't clobber a substantive or manual checkpoint. Browse with `context(checkpoint_list, ...)`, restore any entry with `context(checkpoint_restore, ..., index=N)`. `handoff_list`/`handoff_get` remain as deprecated aliases.
-- **Subagent awareness** — memory injection and hook output are skipped for subagents (saves context), but file edits are still tracked.
-- **Edit loop detection** — flags when the same file is edited 3+ times without progress.
-- **Automatic migrations** — on upgrade, schema migrations run automatically: a cheap inline check on SessionStart and a full migration in a background process. Forward-only, idempotent, and downgrade-safe.
+**Lifecycle** — auto-captured decisions + mistakes; survives compaction (per-project checkpoints in a durable ring); edit-loop detection; subagent-aware; automatic, idempotent, downgrade-safe migrations on upgrade.
+
+Internals, the full feature list, gotchas, and API reference live in the **[library-book](./library-book/)**.
 
 ## Configuration
 

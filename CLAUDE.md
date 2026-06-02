@@ -205,10 +205,12 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 - **Bootstrap**: First session on a new project auto-detects existing history and mines it
 
 **MCP tool (`session_mine`):**
-- `search(query)` — semantic search across all past conversations
+- `search(query)` — semantic search across all past conversations; accepts a `kind` filter (`decision`/`next-step`/`error`/`narration`) to narrow results by hit type (regex-classified, no LLM)
 - `decisions(query)` — find when/why a decision was made, with context
 - `replay(file_path)` — find discussions about a specific file
 - `predict(file_path)` — predict what context you'll need for an edit
+- `commitments` — reads the LIVE transcript (newest *.jsonl, picked by newest last-message timestamp) for open-loop items: DEFERRED channel scans ~450 recent messages for next-session/remaining/TODO/follow-up/defer mentions; IN-FLIGHT channel scans last ~30 messages for I'll/let me/next actions. Heuristic, LLM-free. Run before asking "what next?" or on resume — it sees the open session, which the post-session mining index cannot.
+- `reflect` — injection precision report: which context kinds (memory/prediction/precheck/blast) precede passing tests, plus LLM-synthesized insights from recurring mistakes/patterns
 - `cross_project` — patterns across all your projects
 - `overview` — project stats (sessions, messages, top files, errors)
 - `reindex(mode=bootstrap)` — rebuild index from all session history

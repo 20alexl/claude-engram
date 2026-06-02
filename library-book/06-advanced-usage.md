@@ -175,7 +175,41 @@ Reads walk up from the nearest project to ancestor projects to the global slot �
 
 ---
 
-## Session Mine: Reflect
+## Session Mine: Live Transcript Mining
+
+### Commitments
+
+`session_mine(commitments)` scans the **live** session transcript for things that were said but not yet done. The post-session mining index is built at `SessionEnd` so it cannot see the current open session — this op fills that gap.
+
+Two channels:
+
+- **DEFERRED** — scans the most recent ~450 messages for next-session/remaining/TODO/follow-up/defer language. Surfaces open loops you said you'd handle later.
+- **IN-FLIGHT** — scans the last ~30 messages for "I'll", "let me", "next" language. Surfaces actions that were announced but may not have completed.
+
+Heuristic-based, LLM-free. Run before asking the user "what next?" or when resuming a long session.
+
+```python
+session_mine(operation="commitments", project_path="/path/to/project")
+```
+
+### Typed Search
+
+`session_mine(search)` classifies every hit by kind — `decision`, `next-step`, `error`, or `narration` — using regex (no LLM). Pass `kind` to filter:
+
+```python
+# All hits, with kind shown
+session_mine(operation="search", query="auth refactor", project_path="/path")
+
+# Only hits classified as decisions
+session_mine(operation="search", query="auth refactor", kind="decision", project_path="/path")
+
+# Only hits classified as errors
+session_mine(operation="search", query="migration", kind="error", project_path="/path")
+```
+
+Valid `kind` values: `decision`, `next-step`, `error`, `narration`.
+
+### Reflect
 
 `session_mine(reflect)` tells you how well the injection pipeline is actually working. It reports:
 
