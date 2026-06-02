@@ -2462,6 +2462,19 @@ class Handlers:
             lines.append(formatted)
             return [TextContent(type="text", text="\n".join(lines))]
 
+        elif operation == "commitments":
+            from claude_engram.mining.commitments import (
+                extract_commitments,
+                format_commitments,
+            )
+
+            return [
+                TextContent(
+                    type="text",
+                    text=format_commitments(extract_commitments(project_path)),
+                )
+            ]
+
         elif operation == "reflect":
             # Two complementary views of how engram is doing: deterministic
             # injection precision (Cap 6, always available), plus LLM-synthesized

@@ -685,7 +685,8 @@ TOOL_DEFINITIONS = [
 - reindex: Trigger background re-indexing (project_path, mode=post_session|bootstrap|full)
 - predict: Predict context needed for a file edit (file_path, project_path)
 - cross_project: Patterns across all projects (no project_path needed)
-- reflect: how engram is doing — injection precision (which context kinds precede passing tests) + LLM-synthesized insights from recurring mistakes/patterns""",
+- reflect: how engram is doing — injection precision (which context kinds precede passing tests) + LLM-synthesized insights from recurring mistakes/patterns
+- commitments: what you said you'd do THIS session and whether it's done — scans the LIVE transcript (the one the post-session index can't see) for deferred open-loops + recent in-flight actions. Run before asking the user "what next?" or on resume.""",
         inputSchema={
             "type": "object",
             "properties": {
@@ -706,6 +707,7 @@ TOOL_DEFINITIONS = [
                         "predict",
                         "cross_project",
                         "reflect",
+                        "commitments",
                     ],
                     "description": "Operation to perform",
                 },
