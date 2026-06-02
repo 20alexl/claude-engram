@@ -133,9 +133,64 @@ def _reextract_related_files(storage: Path, manifest: dict) -> None:
             tmp.replace(mem_file)
 
 
+def _redate_downrank_stale_consolidations(storage: Path, manifest: dict) -> None:
+    """Old consolidated memories were minted with no date and inherited the
+    group's max relevance, so a stale "[Consolidated from N] ... X is complete"
+    summary could keep dominating injection as if still true (the bug since
+    fixed in the consolidator). Retroactively stamp such entries with their
+    creation date (staleness becomes visible) and cap relevance at 8 (a
+    point-in-time blob shouldn't outrank a fresh, specific memory). Targets only
+    the old UN-dated marker, so it's non-destructive and idempotent — a re-dated
+    entry no longer matches."""
+    import re
+    import time
+
+    undated = re.compile(r"^\[Consolidated from (\d+) memories\]")
+    cap = 8
+
+    for pdir in _project_dirs(storage, manifest):
+        mem_file = pdir / "memory.json"
+        if not mem_file.exists():
+            continue
+        try:
+            data = json.loads(mem_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        changed = False
+        for entry in data.get("entries", []):
+            content = entry.get("content", "") or ""
+            m = undated.match(content)
+            if not m:
+                continue
+            ca = entry.get("created_at", 0) or 0
+            if ca:
+                stamp = time.strftime("%Y-%m-%d", time.localtime(ca))
+                entry["content"] = content.replace(
+                    f"[Consolidated from {m.group(1)} memories]",
+                    f"[Consolidated {stamp} from {m.group(1)} memories]",
+                    1,
+                )
+                changed = True
+            rel = entry.get("relevance")
+            if isinstance(rel, int) and rel > cap:
+                entry["relevance"] = cap
+                changed = True
+
+        if changed:
+            tmp = mem_file.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(mem_file)
+
+
 STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
+    (
+        "0.6.1:redate_downrank_consolidations",
+        False,
+        _redate_downrank_stale_consolidations,
+    ),
 ]
 
 
