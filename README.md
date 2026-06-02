@@ -29,9 +29,11 @@ Zero manual effort. Works with any MCP-compatible client.
 
 **On-demand (MCP tools):**
 - `memory` — store, search, archive, and manage memories
-- `session_mine` — search past conversations, find decisions, replay file history, detect patterns
+- `session_mine` — search past conversations (taggable by kind: decision / next-step / error), find decisions, replay file history, detect patterns, and surface what you said you'd do this session (`commitments`)
 - `work` — log decisions and mistakes with reasoning
 - Plus: scope guard, context checkpoints (`checkpoint_save/restore/list`; `handoff_*` are deprecated aliases), convention tracking, impact analysis
+
+All MCP tools carry annotations (read-only / idempotent hints + a title), so clients and permission systems know which are safe to call without a prompt.
 
 ## How It Works
 
@@ -158,6 +160,8 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 - **Cross-project learning** — aggregates patterns across all your projects.
 - **Retroactive bootstrap** — mines all existing session history on first install.
 - **Scorer auto-start** — AllMiniLM server starts on demand if not running. No silent degradation.
+- **Live-session commitments** — `session_mine(commitments)` reads the *current* transcript (which the post-session index can't see) for deferred open-loops + in-flight actions. Run it before asking "what next?" on resume.
+- **Typed search** — `session_mine(search)` tags each hit decision / next-step / error / narration and can filter on `kind`.
 
 ### Lifecycle
 - **Auto-captures decisions** — structural patterns (confirmations, redirects, explicit choices) + semantic scoring as bonus.
