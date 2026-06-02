@@ -885,10 +885,21 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
             "tags": [],
         }
         scored = reader.get_scored_memories(project_dir, context, limit=3)
-        return [
-            f"{m['content'][:80]}..." if len(m["content"]) > 80 else m["content"]
-            for m in scored
-        ]
+        # Append each memory's age so staleness is visible at the point of use: a
+        # code-pointer memory goes wrong after a refactor, and "(40d old)" is the
+        # cue to verify before trusting it. Silent when no timestamp is stored.
+        now = time.time()
+        out = []
+        for m in scored:
+            content = m["content"]
+            content = f"{content[:80]}..." if len(content) > 80 else content
+            ts = m.get("created_at") or m.get("created") or m.get("timestamp") or 0
+            try:
+                days = int((now - float(ts)) / 86400) if ts else 0
+            except (TypeError, ValueError):
+                days = 0
+            out.append(f"{content} ({days}d old)" if days >= 1 else content)
+        return out
     except Exception:
         return []
 
@@ -2476,15 +2487,22 @@ def main():
                                 pass
 
                         file_name = Path(file_path).name
-                        result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
+                        # Quiet the routine per-edit line: it's noise on the first
+                        # couple of touches. Only surface it once a file is edited
+                        # repeatedly (edit #3+) — the same signal the loop warning
+                        # keys on, and the point where "you keep editing this" is
+                        # worth saying. Tracking above still runs for every edit;
+                        # only the output is gated.
+                        if edit_count >= 3:
+                            result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
 
-                        hook_output = {
-                            "hookSpecificOutput": {
-                                "hookEventName": "PostToolUse",
-                                "additionalContext": result,
+                            hook_output = {
+                                "hookSpecificOutput": {
+                                    "hookEventName": "PostToolUse",
+                                    "additionalContext": result,
+                                }
                             }
-                        }
-                        print(json_module.dumps(hook_output))
+                            print(json_module.dumps(hook_output))
         except Exception:
             pass  # Silent failure
 

@@ -339,7 +339,11 @@ class ContextGuard:
         handoff_context = data.get("handoff_context_needed", []) or data.get("context_needed", [])
         handoff_warnings = data.get("handoff_warnings", []) or data.get("warnings", [])
 
-        if handoff_summary and handoff_summary != headline:
+        if (
+            handoff_summary
+            and handoff_summary != headline
+            and handoff_summary != data.get("current_step")
+        ):
             summary_lines.extend(
                 [
                     "",
@@ -356,11 +360,26 @@ class ContextGuard:
         # Add handoff warnings to main warnings
         warnings.extend(handoff_warnings)
 
-        _pending_sug = data.get("pending_steps", []) or data.get("next_steps", [])
-        suggestions = [
-            f"Continue with: {data.get('current_step') or data.get('summary', 'previous work')}",
-            f"Remaining steps: {', '.join(_pending_sug[:3])}{'...' if len(_pending_sug) > 3 else ''}",
+        # Dedupe the restore payload: a lazy checkpoint_save often repeats the
+        # same text across current_step / pending_steps / handoff_summary, which
+        # made restore echo it 3-4x. current_step is already rendered above as
+        # "Current step:", so don't repeat it in a "Continue with" line, and drop
+        # any pending step that just restates it.
+        _current = data.get("current_step")
+        _pending_sug = [
+            s
+            for s in (data.get("pending_steps", []) or data.get("next_steps", []))
+            if s and s != _current
         ]
+        suggestions = []
+        if not _current:
+            suggestions.append(
+                f"Continue with: {data.get('summary', 'previous work')}"
+            )
+        if _pending_sug:
+            suggestions.append(
+                f"Remaining steps: {', '.join(_pending_sug[:3])}{'...' if len(_pending_sug) > 3 else ''}"
+            )
 
         return MiniClaudeResponse(
             status="success",
