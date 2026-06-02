@@ -35,6 +35,22 @@ Zero manual effort. Works with any MCP-compatible client.
 
 All MCP tools carry annotations (read-only / idempotent hints + a title), so clients and permission systems know which are safe to call without a prompt.
 
+## A Note From the Author
+
+How I actually use it, since I built it:
+
+Mostly it just works in the background — you don't have to think about it. The few things worth doing on purpose:
+
+- **Pull `/engram`** when you want Claude to actively reach for the tools — the command loads the reference so Claude knows what's there and uses it. (Background tracking happens either way; this is for the on-demand stuff.)
+- When you half-remember something from a while back ("what did we decide about X?"), ask Claude to mine the sessions for it — it searches *everything* you've ever discussed, not just what's in context.
+- If there's something it should never forget, save it as a **rule**. Rules are scoped: a **per-project** rule applies to that project; a **global** one (saved at your workspace root) cascades down to every project under it. Broad conventions → global, project-specific → per-project.
+- Before compacting, it auto-saves a checkpoint — but I make one with what I'm doing + what's left and ask it to pull that back up after. Resumes a lot cleaner.
+- When you come back, ask what you said you'd do this session — it skims the live conversation for open loops vs. what's done. It's a best-effort read (not a perfect list), but a quick way to reorient.
+
+The less you poke at it, the better it works.
+
+This is a work in progress — if something's off or you hit a bug, please open an issue.
+
 ## How It Works
 
 ```
