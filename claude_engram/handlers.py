@@ -2221,8 +2221,19 @@ class Handlers:
             # Tag each hit by kind (decision / next-step / error / narration) so a
             # commitment isn't ranked indistinguishably from mid-task narration;
             # an optional `kind` arg filters to one type.
+            # The chunk index stores some content twice (a tool result and its
+            # subagent_tool mirror, or assistant + subagent) — dedup by text so
+            # the same hit doesn't appear twice.
+            seen_chunks = set()
+            uniq_results = []
+            for r in results:
+                ckey = " ".join((r.chunk_text or "")[:120].split()).lower()
+                if ckey in seen_chunks:
+                    continue
+                seen_chunks.add(ckey)
+                uniq_results.append(r)
             kind_filter = (args.get("kind") or "").strip().lower()
-            tagged = [(r, classify_chunk(r.chunk_text)) for r in results]
+            tagged = [(r, classify_chunk(r.chunk_text)) for r in uniq_results]
             if kind_filter:
                 tagged = [(r, k) for r, k in tagged if k == kind_filter]
             if not tagged:

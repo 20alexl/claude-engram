@@ -51,8 +51,9 @@ _KIND_PATTERNS = [
     (
         "decision",
         re.compile(
-            r"\b(decid\w+|let'?s use|switch to|we'?ll (?:use|go)|going with|"
-            r"chose|choosing|instead of|the call is|i'?d (?:use|go))\b",
+            r"\b(decid\w+|let'?s (?:use|go with)|switch(?:ing)? to|"
+            r"we'?ll (?:use|go with)|going with|went with|chose|choosing|"
+            r"opt(?:ed|ing)? for|the call is|i'?d (?:use|go with|rather))\b",
             re.IGNORECASE,
         ),
     ),

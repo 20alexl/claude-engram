@@ -54,8 +54,18 @@ _SKIP_RE = re.compile(
 
 _WORD_RE = re.compile(r"[a-zA-Z_][\w./-]{3,}")
 
+# Strong completion cues: if one appears CLOSE to a commitment, treat it as done
+# even without a shared content word (e.g. "I'll stage ..." soon followed by
+# "committed / pushed").
+_STRONG_DONE_RE = re.compile(
+    r"\b(committed|pushed|shipped|landed|merged|all pass|all green|✓|✅)\b",
+    re.IGNORECASE,
+)
+
 _TAIL_MESSAGES = 30  # recent assistant msgs that count as "in-flight"
-_DONE_WINDOW = 150  # how far ahead to look for a completion cue
+_DEFER_MESSAGES = 450  # recent assistant msgs scanned for deferred open-loops
+_DONE_WINDOW = 150  # how far ahead to look for a (weak) completion cue
+_STRONG_DONE_WINDOW = 8  # proximity for a strong, overlap-free completion cue
 
 
 def _assistant_text(msg: dict) -> str:
@@ -102,8 +112,17 @@ def extract_commitments(project_path: str) -> dict:
     def _ok(s: str) -> bool:
         return 10 <= len(s) <= 240 and not _SKIP_RE.search(s)
 
-    # Deferred markers: scan the whole session.
-    deferred = [(i, s) for i, s in enumerate(flat) if _ok(s) and _DEFER_RE.search(s)]
+    # Deferred markers: scan a RECENT window, not the whole session. On a
+    # long-lived JSONL (months of work across compactions) a whole-session scan
+    # dredges open-loops from unrelated past work; this keeps it to the current
+    # work block while staying much wider than the in-flight tail.
+    defer_tail = [s for msg in per_msg[-_DEFER_MESSAGES:] for s in msg]
+    defer_start = len(flat) - len(defer_tail)
+    deferred = [
+        (defer_start + j, s)
+        for j, s in enumerate(defer_tail)
+        if _ok(s) and _DEFER_RE.search(s)
+    ]
 
     # In-flight actions: only the tail (older "let me ..." are long resolved).
     tail = [s for msg in per_msg[-_TAIL_MESSAGES:] for s in msg]
@@ -116,7 +135,11 @@ def extract_commitments(project_path: str) -> dict:
 
     def _is_open(idx: int, s: str) -> bool:
         kw = set(_WORD_RE.findall(s.lower()))
-        for later in flat[idx + 1 : idx + 1 + _DONE_WINDOW]:
+        for offset, later in enumerate(flat[idx + 1 : idx + 1 + _DONE_WINDOW]):
+            # A strong completion cue close by counts even without word overlap.
+            if offset < _STRONG_DONE_WINDOW and _STRONG_DONE_RE.search(later):
+                return False
+            # A weaker cue must share a content word with the commitment.
             if _DONE_RE.search(later) and kw & set(_WORD_RE.findall(later.lower())):
                 return False
         return True
