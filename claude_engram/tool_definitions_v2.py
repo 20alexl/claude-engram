@@ -672,7 +672,7 @@ TOOL_DEFINITIONS = [
     Tool(
         name="session_mine",
         description="""Mine session history. Operations:
-- search: Search across past conversations (query, project_path, limit, method=hybrid|semantic|keyword)
+- search: Search across past conversations (query, project_path, limit, method=hybrid|semantic|keyword, kind=decision|next-step|error|narration to filter hits by type)
 - decisions: Find when/why a decision was made (query, project_path)
 - replay: Find discussions about a file (file_path, project_path)
 - struggles: Files/areas with repeated difficulty (project_path)
@@ -725,6 +725,11 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "enum": ["hybrid", "semantic", "keyword"],
                     "description": "For search: search method",
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["decision", "next-step", "error", "narration"],
+                    "description": "For search: filter hits to one kind",
                 },
                 "mode": {
                     "type": "string",

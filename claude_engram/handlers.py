@@ -2201,7 +2201,7 @@ class Handlers:
         project_path = args.get("project_path", "")
 
         if operation == "search":
-            from claude_engram.mining.search import search_sessions
+            from claude_engram.mining.search import search_sessions, classify_chunk
 
             results = search_sessions(
                 project_path,
@@ -2218,9 +2218,28 @@ class Handlers:
                         text="No results found. Run reindex(mode=bootstrap) to build search index.",
                     )
                 ]
-            lines = [f"Found {len(results)} results:"]
-            for r in results:
-                lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
+            # Tag each hit by kind (decision / next-step / error / narration) so a
+            # commitment isn't ranked indistinguishably from mid-task narration;
+            # an optional `kind` arg filters to one type.
+            kind_filter = (args.get("kind") or "").strip().lower()
+            tagged = [(r, classify_chunk(r.chunk_text)) for r in results]
+            if kind_filter:
+                tagged = [(r, k) for r, k in tagged if k == kind_filter]
+            if not tagged:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"No '{kind_filter}' results among {len(results)} hits.",
+                    )
+                ]
+            header = (
+                f"Found {len(tagged)} results"
+                + (f" (kind={kind_filter})" if kind_filter else "")
+                + ":"
+            )
+            lines = [header]
+            for r, kind in tagged:
+                lines.append(f"  [{r.score:.2f}] ({kind}) {r.chunk_text[:150]}")
                 lines.append(
                     f"    Session: {r.session_id[:12]} | {r.timestamp[:19]} | {r.msg_type}"
                 )

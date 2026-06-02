@@ -42,11 +42,15 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(errors, project_path="...")` — recurring error patterns
 - `session_mine(overview, project_path="...")` — project stats
 - `session_mine(reflect, project_path="...")` — injection precision (which context kinds precede passing tests) + LLM insights from recurring patterns
+- `session_mine(commitments, project_path="...")` — what you said you'd do THIS session and whether it's done; scans the LIVE transcript (deferred open-loops + recent in-flight). Run before asking the user "what next?" or on resume
+- `session_mine(search, query="...", kind="next-step")` — filter hits by kind: decision / next-step / error / narration
 - `session_mine(search, query="...", since="2026-04-01")` — temporal filtering
 - `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results)
 
 ## Context Protection
 Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are primary; `handoff_*` are deprecated aliases.
+
+**Checkpoint vs mining:** a checkpoint is the durable note *you* write for the next session; session mining is what engram derives from the transcript. For "what's next" on resume, prefer `session_mine(commitments)` (reads the live session) over re-reading a stale checkpoint's pending_steps.
 - `context(checkpoint_save, ...)` — save task/session state for compaction/recovery (add handoff_summary/handoff_context_needed/handoff_warnings to bridge to the next session; emits HANDOFF.md)
 - `context(checkpoint_restore, project_path="...", index=0)` — restore a checkpoint (0 = latest, N = older from history)
 - `context(checkpoint_list, project_path="...")` — list the unified history newest-first (index, age, kind, summary)

@@ -16,6 +16,7 @@ Search modes:
 """
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,45 @@ from claude_engram.mining.jsonl_reader import (
     get_timestamp,
     get_session_id,
 )
+
+
+# Hit classification: tag a search result by what it IS, so a next-step or a
+# decision isn't ranked indistinguishably from mid-task narration. Order
+# matters — most distinctive first.
+_KIND_PATTERNS = [
+    (
+        "error",
+        re.compile(
+            r"\b(error|exception|traceback|failed|attributeerror|typeerror|"
+            r"valueerror|keyerror|importerror|assertion|stack ?trace)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "decision",
+        re.compile(
+            r"\b(decid\w+|let'?s use|switch to|we'?ll (?:use|go)|going with|"
+            r"chose|choosing|instead of|the call is|i'?d (?:use|go))\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "next-step",
+        re.compile(
+            r"(\bi'?ll |\bnext step|\bnext is|\bnext up|\bto-?do\b|\bremaining\b|"
+            r"\bstill (?:need|have) to|\bfollow-?up|\blet me )",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+
+def classify_chunk(text: str) -> str:
+    """Classify a search hit as error / decision / next-step / narration."""
+    for kind, pat in _KIND_PATTERNS:
+        if pat.search(text or ""):
+            return kind
+    return "narration"
 
 
 @dataclass
