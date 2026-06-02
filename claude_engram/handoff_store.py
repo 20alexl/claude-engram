@@ -179,28 +179,33 @@ def read_latest(
     candidate_dirs: list[Optional[Path]], *, max_age_hours: Optional[float] = None
 ) -> Optional[dict]:
     """
-    Return the latest handoff from the first candidate dir that has one.
+    Return the most recent DELIBERATE handoff across all candidate dirs: the
+    newest ``manual`` checkpoint, falling back to the newest handoff of any kind
+    only when no manual one is in scope.
 
-    Callers order ``candidate_dirs`` nearest-project-first with the global
-    dir last, so a project's own handoff always wins over the shared global
-    slot (fixes the "wrong handoff from the root project" bug).
+    This replaces "first candidate dir wins" (the old behavior), which returned
+    a nearest ancestor ring's pointer regardless of age — so a sub-project query
+    (``chappie/V9`` -> ``chappie``) could surface a weeks-old "ready for pretrain
+    v3" as the latest while the genuine newest sat at a higher index. Two
+    properties matter and pure recency only gets the first:
+      1. a newer manual must outrank an older manual  -> kills the stale bug;
+      2. a routine auto "Session stopped" must not bury a deliberate checkpoint.
+    Newest-manual-first gives both. Per-ring manual promotion still happens at
+    write time; this only chooses across the already-resolved scope. Callers
+    that want a hard freshness bound pass ``max_age_hours`` (e.g. the
+    SessionStart banner uses 48h).
     """
-    for d in candidate_dirs:
-        if d is None:
-            continue
-        h = _read_json(d / LATEST_FILENAME)
-        if not h:
-            hist = _load_history(d)
-            h = hist[-1] if hist else None
-        if not h:
-            continue
-        if (
-            max_age_hours is not None
-            and (time.time() - _created_ts(h)) / 3600 > max_age_hours
-        ):
-            continue
-        return h
-    return None
+    hist = read_history(candidate_dirs)
+    if max_age_hours is not None:
+        hist = [
+            h
+            for h in hist
+            if (time.time() - _created_ts(h)) / 3600 <= max_age_hours
+        ]
+    if not hist:
+        return None
+    manual = [h for h in hist if h.get("kind") == "manual"]
+    return manual[0] if manual else hist[0]
 
 
 def read_history(
@@ -208,14 +213,22 @@ def read_history(
 ) -> list:
     """
     Merged handoff history across candidate dirs, newest first, deduplicated
-    by (timestamp, summary-prefix).
+    by (timestamp, summary-prefix). Each dir's promoted ``latest`` pointer is
+    folded in too, so a legacy single-slot handoff that predates the ring (no
+    ``handoff_history.json``) is still seen by recency-based selection.
     """
     seen = set()
     out = []
     for d in candidate_dirs:
         if d is None:
             continue
-        for h in _load_history(d):
+        entries = list(_load_history(d))
+        ptr = _read_json(d / LATEST_FILENAME)
+        if ptr:
+            entries.append(ptr)
+        for h in entries:
+            if not h:
+                continue
             key = (round(_created_ts(h), 3), (h.get("summary") or "")[:80])
             if key in seen:
                 continue
@@ -228,12 +241,12 @@ def read_history(
 def read_ordered(
     candidate_dirs: list[Optional[Path]], *, limit: int = DEFAULT_HISTORY_LIMIT
 ) -> list:
-    """History ordered for retrieval and listing: the promoted ``latest`` first
-    (so index 0 == what a plain ``read_latest`` returns), then the remaining
-    handoffs newest-first. This keeps ``handoff_get index=N`` and
-    ``handoff_list`` consistent even when the promotion guard kept an older
-    manual handoff as latest over a newer auto one.
-    """
+    """History ordered for retrieval and listing: the deliberate ``latest``
+    (see ``read_latest``) first, so index 0 == what ``checkpoint_restore``
+    returns, then the remaining handoffs newest-first. ``read_latest`` now
+    selects the newest *manual* checkpoint across the resolved scope, so index 0
+    is the freshest deliberate checkpoint — not a stale ancestor pointer (the
+    prior bug) and not a routine auto-stop that happens to be newest."""
     hist = read_history(candidate_dirs, limit=limit)
     latest = read_latest(candidate_dirs)
     if not latest:

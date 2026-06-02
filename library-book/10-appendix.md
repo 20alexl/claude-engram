@@ -249,6 +249,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.7.1 — 2026-06-02
+
+- **Fix: `checkpoint_restore` / `checkpoint_list` could seat a stale checkpoint at index 0.** A sub-project query (e.g. `chappie/V9`) walks up to ancestor rings; `read_latest` returned the *first* candidate ring's `latest_handoff.json` regardless of age, so a weeks-old handoff could occupy index 0 while the genuine latest sat lower — an autonomous resume trusting index 0 could act on the wrong plan. Restore now selects the newest **deliberate (manual)** checkpoint across the resolved scope: a newer manual outranks an older one (kills the stale win), and a routine auto session-stop never buries a deliberate checkpoint; it falls back to newest-of-any-kind only when no manual is in scope. `read_history` now folds each ring's `latest` pointer into the merged view (a legacy single-slot handoff is never missed), and `read_ordered` pins this corrected latest at index 0, so `checkpoint_restore index=0` == `checkpoint_list[0]` == `get_by_index(0)`. Read-path only — no migration; existing rings are re-interpreted correctly. New regression test: `tests/bench_restore_recency_scope.py`.
+
 ### v0.7.0 — 2026-06-01
 
 - **`session_mine(commitments)`** — reads the LIVE session transcript (newest *.jsonl, picked by newest last-message timestamp) for open-loop items the post-session mining index cannot see. DEFERRED channel scans ~450 recent messages for next-session/remaining/TODO/follow-up/defer language; IN-FLIGHT channel scans last ~30 messages for "I'll"/"let me"/"next" actions. Heuristic, LLM-free.
