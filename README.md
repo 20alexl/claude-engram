@@ -155,8 +155,8 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 If search quality is poor or you want to rebuild after an update:
 
 ```bash
-python scripts/reindex.py "E:\workspace" --force            # rebuild search index
-python scripts/reindex.py "E:\workspace" --force --extract   # also re-extract decisions/mistakes
+python scripts/reindex.py "/path/to/your/workspace" --force            # rebuild search index
+python scripts/reindex.py "/path/to/your/workspace" --force --extract   # also re-extract decisions/mistakes
 ```
 
 Or via MCP: `session_mine(operation="reindex", mode="bootstrap")`

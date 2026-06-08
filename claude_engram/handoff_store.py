@@ -185,8 +185,8 @@ def read_latest(
 
     This replaces "first candidate dir wins" (the old behavior), which returned
     a nearest ancestor ring's pointer regardless of age — so a sub-project query
-    (``chappie/V9`` -> ``chappie``) could surface a weeks-old "ready for pretrain
-    v3" as the latest while the genuine newest sat at a higher index. Two
+    (e.g. ``monorepo/app`` -> ``monorepo``) could surface a weeks-old "ready for
+    pretrain v3" as the latest while the genuine newest sat at a higher index. Two
     properties matter and pure recency only gets the first:
       1. a newer manual must outrank an older manual  -> kills the stale bug;
       2. a routine auto "Session stopped" must not bury a deliberate checkpoint.

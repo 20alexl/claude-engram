@@ -2,10 +2,10 @@
 """Rebuild session index, extractions, and search embeddings for a project.
 
 Usage:
-    python scripts/reindex.py E:\\workspace              # incremental
-    python scripts/reindex.py E:\\workspace --force       # full rebuild (clears + re-embeds)
-    python scripts/reindex.py E:\\workspace --extract     # re-extract empty sessions only
-    python scripts/reindex.py E:\\workspace --force --extract  # full rebuild + re-extract all
+    python scripts/reindex.py /path/to/your/workspace              # incremental
+    python scripts/reindex.py /path/to/your/workspace --force       # full rebuild (clears + re-embeds)
+    python scripts/reindex.py /path/to/your/workspace --extract     # re-extract empty sessions only
+    python scripts/reindex.py /path/to/your/workspace --force --extract  # full rebuild + re-extract all
 """
 import json
 import sys

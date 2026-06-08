@@ -5,7 +5,7 @@ Claude Code stores conversation logs at:
   ~/.claude/projects/<dir-hash>/*.jsonl
 
 Directory naming convention:
-  E:\\workspace\\project  →  E--workspace-project
+  C:\\projects\\app  →  C--projects-app
   (drive letter + '--' + path segments joined by '-')
 
 Each line in a JSONL file is a JSON object with a 'type' field:
@@ -30,14 +30,14 @@ def path_to_dir_name(project_path: str) -> str:
     Convert a filesystem path to Claude Code's directory naming convention.
 
     Examples:
-        E:\\workspace           → E--workspace
-        E:\\workspace\\project  → E--workspace-project
-        /home/user/project     → -home-user-project
+        C:\\projects        → C--projects
+        C:\\projects\\app   → C--projects-app
+        /home/user/project  → -home-user-project
     """
     # Normalize
     p = project_path.replace("/", "\\")
 
-    # Windows drive path: E:\\workspace → E--workspace
+    # Windows drive path: C:\\projects → C--projects
     match = re.match(r"^([a-zA-Z]):\\(.*)$", p)
     if match:
         drive = match.group(1)
@@ -55,8 +55,8 @@ def dir_name_to_path(dir_name: str) -> str:
     Convert Claude Code's directory name back to a filesystem path.
 
     Examples:
-        E--workspace         → E:\\workspace
-        e--workspace-project → e:\\workspace\\project  (ambiguous — best effort)
+        C--projects      → C:\\projects
+        c--projects-app  → c:\\projects\\app  (ambiguous — best effort)
     """
     # Windows drive: X--rest
     match = re.match(r"^([a-zA-Z])--(.+)$", dir_name)

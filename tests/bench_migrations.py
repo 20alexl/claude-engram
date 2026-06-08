@@ -32,12 +32,12 @@ def test_extractor():
     print("extract_file_refs (the root #5 fix):")
     check(
         "captures relative path with dirs",
-        "V7/cortex/x.py" in extract_file_refs("import from V7/cortex/x.py"),
+        "service-a/myapp/x.py" in extract_file_refs("import from service-a/myapp/x.py"),
     )
     check(
         "captures Windows drive path",
-        "E:/ws/V8/engine.py"
-        in extract_file_refs("err in E:/ws/V8/engine.py at line 3"),
+        "C:/ws/service-b/engine.py"
+        in extract_file_refs("err in C:/ws/service-b/engine.py at line 3"),
     )
     check(
         "captures bare basename when no dir",
@@ -63,7 +63,7 @@ def test_migrations():
             "entries": [
                 {
                     "id": "m1",
-                    "content": "ImportError: cannot import X from 'e:/ws/proj/V7/core/__init__.py'",
+                    "content": "ImportError: cannot import X from 'e:/ws/proj/service-a/core/__init__.py'",
                     "related_files": ["__init__.py"],
                 },
                 {
@@ -113,7 +113,7 @@ def test_migrations():
         m1 = json.loads(mem_file.read_text())["entries"][0]
         check(
             "related_files upgraded to full path",
-            any(f.endswith("V7/core/__init__.py") for f in m1["related_files"]),
+            any(f.endswith("service-a/core/__init__.py") for f in m1["related_files"]),
         )
         check(
             "bare __init__.py dropped (covered by full path)",

@@ -82,7 +82,7 @@ context(
 ## Key Behaviors
 - Rules cascade from workspace to sub-projects
 - Only file-relevant memories inject before edits (no generic noise)
-- Pre-edit injection is path-aware: a shared basename across diverging paths (e.g. V7/.../__init__.py vs V8/.../__init__.py) is not treated as a match; generic basenames like `__init__.py` or `index.js` require a full-path signal to score
+- Pre-edit injection is path-aware: a shared basename across diverging paths (e.g. service-a/.../__init__.py vs service-b/.../__init__.py) is not treated as a match; generic basenames like `__init__.py` or `index.js` require a full-path signal to score
 - Mistakes only logged from errors in project files (not inline python, not pip packages)
 - Loop counter resets after git commits
 - Scorer server auto-starts on demand (no silent degradation)

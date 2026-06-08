@@ -128,7 +128,7 @@ You rarely need to call `pre_edit_check` manually. It's available for an explici
 pre_edit_check(file_path="auth/middleware.py")
 ```
 
-Memory injection is path-aware: a mistake stored for `v7/auth/middleware.py` will not fire when editing `v8/auth/middleware.py` even if the basename matches. Generic filenames (`__init__.py`, `index.js`) require a full-path signal; specific filenames still match by name.
+Memory injection is path-aware: a mistake stored for `service-a/auth/middleware.py` will not fire when editing `service-b/auth/middleware.py` even if the basename matches. Generic filenames (`__init__.py`, `index.js`) require a full-path signal; specific filenames still match by name.
 
 ### Declare Scope
 

@@ -11,7 +11,7 @@ Scope: ONE project, bounded by nested project markers. Walking a workspace
 root therefore indexes only the root's own files, not its sub-projects — each
 sub-project gets its own index (resolved with workspace inheritance, like
 memory). This is deliberate: a pooled cross-project symbol table would
-reintroduce the V7/V8 cross-pollution that path-aware relevance fixed.
+reintroduce the service-a/service-b cross-pollution that path-aware relevance fixed.
 
 Build is incremental: a module is re-parsed only when its mtime changes;
 deleted files are dropped. Pure ``ast`` — no LLM, no network. Degrades to

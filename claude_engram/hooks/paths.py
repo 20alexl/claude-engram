@@ -40,8 +40,8 @@ _PROJECT_MARKERS = {
 }
 
 # Generic filenames present in nearly every project — a bare basename match on
-# these pulls in unrelated projects' mistakes (a V7 __init__.py mistake firing
-# on a V8 __init__.py edit), so the pre-edit check requires a full-path match
+# these pulls in unrelated projects' mistakes (a service-a __init__.py mistake firing
+# on a service-b __init__.py edit), so the pre-edit check requires a full-path match
 # for them. Mirrors memory._GENERIC_BASENAMES (kept local to avoid importing
 # the heavy memory module on the hot hook path).
 _GENERIC_BASENAMES = {

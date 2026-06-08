@@ -67,8 +67,8 @@ RECENCY_HALF_LIFE_DAYS = 30
 
 # Filenames that exist in nearly every project/package. A bare basename match
 # on these is meaningless (every project has an __init__.py), so they require a
-# full-path signal before a memory counts as file-relevant — otherwise a V7
-# mistake about __init__.py fires on every V8 __init__.py edit.
+# full-path signal before a memory counts as file-relevant — otherwise a service-a
+# mistake about __init__.py fires on every service-b __init__.py edit.
 _GENERIC_BASENAMES = {
     "__init__.py",
     "__main__.py",
@@ -88,9 +88,9 @@ def _file_match_score(ctx_file: str, related_files: list, content: str) -> float
 
     The key fix for cross-version false positives: when a related file carries
     directory info, we require *path compatibility* (same file in absolute or
-    relative form), not just a shared basename. ``V7/.../losses/__init__.py``
-    and ``V8/.../losses/__init__.py`` share their whole suffix but are different
-    files — they diverge at the ``V7``/``V8`` component, so they do NOT match.
+    relative form), not just a shared basename. ``service-a/.../losses/__init__.py``
+    and ``service-b/.../losses/__init__.py`` share their whole suffix but are different
+    files — they diverge at the ``service-a``/``service-b`` component, so they do NOT match.
 
     - Same path (abs or rel form of one path) -> 1.0
     - Bare-basename locator (no dir info), non-generic name -> 0.5
@@ -142,7 +142,7 @@ _FILE_PATH_RE = re.compile(r"[\w/\\.:-]+\." + _FILE_EXTS)
 def extract_file_refs(content: str) -> list[str]:
     """Extract file references from text, keeping full/relative paths rather
     than collapsing to basenames — so directory context survives and a
-    ``V7/.../x.py`` reference stays distinguishable from ``V8/.../x.py``.
+    ``service-a/.../x.py`` reference stays distinguishable from ``service-b/.../x.py``.
 
     Note: the previous implementation used a *capturing* extension group, so
     ``re.findall`` returned only the extension ("py") and every path was
@@ -3142,7 +3142,7 @@ class HotMemoryReader:
                     rules.append(entry)
                     continue
                 # Direct file relevance only — path-aware, so a shared basename
-                # across diverging paths (e.g. V7 vs V8) is not treated as a
+                # across diverging paths (e.g. service-a vs service-b) is not treated as a
                 # match and generic names like __init__.py need a full path.
                 related = entry.get("related_files", [])
                 content = entry.get("content", "")

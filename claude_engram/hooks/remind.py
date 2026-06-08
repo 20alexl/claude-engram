@@ -774,8 +774,8 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
 
     # Find mistakes related to this file. For generic names (__init__.py, etc.)
     # a bare filename match is meaningless across projects, so require the full
-    # path to appear in the mistake — otherwise a V7 __init__.py mistake fires
-    # on every V8 __init__.py edit.
+    # path to appear in the mistake — otherwise a service-a __init__.py mistake fires
+    # on every service-b __init__.py edit.
     import re as _re3
 
     if file_name.lower() in _GENERIC_BASENAMES:

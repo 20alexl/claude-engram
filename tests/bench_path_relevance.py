@@ -2,10 +2,10 @@
 Benchmark: path-aware mistake relevance.
 
 Guards the fix that stops cross-version / cross-directory false positives — a
-V7 mistake (or an auth/middleware.py mistake) must not fire on a V8 (or
-api/middleware.py) edit just because the basename matches — while preserving
-genuine relevance (same path, relative form, bare locator, full-path-in-text,
-specific filename mentioned in the memory).
+service-a mistake (or an auth/middleware.py mistake) must not fire on a
+service-b (or api/middleware.py) edit just because the basename matches — while
+preserving genuine relevance (same path, relative form, bare locator,
+full-path-in-text, specific filename mentioned in the memory).
 
 Run: python tests/bench_path_relevance.py
 """
@@ -26,10 +26,10 @@ def check(name, cond):
         _fails.append(name)
 
 
-V8 = "E:/workspace/chappie/V8/cortex/core/training/losses/__init__.py"
-V7 = "E:/workspace/chappie/V7/cortex/core/training/losses/__init__.py"
-ENG_V8 = "E:/workspace/chappie/V8/cortex/mind/imagination/engine.py"
-ENG_V7 = "E:/workspace/chappie/V7/cortex/mind/imagination/engine.py"
+SVC_B = "/repo/service-b/myapp/core/training/losses/__init__.py"
+SVC_A = "/repo/service-a/myapp/core/training/losses/__init__.py"
+ENG_B = "/repo/service-b/myapp/imagination/engine.py"
+ENG_A = "/repo/service-a/myapp/imagination/engine.py"
 
 GATE = 0.5  # injection threshold used by get_scored_memories
 
@@ -39,42 +39,42 @@ if __name__ == "__main__":
     print("=" * 60)
 
     print("Cross-version / cross-dir false positives are rejected:")
-    check("V7 full-path related does NOT match V8 edit", S(V8, [V7], "") < GATE)
+    check("service-a full-path related does NOT match service-b edit", S(SVC_B, [SVC_A], "") < GATE)
     check(
-        "V7 path in content does NOT match V8 __init__.py",
-        S(V8, [], f"import from '{V7}'") < GATE,
+        "service-a path in content does NOT match service-b __init__.py",
+        S(SVC_B, [], f"import from '{SVC_A}'") < GATE,
     )
     check(
         "bare __init__.py related does NOT match (generic)",
-        S(V8, ["__init__.py"], "") < GATE,
+        S(SVC_B, ["__init__.py"], "") < GATE,
     )
     check(
         "__init__.py name-drop in content does NOT match (generic)",
-        S(V8, [], "see __init__.py") < GATE,
+        S(SVC_B, [], "see __init__.py") < GATE,
     )
     check(
-        "engine.py V7 full path does NOT match V8 engine.py",
-        S(ENG_V8, [ENG_V7], "") < GATE,
+        "engine.py service-a full path does NOT match service-b engine.py",
+        S(ENG_B, [ENG_A], "") < GATE,
     )
     check(
         "unrelated file does not match",
-        S(V8, ["E:/other/proj/server.py"], "server crash") == 0.0,
+        S(SVC_B, ["/other/proj/server.py"], "server crash") == 0.0,
     )
 
     print("Genuine relevance is preserved:")
-    check("same V8 full path matches", S(V8, [V8], "") == 1.0)
+    check("same service-b full path matches", S(SVC_B, [SVC_B], "") == 1.0)
     check(
-        "relative V8 path (suffix of edit) matches",
-        S(V8, ["V8/cortex/core/training/losses/__init__.py"], "") == 1.0,
+        "relative service-b path (suffix of edit) matches",
+        S(SVC_B, ["service-b/myapp/core/training/losses/__init__.py"], "") == 1.0,
     )
-    check("full path in content matches", S(V8, [], f"error in {V8}") >= GATE)
+    check("full path in content matches", S(SVC_B, [], f"error in {SVC_B}") >= GATE)
     check(
         "bare engine.py related matches engine.py edit",
-        S(ENG_V8, ["engine.py"], "") >= GATE,
+        S(ENG_B, ["engine.py"], "") >= GATE,
     )
     check(
         "specific filename in content matches",
-        S(ENG_V8, [], "touched engine.py earlier") >= GATE,
+        S(ENG_B, [], "touched engine.py earlier") >= GATE,
     )
 
     print("-" * 60)

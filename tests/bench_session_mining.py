@@ -173,11 +173,11 @@ def test_path_conversion() -> list[tuple[str, bool, str]]:
 
     cases = [
         # Windows-style paths
-        (r"E:\workspace", "E--workspace"),
+        (r"C:\repo", "C--repo"),
         (r"e:\projects", "e--projects"),
         (r"d:\Code\mini_cl", "d--Code-mini_cl"),
-        (r"E:\workspace\3r_robotics", "E--workspace-3r_robotics"),
-        (r"E:\openclaw\workspace\chappie", "E--openclaw-workspace-chappie"),
+        (r"C:\repo\service-b", "C--repo-service-b"),
+        (r"C:\team\repo\myproject", "C--team-repo-myproject"),
     ]
 
     for path, expected in cases:

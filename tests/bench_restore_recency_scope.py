@@ -2,7 +2,7 @@
 checkpoint across the resolved candidate scope.
 
 Guards two failures at once:
-  - a stale ancestor manual must not win (the chappie/V9 -> chappie
+  - a stale ancestor manual must not win (the myproject/service-c -> myproject
     "ready for pretrain v3" bug): a newer manual outranks an older one;
   - a routine auto "Session stopped" must not bury a deliberate checkpoint.
 Run: venv/Scripts/python.exe tests/bench_restore_recency_scope.py
@@ -28,7 +28,7 @@ def run():
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        near = root / "chappie"   # nearest candidate, stale manual latest pointer
+        near = root / "myproject"   # nearest candidate, stale manual latest pointer
         far = root / "workspace"  # later candidate; noise is chronologically newest
         _write(near, [stale], stale)
         _write(far, [mid, fresh, noise], fresh)

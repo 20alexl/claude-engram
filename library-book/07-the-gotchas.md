@@ -18,7 +18,7 @@
 
 ### Gotcha: Generic-basename memories fire on unrelated files
 
-**Symptom:** A mistake logged for `v7/auth/__init__.py` surfaces as a warning when editing `v8/auth/__init__.py`, even though the two files are unrelated.
+**Symptom:** A mistake logged for `service-a/auth/__init__.py` surfaces as a warning when editing `service-b/auth/__init__.py`, even though the two files are unrelated.
 
 **Cause:** Pre-v0.5.0, `file_match` compared only basenames. `__init__.py` matched any `__init__.py` anywhere.
 
@@ -26,7 +26,7 @@
 
 If you upgraded and still see stale cross-version warnings, run `python -m claude_engram.migrations` to re-extract `related_files` to full paths for existing memories.
 
-**Lesson:** If you store a mistake with a specific file context, the path matters. Logging a mistake with `file_path="v7/auth/__init__.py"` and later editing `v8/auth/__init__.py` will correctly not trigger it.
+**Lesson:** If you store a mistake with a specific file context, the path matters. Logging a mistake with `file_path="service-a/auth/__init__.py"` and later editing `service-b/auth/__init__.py` will correctly not trigger it.
 
 ---
 
@@ -153,7 +153,7 @@ python install.py
 
 **Symptom:** You run from a workspace root containing `projectA/` and `projectB/`. The code index built for the workspace doesn't know about symbols in `projectB/` when you're working in `projectA/`.
 
-**Cause:** The index walk stops at project boundaries (dirs containing `pyproject.toml`, `package.json`, `.git`, `CLAUDE.md`, etc.). Each sub-project gets its own index. This is deliberate — a pooled cross-project symbol table would cause V7/V8-style cross-pollution.
+**Cause:** The index walk stops at project boundaries (dirs containing `pyproject.toml`, `package.json`, `.git`, `CLAUDE.md`, etc.). Each sub-project gets its own index. This is deliberate — a pooled cross-project symbol table would cause service-a/service-b-style cross-pollution.
 
 **Fix:** Nothing to fix. When the hook fires for a file in `projectA/`, it resolves the index for `projectA/` only. Impact analysis across projects still works via `impact_analyze` with an explicit `project_root`.
 

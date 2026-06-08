@@ -93,7 +93,7 @@ Storage: ~/.claude_engram/
 - Parent-path fallback: when looking up a sub-project path, also checks parent paths for inherited workspace-level memories
 - Scoring logic duplicated (simplified) from `MemoryStore._score_memory_relevance` to avoid Pydantic imports
 - Shared constants (`SCORE_WEIGHTS`, `CATEGORY_BONUSES`) keep the two implementations in sync
-- Path-aware `file_match` (v0.5.0): a shared basename across diverging paths (`V7/.../foo.py` vs `V8/.../foo.py`) is not treated as a match. Generic basenames (`__init__.py`, `index.js`, `__main__.py`, etc.) require a full-path signal to match; specific filenames still match by name. Scoring weights are unchanged.
+- Path-aware `file_match` (v0.5.0): a shared basename across diverging paths (`service-a/.../foo.py` vs `service-b/.../foo.py`) is not treated as a match. Generic basenames (`__init__.py`, `index.js`, `__main__.py`, etc.) require a full-path signal to match; specific filenames still match by name. Scoring weights are unchanged.
 
 ### Hook System (`hooks/remind.py`)
 

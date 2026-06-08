@@ -168,7 +168,7 @@ Before every Edit/Write, the PreToolUse hook scores all hot memories against the
 - 10% access frequency
 - Rules get +0.3 bonus, mistakes get +0.2
 
-File-path matching is path-aware: a shared basename across diverging paths (e.g. `V7/cortex/__init__.py` vs `V8/cortex/__init__.py`) is not treated as a match. Generic basenames like `__init__.py` or `index.js` require a full-path signal to score; specific filenames still match on name alone.
+File-path matching is path-aware: a shared basename across diverging paths (e.g. `service-a/myapp/__init__.py` vs `service-b/myapp/__init__.py`) is not treated as a match. Generic basenames like `__init__.py` or `index.js` require a full-path signal to score; specific filenames still match on name alone.
 
 Top 3 are injected as context. You'll see them in the hook output before edits.
 
