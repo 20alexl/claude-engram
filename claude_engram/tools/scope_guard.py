@@ -43,7 +43,6 @@ class ScopeGuard:
     def __init__(self):
         self._current_scope: Optional[ScopeDeclaration] = None
         self._out_of_scope_attempts: list[tuple[str, float]] = []  # (file, timestamp)
-        self._edits_made: list[tuple[str, float]] = []  # (file, timestamp)
 
         # Persistence for hooks to read
         self._state_file = Path.home() / ".claude_engram" / "scope_guard.json"
@@ -102,7 +101,6 @@ class ScopeGuard:
 
         # Reset tracking
         self._out_of_scope_attempts = []
-        self._edits_made = []
         self._persist_state()  # Save for hooks to read
 
         work_log.what_worked.append("scope declared")
@@ -185,10 +183,6 @@ class ScopeGuard:
                 ],
             )
 
-    def record_edit(self, file_path: str):
-        """Record that a file was edited (for tracking)."""
-        self._edits_made.append((file_path, time.time()))
-
     def expand_scope(
         self,
         files_to_add: list[str],
@@ -243,28 +237,18 @@ class ScopeGuard:
                 suggestions=["Use scope_declare before starting a task"],
             )
 
-        # Check for scope creep
+        # Check for scope creep. (Actual edits are tracked by the hooks, which
+        # warn at edit time; the MCP server only sees check_file attempts.)
         violations = len(self._out_of_scope_attempts)
-        unique_out_of_scope = set(f for f, _ in self._out_of_scope_attempts)
-
-        # Check what was edited
-        files_edited = set(f for f, _ in self._edits_made)
-        in_scope_edits = [f for f in files_edited if self._is_in_scope(f)[0]]
-        out_scope_edits = [f for f in files_edited if not self._is_in_scope(f)[0]]
 
         warnings = []
-        if out_scope_edits:
-            warnings.append(f"Edited {len(out_scope_edits)} out-of-scope files!")
-            for f in out_scope_edits[:3]:
-                warnings.append(f"   - {Path(f).name}")
-
         if violations > 0:
             warnings.append(f"{violations} out-of-scope edit attempts this session")
 
         work_log.what_worked.append("status retrieved")
 
         return MiniClaudeResponse(
-            status="warning" if out_scope_edits else "success",
+            status="warning" if violations else "success",
             confidence="high",
             reasoning=f"Scope: {self._current_scope.task_description}",
             work_log=work_log,
@@ -274,9 +258,6 @@ class ScopeGuard:
                 "in_scope_files": self._current_scope.in_scope_files,
                 "in_scope_patterns": self._current_scope.in_scope_patterns,
                 "out_of_scope_files": self._current_scope.out_of_scope_files,
-                "files_edited": list(files_edited),
-                "in_scope_edits": in_scope_edits,
-                "out_scope_edits": out_scope_edits,
                 "violation_attempts": violations,
             },
             warnings=warnings,
@@ -291,7 +272,6 @@ class ScopeGuard:
 
         self._current_scope = None
         self._out_of_scope_attempts = []
-        self._edits_made = []
         self._persist_state()  # Clear persisted state
 
         return MiniClaudeResponse(

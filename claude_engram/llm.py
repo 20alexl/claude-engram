@@ -221,26 +221,6 @@ class LLMClient:
                 "queue_wait_ms": queue_wait_ms,
             }
 
-    def analyze_code(self, code: str, question: str) -> dict:
-        """Ask the model to analyze code and answer a question about it."""
-        system_prompt = """You are Claude Engram, a code analysis assistant.
-Analyze the provided code and answer questions about it.
-Be concise but thorough. Focus on what's actually in the code.
-If you're uncertain, say so. Don't make things up."""
-
-        prompt = f"""## Code to Analyze
-```
-{code}
-```
-
-## Question
-{question}
-
-## Your Analysis
-Provide a clear, factual analysis:"""
-
-        return self.generate(prompt, system=system_prompt)
-
     def summarize_file(self, content: str, filepath: str) -> dict:
         """Get a brief summary of what a file does."""
         system_prompt = """You are Claude Engram, a code analysis assistant.

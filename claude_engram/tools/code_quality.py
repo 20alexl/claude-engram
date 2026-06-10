@@ -591,22 +591,3 @@ class CodeQualityChecker:
 
         return issues
 
-    def quick_check_name(self, name: str) -> Optional[str]:
-        """
-        Quick check if a name is problematic.
-
-        Returns warning message if name is bad, None if OK.
-        """
-        name_lower = name.lower()
-
-        if name_lower in VAGUE_NAMES:
-            return f"'{name}' is too vague - what specifically does it do/contain?"
-
-        for prefix in VAGUE_PREFIXES:
-            if name_lower.startswith(prefix):
-                return f"'{name}' has vague prefix - be more specific"
-
-        if len(name) <= 2 and name_lower not in ("id", "ok", "db", "io"):
-            return f"'{name}' is too short - use a descriptive name"
-
-        return None

@@ -111,7 +111,7 @@ class MiniClaudeResponse(BaseModel):
 
             # Warnings are CRITICAL for test failures
             if self.warnings:
-                lines.append("🛑 **CRITICAL WARNINGS:**")
+                lines.append("**CRITICAL WARNINGS:**")
                 for w in self.warnings:
                     lines.append(f"  • {w}")
                 lines.append("")

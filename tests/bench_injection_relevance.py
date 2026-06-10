@@ -351,12 +351,15 @@ TEST_CASES = [
         ["React", "OAuth"],
         "same dir: db models (rules dominate over discoveries)",
     ),
+    # Path-aware policy (v0.5+): the validation mistake belongs to
+    # api/routes.py / api/users.py -- sharing a directory is NOT file
+    # relevance, so it must stay out of an api/middleware.py edit.
     (
         "api/middleware.py",
         ["api"],
-        ["validate"],  # api mistake ranks high
-        ["React"],
-        "same dir: api middleware",
+        [],
+        ["validate", "React"],
+        "same dir is not file relevance: api middleware stays clean",
     ),
     # --- Category bonus: rule > mistake > discovery ---
     (

@@ -414,16 +414,14 @@ def run_benchmark():
     print(f"Payloads: {len(PAYLOADS)}")
     print("=" * 60)
 
-    # Use a temp directory to isolate memory writes
+    # Use a temp directory to isolate memory writes.
+    # CLAUDE_ENGRAM_DIR is the supported test seam: patching HOME does not
+    # move Path.home() on Windows, so the old harness silently wrote to the
+    # real store (and the dedup check read a file nothing wrote to).
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Patch HOME so get_memory_file() writes to temp
-        original_home = os.environ.get("HOME") or os.environ.get("USERPROFILE")
-        os.environ["HOME"] = tmpdir
-        os.environ["USERPROFILE"] = tmpdir
-
-        # Create the expected directory
         engram_dir = Path(tmpdir) / ".claude_engram"
         engram_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["CLAUDE_ENGRAM_DIR"] = str(engram_dir)
 
         project_dir = "/tmp/bench_error_capture"
         tp = fp = fn = tn = 0
@@ -478,37 +476,39 @@ def run_benchmark():
         if state_file.exists():
             state_file.unlink()
 
-        # Submit same error twice
-        dup_project = "/tmp/bench_dedup"
-        dup_output = "Traceback:\nTypeError: 'NoneType' object is not iterable"
+        # Submit same error twice. The traceback must reference a project
+        # file: outputs without one are filtered as noise by design, so the
+        # old bare "Traceback: TypeError..." payload could never be captured.
+        dup_project = "/proj/bench_dedup"
+        dup_output = (
+            "Traceback (most recent call last):\n"
+            '  File "/proj/bench_dedup/x.py", line 3, in <module>\n'
+            "TypeError: 'NoneType' object is not iterable"
+        )
         r1 = _auto_log_detected_mistake(dup_project, "python x.py", dup_output)
         r2 = _auto_log_detected_mistake(dup_project, "python x.py", dup_output)
 
-        # Count entries — find the project key (may be normalized differently on Windows)
+        # Count entries in the v5 per-project layout via the manifest
         entries = []
-        if memory_file.exists():
-            data = json.loads(memory_file.read_text())
-            projects = data.get("projects", {})
-            # Find the project key that contains our project name
-            for key, val in projects.items():
+        manifest_file = engram_dir / "manifest.json"
+        if manifest_file.exists():
+            manifest = json.loads(manifest_file.read_text())
+            for key, info in manifest.get("projects", {}).items():
                 if "bench_dedup" in key:
-                    entries = val.get("entries", [])
+                    proj_file = engram_dir / "projects" / info["hash"] / "memory.json"
+                    if proj_file.exists():
+                        entries = json.loads(proj_file.read_text()).get("entries", [])
                     break
-            dedup_ok = len(entries) == 1
-        else:
-            dedup_ok = False
+        dedup_ok = len(entries) == 1
 
         print(f"  First submission: {'captured' if r1 else 'missed'}")
         print(
             f"  Second submission: {'captured (duplicate!)' if r2 else 'suppressed (correct)'}"
         )
-        print(f"  Entries in file: {len(entries) if memory_file.exists() else 0}")
+        print(f"  Entries in file: {len(entries)}")
         print(f"  Deduplication: {'PASS' if dedup_ok else 'FAIL'}")
 
-        # Restore HOME
-        if original_home:
-            os.environ["HOME"] = original_home
-            os.environ["USERPROFILE"] = original_home
+        os.environ.pop("CLAUDE_ENGRAM_DIR", None)
 
     # Results
     n_errors = sum(1 for _, _, e, _, _ in PAYLOADS if e)

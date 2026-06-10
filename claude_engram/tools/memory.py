@@ -235,7 +235,9 @@ class MemoryStore:
         r"install|setup|dependency": "setup",
     }
 
-    def __init__(self, storage_dir: str = "~/.claude_engram"):
+    def __init__(self, storage_dir: str = ""):
+        if not storage_dir:
+            storage_dir = os.environ.get("CLAUDE_ENGRAM_DIR", "~/.claude_engram")
         self.storage_dir = Path(storage_dir).expanduser()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
@@ -3006,7 +3008,9 @@ class HotMemoryReader:
     Designed to be instantiated per hook call — no caching.
     """
 
-    def __init__(self, storage_dir: str = "~/.claude_engram"):
+    def __init__(self, storage_dir: str = ""):
+        if not storage_dir:
+            storage_dir = os.environ.get("CLAUDE_ENGRAM_DIR", "~/.claude_engram")
         self._storage = Path(storage_dir).expanduser()
         self._manifest_file = self._storage / "manifest.json"
         self._projects_dir = self._storage / "projects"

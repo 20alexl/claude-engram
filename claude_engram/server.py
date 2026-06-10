@@ -104,11 +104,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 args=arguments,
             )
 
-        case "output":
-            return await handlers.handle_output(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "output" case REMOVED - regex stub duplicating audit_batch inline mode
 
         # NOTE: "test" case REMOVED - use Bash instead
 
@@ -125,16 +121,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 max_results=arguments.get("max_results", 10),
             )
 
-        case "scout_analyze":
-            return await handlers.analyze(
-                code=arguments.get("code", ""),
-                question=arguments.get("question", ""),
-            )
+        # NOTE: "scout_analyze" case REMOVED - zero recorded use; the agent
+        # reads code better than a local-LLM commentary pass
 
         case "file_summarize":
             return await handlers.summarize(
                 file_path=arguments.get("file_path", ""),
-                mode=arguments.get("mode", "quick"),
             )
 
         case "deps_map":

@@ -3,43 +3,35 @@ File Summarizer - Quick understanding of files for Claude Engram
 
 Provides:
 1. Quick one-line summaries
-2. Detailed breakdowns of file structure
-3. Key facts extraction (exports, functions, classes, etc.)
+2. Key facts extraction (exports, functions, classes, etc.)
+
+Pattern-based only. (The LLM "detailed" mode was removed: zero recorded use,
+and the agent summarizes files better than a local 12B pass.)
 """
 
 import os
 import re
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..llm import LLMClient
+from typing import Optional
 
 from ..schema import MiniClaudeResponse, WorkLog
 
 
 class FileSummarizer:
     """
-    Quickly understand what a file does.
-
-    Two modes:
-    - quick: One-line summary using pattern matching (fast, no LLM)
-    - detailed: Full breakdown using LLM (slower, more context)
+    Quickly understand what a file does: pattern-based summary + structural
+    facts (classes, functions, exports). Fast, no LLM.
     """
-
-    def __init__(self, llm: "LLMClient"):
-        self.llm = llm
 
     def summarize(
         self,
         file_path: str,
-        mode: str = "quick",  # "quick" or "detailed"
     ) -> MiniClaudeResponse:
         """
         Summarize a file's purpose and contents.
         """
         work_log = WorkLog()
-        work_log.what_i_tried.append(f"{mode} summarization")
+        work_log.what_i_tried.append("structural summarization")
 
         # Validate file exists
         path = Path(file_path)
@@ -74,53 +66,18 @@ class FileSummarizer:
         facts = self._extract_facts(content, path.suffix.lower())
         work_log.what_worked.append(f"extracted {len(facts)} facts")
 
-        if mode == "quick":
-            # Quick mode: pattern-based summary
-            summary = self._quick_summary(content, path, facts)
-            return MiniClaudeResponse(
-                status="success",
-                confidence="medium",
-                reasoning=summary,
-                work_log=work_log,
-                data={
-                    "file": str(path),
-                    "size_lines": content.count("\n") + 1,
-                    "facts": facts,
-                },
-            )
-
-        else:
-            # Detailed mode: use LLM
-            work_log.what_i_tried.append("LLM analysis")
-
-            result = self.llm.summarize_file(content, str(path))
-
-            if result.get("success"):
-                work_log.what_worked.append("LLM summary generated")
-                work_log.time_taken_ms = result.get("time_taken_ms", 0)
-
-                return MiniClaudeResponse(
-                    status="success",
-                    confidence="high",
-                    reasoning=result["response"].strip(),
-                    work_log=work_log,
-                    data={
-                        "file": str(path),
-                        "size_lines": content.count("\n") + 1,
-                        "facts": facts,
-                    },
-                )
-            else:
-                work_log.what_failed.append(result.get("error", "LLM failed"))
-                # Fall back to quick mode
-                summary = self._quick_summary(content, path, facts)
-                return MiniClaudeResponse(
-                    status="partial",
-                    confidence="medium",
-                    reasoning=f"LLM unavailable, quick summary: {summary}",
-                    work_log=work_log,
-                    data={"facts": facts},
-                )
+        summary = self._quick_summary(content, path, facts)
+        return MiniClaudeResponse(
+            status="success",
+            confidence="medium",
+            reasoning=summary,
+            work_log=work_log,
+            data={
+                "file": str(path),
+                "size_lines": content.count("\n") + 1,
+                "facts": facts,
+            },
+        )
 
     def _extract_facts(self, content: str, extension: str) -> dict:
         """Extract structural facts from code."""

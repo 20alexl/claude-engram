@@ -197,25 +197,41 @@ SCOPING_TESTS = [
         ["JWT", "React"],  # NOT sub-project specific
         "shared sees workspace only",
     ),
+    # Path-aware policy (v0.5+): a workspace mistake with NO file relevance is
+    # NOT injected for a sub-project file edit -- generic mistakes firing on
+    # every edit was the cross-version false-positive bug. Cascade applies to
+    # rules and to mistakes that actually reference the edited file.
     (
         "backend_auth",
         "backend",
-        ["committed .env"],  # workspace mistake cascades
         [],
-        "workspace mistake visible in backend",
+        ["committed .env"],  # file-irrelevant workspace mistake stays out
+        "file-irrelevant workspace mistake NOT injected in backend",
     ),
     (
         "frontend_app",
         "frontend",
-        ["committed .env"],  # workspace mistake cascades
         [],
-        "workspace mistake visible in frontend",
+        ["committed .env"],
+        "file-irrelevant workspace mistake NOT injected in frontend",
     ),
 ]
 
 
 def run_benchmark():
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Isolate engram storage: CLAUDE_ENGRAM_DIR is the supported test seam
+        # (patching HOME does not move Path.home() on Windows, so the old
+        # harness silently wrote to the real store).
+        os.environ["CLAUDE_ENGRAM_DIR"] = str(Path(tmpdir) / "engram_storage")
+        try:
+            return _run_benchmark_isolated(tmpdir)
+        finally:
+            os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+
+
+def _run_benchmark_isolated(tmpdir):
+    if True:  # keep the original indentation block
         paths = create_workspace(tmpdir)
 
         # Clear the project dir cache (it's module-level)

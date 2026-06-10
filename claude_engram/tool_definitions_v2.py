@@ -429,49 +429,8 @@ TOOL_DEFINITIONS = [
             "required": ["operation", "project_path"],
         },
     ),
-    Tool(
-        name="output",
-        description="""Validate code and command output for correctness. Detects fake results, silent failures, and missing expected content. Operations:
-- validate_code: Analyze code for patterns that silently fail (empty except blocks, unused return values, missing error handling)
-- validate_result: Check command output against expected format and required/forbidden content""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["validate_code", "validate_result"],
-                    "description": "Which validation operation to perform",
-                },
-                "code": {
-                    "type": "string",
-                    "description": "For validate_code: the code snippet to analyze for silent failure patterns",
-                },
-                "context": {
-                    "type": "string",
-                    "description": "For validate_code: what this code is supposed to do (helps detect semantic failures)",
-                },
-                "output": {
-                    "type": "string",
-                    "description": "For validate_result: the actual command/tool output to validate",
-                },
-                "expected_format": {
-                    "type": "string",
-                    "description": "For validate_result: expected output format (e.g., 'JSON array', 'CSV with headers')",
-                },
-                "should_contain": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "For validate_result: strings that must appear in valid output",
-                },
-                "should_not_contain": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "For validate_result: strings that indicate failure (e.g., 'Error', 'undefined')",
-                },
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: output tool REMOVED - regex stub duplicating audit_batch's inline
+    # mode; zero recorded use
     # NOTE: test tool REMOVED - redundant with Claude Code's native Bash
     # Use Bash to run tests directly: pytest, npm test, etc.
     # NOTE: git tool REMOVED - Claude excels at commit messages natively
@@ -496,39 +455,17 @@ TOOL_DEFINITIONS = [
             "required": ["query", "directory"],
         },
     ),
-    Tool(
-        name="scout_analyze",
-        description="Analyze code using local LLM (Ollama). Send a code snippet with a specific question and get back architectural insights, bug analysis, or refactoring suggestions. Requires Ollama running with configured model.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "The code snippet to analyze",
-                },
-                "question": {
-                    "type": "string",
-                    "description": "Specific question about the code (e.g., 'What are the edge cases?', 'Is this thread-safe?')",
-                },
-            },
-            "required": ["code", "question"],
-        },
-    ),
+    # NOTE: scout_analyze REMOVED - "paste code, ask the local LLM" had zero
+    # recorded use; the agent reads code better than a 12B commentary pass
     Tool(
         name="file_summarize",
-        description="Summarize a file's purpose, exports, and role in the project. Quick mode uses structural analysis (imports, classes, functions). Detailed mode uses local LLM for deeper understanding. Returns: purpose, key exports, dependencies, and complexity estimate.",
+        description="Summarize a file's purpose, exports, and role in the project using structural analysis (imports, classes, functions). Returns: purpose, key exports, dependencies, and complexity estimate.",
         inputSchema={
             "type": "object",
             "properties": {
                 "file_path": {
                     "type": "string",
                     "description": "Absolute path to the file to summarize",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["quick", "detailed"],
-                    "default": "quick",
-                    "description": "Analysis depth: 'quick' for pattern-based (fast, no LLM), 'detailed' for LLM-powered (slower, richer insights)",
                 },
             },
             "required": ["file_path"],
@@ -745,9 +682,7 @@ _TOOL_TITLES = {
     "scope": "Task Scope Guard",
     "context": "Checkpoint & Handoff",
     "convention": "Coding Conventions",
-    "output": "Output Validator",
     "scout_search": "Scout Search",
-    "scout_analyze": "Scout Analyze",
     "file_summarize": "Summarize File",
     "deps_map": "Map Dependencies",
     "impact_analyze": "Analyze Impact",
@@ -761,13 +696,11 @@ _READ_ONLY_TOOLS = {
     "claude_engram_status",
     "pre_edit_check",
     "scout_search",
-    "scout_analyze",
     "file_summarize",
     "deps_map",
     "impact_analyze",
     "find_similar_issues",
     "audit_batch",
-    "output",
 }
 
 for _tool in TOOL_DEFINITIONS:

@@ -132,11 +132,19 @@ def get_project_dir(file_path: str = "") -> str:
 
 def get_memory_file() -> Path:
     """Get the Claude Engram memory file path (legacy compat)."""
-    return Path.home() / ".claude_engram" / "memory.json"
+    return get_engram_storage_dir() / "memory.json"
 
 
 def get_engram_storage_dir() -> Path:
-    """Get the Claude Engram storage directory."""
+    """Get the Claude Engram storage directory.
+
+    CLAUDE_ENGRAM_DIR overrides the default ~/.claude_engram -- the seam test
+    benches use for isolation (patching HOME does not move Path.home() on
+    Windows, which made the old bench harnesses silently write to the real
+    store)."""
+    override = os.environ.get("CLAUDE_ENGRAM_DIR", "")
+    if override:
+        return Path(override).expanduser()
     return Path.home() / ".claude_engram"
 
 

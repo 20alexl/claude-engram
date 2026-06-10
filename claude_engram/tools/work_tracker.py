@@ -56,22 +56,6 @@ class WorkTracker:
         self._current_project = project_path
         self._mistakes = []
 
-    def log_edit(
-        self,
-        file_path: str,
-        description: str,
-        lines_changed: int = 0,
-    ):
-        """Log when a file is edited."""
-        self._events.append(
-            WorkEvent(
-                event_type="edit",
-                description=description,
-                file_path=file_path,
-                metadata={"lines_changed": lines_changed},
-            )
-        )
-
     def log_search(
         self,
         query: str,
@@ -144,85 +128,6 @@ class WorkTracker:
                     "alternatives": alternatives_considered or [],
                 },
             )
-        )
-
-    def get_session_summary(self) -> MiniClaudeResponse:
-        """
-        Summarize what happened in this session.
-
-        This creates memories that will help next session.
-        """
-        work_log = WorkLog()
-        work_log.what_i_tried.append("summarizing session")
-
-        if not self._events:
-            return MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning="No work tracked in this session yet",
-                work_log=work_log,
-            )
-
-        # Count by type
-        edits = [e for e in self._events if e.event_type == "edit"]
-        searches = [e for e in self._events if e.event_type == "search"]
-        errors = [e for e in self._events if e.event_type == "error"]
-        decisions = [e for e in self._events if e.event_type == "decision"]
-
-        # Build summary
-        summary_parts = []
-
-        if edits:
-            files_edited = list(set(e.file_path for e in edits if e.file_path))
-            summary_parts.append(
-                f"Edited {len(files_edited)} files: {', '.join(Path(f).name for f in files_edited[:5])}"
-            )
-
-        if searches:
-            queries = list(set(e.metadata.get("query", "") for e in searches))
-            summary_parts.append(f"Searched for: {', '.join(queries[:5])}")
-
-        if errors:
-            summary_parts.append(f"Encountered {len(errors)} issues")
-
-        if decisions:
-            summary_parts.append(f"Made {len(decisions)} decisions")
-
-        work_log.what_worked.append("session summarized")
-
-        # Duration
-        duration_mins = (
-            (time.time() - self._session_start_time) / 60
-            if self._session_start_time
-            else 0
-        )
-
-        return MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=(
-                ". ".join(summary_parts) if summary_parts else "Session in progress"
-            ),
-            work_log=work_log,
-            data={
-                "duration_minutes": round(duration_mins, 1),
-                "edits": len(edits),
-                "searches": len(searches),
-                "errors": len(errors),
-                "decisions": len(decisions),
-                "files_touched": list(
-                    set(
-                        e.file_path
-                        for e in self._events
-                        if e.file_path and e.event_type == "edit"
-                    )
-                ),
-                "mistakes": self._mistakes,
-            },
-            suggestions=[
-                "Use memory_remember to save important learnings",
-                "Use convention_add if you discovered coding rules",
-            ],
         )
 
     def get_relevant_context(self, file_path: str) -> MiniClaudeResponse:
@@ -300,32 +205,6 @@ class WorkTracker:
             warnings=warnings,
             suggestions=suggestions,
         )
-
-    def check_for_repeated_mistake(self, action: str) -> Optional[str]:
-        """
-        Check if an action might repeat a previous mistake.
-
-        Returns a warning if we're about to repeat history.
-        """
-        if not self._current_project:
-            return None
-
-        memories = self.memory.recall(project_path=self._current_project)
-        project = memories.get("project") or {}
-        discoveries = project.get("discoveries", [])
-
-        # Look for mistakes that might be relevant
-        action_lower = action.lower()
-
-        for disc in discoveries:
-            content = disc.get("content", "").lower()
-            if "mistake" in content:
-                # Simple keyword matching - could be smarter with LLM
-                keywords = action_lower.split()
-                if any(kw in content for kw in keywords if len(kw) > 3):
-                    return f"Warning: You may be repeating a past mistake. Previous issue: {disc.get('content')}"
-
-        return None
 
     def persist_session_to_memory(self) -> MiniClaudeResponse:
         """

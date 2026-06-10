@@ -31,15 +31,6 @@ from .tools import (
 from .tools.code_quality import CodeQualityChecker
 from .tools.scope_guard import ScopeGuard
 from .tools.context_guard import ContextGuard
-from .tools.output_validator import OutputValidator
-from .tools.habit_tracker import (
-    get_habit_tracker,
-    start_session as start_habit_session,
-    record_session_tool_use,
-    record_session_file_edit,
-    record_session_decision,
-    record_session_mistake,
-)
 
 
 class Handlers:
@@ -55,7 +46,7 @@ class Handlers:
         self.llm = LLMClient()
         self.search_engine = SearchEngine(self.llm)
         self.memory = MemoryStore()
-        self.summarizer = FileSummarizer(self.llm)
+        self.summarizer = FileSummarizer()
         self.dependency_mapper = DependencyMapper()
         self.conventions = ConventionTracker()
         self.impact_analyzer = ImpactAnalyzer()
@@ -64,9 +55,7 @@ class Handlers:
         self.code_quality = CodeQualityChecker()
         self.scope_guard = ScopeGuard()
         self.context_guard = ContextGuard()
-        self.output_validator = OutputValidator()
-        self.thinker = Thinker(self.memory, self.search_engine, self.llm)
-        self.habit_tracker = get_habit_tracker()
+        self.thinker = Thinker()
 
         self._last_project_path: str | None = None  # for session_end() with no args
 
@@ -74,8 +63,6 @@ class Handlers:
         """Close all resources to prevent leaks."""
         if hasattr(self, "llm") and self.llm:
             self.llm.close()
-        if hasattr(self, "thinker") and self.thinker:
-            self.thinker.close()
 
     def __enter__(self):
         return self
@@ -178,59 +165,10 @@ class Handlers:
                 [f.file for f in response.findings],
             )
 
-        # Add session warning to output if needed
-        output = response.to_formatted_string()
-        if session_warning:
-            output = f"{session_warning}\n\n---\n\n{output}"
-
-        return [TextContent(type="text", text=output)]
-
-    # -------------------------------------------------------------------------
-    # Scout - Analyze
-    # -------------------------------------------------------------------------
-
-    async def analyze(self, code: str, question: str) -> list[TextContent]:
-        """Handle code analysis requests."""
-        if not code:
-            return self._needs_clarification(
-                "No code provided", "What code would you like me to analyze?"
-            )
-
-        if not question:
-            return self._needs_clarification(
-                "No question provided", "What would you like to know about this code?"
-            )
-
-        # Analyze using LLM
-        result = self.llm.analyze_code(code, question)
-
-        work_log = WorkLog(
-            what_i_tried=["LLM analysis"],
-            time_taken_ms=result.get("time_taken_ms", 0),
-        )
-
-        if result.get("success"):
-            work_log.what_worked.append("Analysis complete")
-            response = MiniClaudeResponse(
-                status="success",
-                confidence="medium",
-                reasoning=result["response"],
-                work_log=work_log,
-            )
-        else:
-            work_log.what_failed.append(result.get("error", "Unknown error"))
-            response = MiniClaudeResponse(
-                status="failed",
-                confidence="high",
-                reasoning=f"Analysis failed: {result.get('error')}",
-                work_log=work_log,
-                suggestions=[
-                    "Check if Ollama is running",
-                    "Try simplifying the question",
-                ],
-            )
-
         return [TextContent(type="text", text=response.to_formatted_string())]
+
+    # NOTE: scout_analyze REMOVED - "paste code + ask the local LLM" had zero
+    # recorded use; the agent reads code better than a 12B commentary pass.
 
     # -------------------------------------------------------------------------
     # Memory - Remember
@@ -495,7 +433,7 @@ class Handlers:
     # File Summarizer
     # -------------------------------------------------------------------------
 
-    async def summarize(self, file_path: str, mode: str) -> list[TextContent]:
+    async def summarize(self, file_path: str) -> list[TextContent]:
         """Handle file summarize requests."""
         if not file_path:
             return self._needs_clarification(
@@ -505,7 +443,7 @@ class Handlers:
         # Run summarizer in thread pool
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
-            None, lambda: self.summarizer.summarize(file_path, mode)
+            None, lambda: self.summarizer.summarize(file_path)
         )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
@@ -553,9 +491,6 @@ class Handlers:
             # One-time migration of any legacy critical_instructions.json -> rules
             # (instruction_* tool ops were removed; this preserves old data).
             self._migrate_legacy_instructions(project_path)
-            # Start habit tracking session
-            start_habit_session()
-            record_session_tool_use("session_start", f"project: {project_path}")
             # Create session marker for hooks to detect (in ~/.claude_engram/ for Windows)
             try:
                 from pathlib import Path
@@ -664,7 +599,6 @@ class Handlers:
         End a session - AUTO-CAPTURES work and saves to memory.
 
         No manual input needed. Automatically grabs:
-        - Tools used (from habit_tracker)
         - Files edited
         - Decisions logged
         - Mistakes logged
@@ -875,26 +809,17 @@ class Handlers:
     ) -> list[TextContent]:
         """Handle convention check requests.
 
-        Uses LLM-based checking by default for accurate violation detection.
-        Falls back to simple pattern matching if LLM is unavailable.
+        Deterministic keyword/pattern matching against the stored conventions.
+        (The LLM mode was removed: its violation heuristic — "no check-mark in
+        the response means violation" — was a false-positive machine, and the
+        op had zero recorded use.)
         """
-        # Use LLM-based checking for accurate results (the simple keyword check
-        # misses most violations). Run off the event loop — the LLM call blocks.
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: self.conventions.check_code_with_llm(
-                project_path=project_path,
-                code=code_or_filename,
-                llm_client=self.llm,
-            ),
+        response = self.conventions.check_conventions(
+            project_path=project_path,
+            code_or_filename=code_or_filename,
         )
 
-        output = response.to_formatted_string()
-        if session_warning:
-            output = f"{session_warning}\n\n---\n\n{output}"
-
-        return [TextContent(type="text", text=output)]
+        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
     # Work Tracker
@@ -915,8 +840,6 @@ class Handlers:
         self.work_tracker.log_mistake(description, file_path, how_to_avoid)
 
         # Track in session
-        record_session_mistake()
-        record_session_tool_use("work_log_mistake", description[:30])
 
         # Notify hook that mistake was logged
         try:
@@ -951,8 +874,6 @@ class Handlers:
         self.work_tracker.log_decision(decision, reason, alternatives)
 
         # Track in session
-        record_session_decision()
-        record_session_tool_use("work_log_decision", decision[:30])
 
         response = MiniClaudeResponse(
             status="success",
@@ -963,36 +884,8 @@ class Handlers:
 
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def work_session_summary(self) -> list[TextContent]:
-        """Get summary of current session work."""
-        response = self.work_tracker.get_session_summary()
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def work_pre_edit_check(self, file_path: str) -> list[TextContent]:
-        """Check for relevant context before editing a file."""
-        if not file_path:
-            return self._needs_clarification(
-                "No file path provided", "Which file are you about to edit?"
-            )
-
-        # Notify hook that pre-edit check was done
-        try:
-            from .hooks.remind import mark_pre_edit_check_done
-
-            mark_pre_edit_check_done(file_path)
-        except Exception:
-            pass
-
-        response = self.work_tracker.get_relevant_context(file_path)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def work_save_session(self) -> list[TextContent]:
-        """Save current session work as memories."""
-        response = self.work_tracker.persist_session_to_memory()
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
     # -------------------------------------------------------------------------
-    # Unified Pre-Edit Check (combines work_pre_edit_check + loop + scope)
+    # Unified Pre-Edit Check (work context + scope)
     # -------------------------------------------------------------------------
 
     async def pre_edit_check(self, file_path: str) -> list[TextContent]:
@@ -1058,9 +951,6 @@ class Handlers:
             mark_pre_edit_check_done(file_path)
         except Exception:
             pass
-
-        # Track in habit tracker
-        record_session_tool_use("pre_edit_check", file_path[:30])
 
         # Build summary
         issues = []
@@ -1229,39 +1119,6 @@ class Handlers:
         response = self.context_guard.list_handoffs(project_path=project_path or "")
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    async def context_claim_completion(
-        self,
-        task: str,
-        evidence: list[str] | None,
-    ) -> list[TextContent]:
-        """Record a claim that a task is complete."""
-        if not task:
-            return self._needs_clarification(
-                "No task specified", "What task are you claiming is complete?"
-            )
-
-        response = self.context_guard.claim_completion(task, evidence)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def context_self_check(
-        self,
-        task: str,
-        verification_steps: list[str],
-    ) -> list[TextContent]:
-        """Verify that claimed work was actually done."""
-        if not task:
-            return self._needs_clarification(
-                "No task specified", "What task do you want to verify?"
-            )
-
-        if not verification_steps:
-            return self._needs_clarification(
-                "No verification steps", "How should the task be verified?"
-            )
-
-        response = self.context_guard.self_check(task, verification_steps)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
     async def verify_completion(
         self,
         task: str,
@@ -1328,78 +1185,14 @@ class Handlers:
         response = self.context_guard.list_handoffs(project_path=project_path or "")
         return [TextContent(type="text", text=response.to_formatted_string())]
 
-    # -------------------------------------------------------------------------
-    # Output Validator - Detect Silent Failures
-    # -------------------------------------------------------------------------
-
-    async def output_validate_code(
-        self,
-        code: str,
-        context: str | None,
-    ) -> list[TextContent]:
-        """Validate code for signs of fake output or silent failure."""
-        if not code:
-            return self._needs_clarification(
-                "No code provided", "What code should I validate?"
-            )
-
-        response = self.output_validator.validate_code(code, context)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def output_validate_result(
-        self,
-        output: str,
-        expected_format: str | None,
-        should_contain: list[str] | None,
-        should_not_contain: list[str] | None,
-    ) -> list[TextContent]:
-        """Validate command/function output for signs of fake results."""
-        if not output:
-            return self._needs_clarification(
-                "No output provided", "What output should I validate?"
-            )
-
-        response = self.output_validator.validate_output(
-            output=output,
-            expected_format=expected_format,
-            should_contain=should_contain,
-            should_not_contain=should_not_contain,
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
     # NOTE: TestRunner, GitHelper, MomentumTracker handlers REMOVED
     # - Tests: Use Claude Code's native Bash tool
     # - Git: Claude excels at commit messages natively
     # - Momentum: Use Claude Code's native TodoWrite
-
-    # -------------------------------------------------------------------------
-    # NOTE: Think tools REMOVED - generic LLM responses weren't useful enough
-    # Scout tools (semantic search/analysis) still available
-    # Thinker instance kept for audit_batch which provides practical value
-    # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Think Audit - Used internally by audit_batch
-    # -------------------------------------------------------------------------
-
-    async def think_audit(
-        self,
-        file_path: str,
-        focus_areas: list[str] | None,
-        min_severity: str | None = None,
-    ) -> list[TextContent]:
-        """Audit a file for common issues and anti-patterns."""
-        if not file_path:
-            return self._needs_clarification(
-                "No file path provided", "Which file should I audit?"
-            )
-
-        record_session_tool_use("think_audit", file_path[:50])
-        loop = asyncio.get_running_loop()
-        response = await loop.run_in_executor(
-            None, lambda: self.thinker.audit(file_path, focus_areas, min_severity)
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
+    # NOTE: output validator REMOVED - regex stub duplicating audit_batch's
+    # inline mode; zero recorded use.
+    # NOTE: think tools + think_audit REMOVED - the audit engine survives as
+    # audit_batch (regex/AST, no LLM).
 
     # -------------------------------------------------------------------------
     # Audit Batch - Audit multiple files at once
@@ -1434,7 +1227,6 @@ class Handlers:
                 "or code (+language) to lint an inline snippet.",
             )
 
-        record_session_tool_use("audit_batch", f"{len(file_paths)} files")
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None, lambda: self.thinker.audit_batch(file_paths, min_severity)
@@ -1465,7 +1257,6 @@ class Handlers:
                 "No project path provided", "Which directory should I search in?"
             )
 
-        record_session_tool_use("find_similar_issues", issue_pattern[:30])
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
@@ -1957,8 +1748,8 @@ class Handlers:
 
     # NOTE: handle_think REMOVED - think tools removed (generic LLM responses weren't useful)
 
-    # NOTE: handle_habit REMOVED - meta-tracking of tool usage adds noise without value
-    # The habit_tracker is still used internally for session statistics
+    # NOTE: handle_habit + the habit_tracker module REMOVED - meta-tracking of
+    # tool usage added noise without value; its recorders fed stats nobody read.
 
     async def handle_convention(self, operation: str, args: dict) -> list[TextContent]:
         """Route convention operations to existing handlers."""
@@ -2001,25 +1792,7 @@ class Handlers:
                 "Use: add, get, check, or remove",
             )
 
-    async def handle_output(self, operation: str, args: dict) -> list[TextContent]:
-        """Route output operations to existing handlers."""
-        if operation == "validate_code":
-            return await self.output_validate_code(
-                code=args.get("code", ""),
-                context=args.get("context"),
-            )
-        elif operation == "validate_result":
-            return await self.output_validate_result(
-                output=args.get("output", ""),
-                expected_format=args.get("expected_format"),
-                should_contain=args.get("should_contain"),
-                should_not_contain=args.get("should_not_contain"),
-            )
-        else:
-            return self._needs_clarification(
-                f"Unknown output operation: {operation}",
-                "Use: validate_code or validate_result",
-            )
+    # NOTE: handle_output REMOVED - regex stub duplicating audit_batch inline mode
 
     # NOTE: handle_test REMOVED - use Claude Code's native Bash tool instead
 

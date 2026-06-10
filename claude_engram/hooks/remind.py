@@ -1799,6 +1799,80 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
     return (min(score, 1.0), best_match)
 
 
+def _append_memory_entry(project_dir: str, entry: dict, skip_if=None) -> bool:
+    """
+    Append a memory entry to the project's per-project memory.json (atomic),
+    embedding it to the pending file for the miner to fold in.
+
+    Registers the project in the manifest when missing: an error or decision
+    in a brand-new project must not be dropped on the floor (previously
+    entries for unregistered projects were silently discarded). Registration
+    is safe across processes because the hash is a deterministic md5 of the
+    normalized path -- a lost manifest write just gets re-added later pointing
+    at the same directory.
+
+    ``skip_if(existing_entries)`` lets callers add extra dedup (e.g. the
+    decision capturer's word-overlap check). Exact-content duplicates are
+    always skipped. Returns True if the entry was written.
+    """
+    norm_dir = _normalize_path(project_dir)
+    storage = get_engram_storage_dir()
+    manifest = _get_manifest()
+    projects = manifest.setdefault("projects", {})
+    if norm_dir not in projects:
+        import hashlib as _hl
+
+        projects[norm_dir] = {
+            "hash": _hl.md5(norm_dir.encode()).hexdigest()[:8],
+            "name": Path(norm_dir).name,
+        }
+        manifest.setdefault("version", 3)
+        manifest_file = storage / "manifest.json"
+        tmp = manifest_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(manifest, indent=2))
+        tmp.replace(manifest_file)
+
+    pdir = storage / "projects" / projects[norm_dir]["hash"]
+    mem_file = pdir / "memory.json"
+    proj_data = {}
+    if mem_file.exists():
+        try:
+            proj_data = json.loads(mem_file.read_text())
+        except Exception:
+            proj_data = {}
+
+    existing = proj_data.get("entries", [])
+    if any(e.get("content") == entry["content"] for e in existing):
+        return False
+    if skip_if and skip_if(existing):
+        return False
+
+    proj_data.setdefault("entries", []).append(entry)
+    proj_data["last_updated"] = time.time()
+    pdir.mkdir(parents=True, exist_ok=True)
+    tmp = mem_file.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(proj_data, indent=2))
+    tmp.replace(mem_file)
+
+    # Embed to pending file (fast, no full store load); merged on next load.
+    try:
+        from claude_engram.hooks.scorer_server import embed_via_server
+
+        emb = embed_via_server(entry["content"])
+        if emb:
+            pending_file = pdir / "embeddings_pending.json"
+            pending = {}
+            if pending_file.exists():
+                pending = json.loads(pending_file.read_text())
+            pending[entry["id"]] = emb
+            etmp = pending_file.with_suffix(".json.tmp")
+            etmp.write_text(json.dumps(pending))
+            etmp.replace(pending_file)
+    except Exception:
+        pass
+    return True
+
+
 def _auto_capture_from_prompt(project_dir: str, prompt: str):
     """
     Auto-capture decisions from user prompts.
@@ -1853,26 +1927,12 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         if best_score < 0.6 or not best_text or len(best_text) < 15:
             return
 
-        norm_dir = _normalize_path(project_dir)
-        manifest = _get_manifest()
-
         content = f"DECISION: (from user) {best_text[:150]}"
         entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
 
-        # v5 path: per-project files
-        if manifest.get("projects") and norm_dir in manifest["projects"]:
-            pdir = get_project_memory_dir(project_dir)
-            mem_file = pdir / "memory.json"
-            proj_data = {}
-            if mem_file.exists():
-                proj_data = json.loads(mem_file.read_text())
+        new_words = set(best_text.lower().split())
 
-            existing_entries = proj_data.get("entries", [])
-            existing_contents = {e.get("content", "") for e in existing_entries}
-            if content in existing_contents:
-                return
-
-            new_words = set(best_text.lower().split())
+        def _near_duplicate_decision(existing_entries: list) -> bool:
             for e in existing_entries:
                 if e.get("category") != "decision":
                     continue
@@ -1882,124 +1942,30 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                         new_words | existing_words
                     )
                     if overlap > 0.7:
-                        return
+                        return True
+            return False
 
-            file_refs = re.findall(
-                r"[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
-                best_text,
-            )
+        file_refs = re.findall(
+            r"[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
+            best_text,
+        )
 
-            proj_data.setdefault("entries", []).append(
-                {
-                    "id": entry_id,
-                    "content": content,
-                    "category": "decision",
-                    "source": "auto-prompt",
-                    "relevance": 6,
-                    "created_at": time.time(),
-                    "last_accessed": time.time(),
-                    "access_count": 1,
-                    "tags": ["decision"],
-                    "related_files": file_refs[:5],
-                }
-            )
-            proj_data["last_updated"] = time.time()
-
-            pdir.mkdir(parents=True, exist_ok=True)
-            temp_file = mem_file.with_suffix(".json.tmp")
-            temp_file.write_text(json.dumps(proj_data, indent=2))
-            temp_file.replace(mem_file)
-
-            # Embed to pending file (fast, no full load)
-            try:
-                from claude_engram.hooks.scorer_server import embed_via_server
-
-                emb = embed_via_server(content)
-                if emb:
-                    pending_file = pdir / "embeddings_pending.json"
-                    pending = {}
-                    if pending_file.exists():
-                        pending = json.loads(pending_file.read_text())
-                    pending[entry_id] = emb
-                    emb_tmp = pending_file.with_suffix(".json.tmp")
-                    emb_tmp.write_text(json.dumps(pending))
-                    emb_tmp.replace(pending_file)
-            except Exception:
-                pass
-        else:
-            # Legacy fallback: single memory.json
-            memory_file = get_memory_file()
-            data = {}
-            if memory_file.exists():
-                data = json.loads(memory_file.read_text())
-
-            projects = data.get("projects", {})
-            if norm_dir not in projects:
-                return
-
-            existing_entries = projects[norm_dir].get("entries", [])
-            existing_contents = {e.get("content", "") for e in existing_entries}
-            if content in existing_contents:
-                return
-
-            new_words = set(best_text.lower().split())
-            for e in existing_entries:
-                if e.get("category") != "decision":
-                    continue
-                existing_words = set(e.get("content", "").lower().split())
-                if existing_words and new_words:
-                    overlap = len(new_words & existing_words) / len(
-                        new_words | existing_words
-                    )
-                    if overlap > 0.7:
-                        return
-
-            file_refs = re.findall(
-                r"[\w/\\.-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|cpp|c|h|md|json|yaml|yml|toml)",
-                best_text,
-            )
-
-            projects[norm_dir].setdefault("entries", []).append(
-                {
-                    "id": entry_id,
-                    "content": content,
-                    "category": "decision",
-                    "source": "auto-prompt",
-                    "relevance": 6,
-                    "created_at": time.time(),
-                    "last_accessed": time.time(),
-                    "access_count": 1,
-                    "tags": ["decision"],
-                    "related_files": file_refs[:5],
-                }
-            )
-            projects[norm_dir]["last_updated"] = time.time()
-
-            data["projects"] = projects
-            data["version"] = data.get("version", 2)
-            if "global" not in data:
-                data["global"] = []
-
-            temp_file = memory_file.with_suffix(".json.tmp")
-            temp_file.write_text(json.dumps(data, indent=2))
-            temp_file.replace(memory_file)
-
-            # Embed to legacy global embeddings
-            try:
-                from claude_engram.hooks.scorer_server import embed_via_server
-
-                emb = embed_via_server(content)
-                if emb:
-                    emb_file = memory_file.parent / "embeddings.json"
-                    emb_data = {}
-                    if emb_file.exists():
-                        emb_data = json.loads(emb_file.read_text())
-                    emb_data[entry_id] = emb
-                    emb_tmp = emb_file.with_suffix(".json.tmp")
-                    emb_tmp.write_text(json.dumps(emb_data))
-                    emb_tmp.replace(emb_file)
-            except Exception:
-                pass
+        _append_memory_entry(
+            project_dir,
+            {
+                "id": entry_id,
+                "content": content,
+                "category": "decision",
+                "source": "auto-prompt",
+                "relevance": 6,
+                "created_at": time.time(),
+                "last_accessed": time.time(),
+                "access_count": 1,
+                "tags": ["decision"],
+                "related_files": file_refs[:5],
+            },
+            skip_if=_near_duplicate_decision,
+        )
     except Exception:
         pass  # Silent failure — auto-capture must never break the hook
 
@@ -2162,108 +2128,23 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
             if func_match and func_match.group(1) not in ("__init__", "<module>"):
                 tags.append(func_match.group(1))
 
-            norm_dir = _normalize_path(project_dir)
             entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
-            manifest = _get_manifest()
 
-            new_entry = {
-                "id": entry_id,
-                "content": content,
-                "category": "mistake",
-                "source": "auto-detected",
-                "relevance": 9,
-                "created_at": time.time(),
-                "last_accessed": time.time(),
-                "access_count": 1,
-                "tags": tags,
-                "related_files": related_files,
-            }
-
-            # v5 path: per-project files
-            if manifest.get("projects") and norm_dir in manifest["projects"]:
-                pdir = get_project_memory_dir(project_dir)
-                mem_file = pdir / "memory.json"
-                proj_data = {}
-                if mem_file.exists():
-                    proj_data = json.loads(mem_file.read_text())
-
-                existing_contents = {
-                    e.get("content", "") for e in proj_data.get("entries", [])
-                }
-                if content not in existing_contents:
-                    proj_data.setdefault("entries", []).append(new_entry)
-                    proj_data["last_updated"] = time.time()
-
-                    pdir.mkdir(parents=True, exist_ok=True)
-                    temp_file = mem_file.with_suffix(".json.tmp")
-                    temp_file.write_text(json.dumps(proj_data, indent=2))
-                    temp_file.replace(mem_file)
-
-                    # Embed to pending file
-                    try:
-                        from claude_engram.hooks.scorer_server import embed_via_server
-
-                        emb = embed_via_server(content)
-                        if emb:
-                            pending_file = pdir / "embeddings_pending.json"
-                            pending = {}
-                            if pending_file.exists():
-                                pending = json.loads(pending_file.read_text())
-                            pending[entry_id] = emb
-                            emb_tmp = pending_file.with_suffix(".json.tmp")
-                            emb_tmp.write_text(json.dumps(pending))
-                            emb_tmp.replace(pending_file)
-                    except Exception:
-                        pass
-            else:
-                # Legacy fallback: single memory.json
-                memory_file = get_memory_file()
-                data = {}
-                if memory_file.exists():
-                    data = json.loads(memory_file.read_text())
-
-                projects = data.get("projects", {})
-                if norm_dir not in projects:
-                    projects[norm_dir] = {
-                        "project_path": norm_dir,
-                        "project_name": Path(project_dir).name,
-                        "entries": [],
-                        "recent_searches": [],
-                        "last_updated": time.time(),
-                    }
-
-                existing_contents = {
-                    e.get("content", "") for e in projects[norm_dir].get("entries", [])
-                }
-                if content not in existing_contents:
-                    projects[norm_dir]["entries"].append(new_entry)
-                    projects[norm_dir]["last_updated"] = time.time()
-
-                    data["projects"] = projects
-                    data["version"] = data.get("version", 2)
-                    if "global" not in data:
-                        data["global"] = []
-
-                    temp_file = memory_file.with_suffix(".json.tmp")
-                    temp_file.write_text(json.dumps(data, indent=2))
-                    temp_file.replace(memory_file)
-
-                    # Embed to legacy global embeddings
-                    try:
-                        from claude_engram.hooks.scorer_server import embed_via_server
-
-                        emb = embed_via_server(content)
-                        if emb:
-                            emb_file = memory_file.parent / "embeddings.json"
-                            emb_data = {}
-                            if emb_file.exists():
-                                emb_data = json.loads(emb_file.read_text())
-                            emb_data[entry_id] = emb
-                            emb_tmp = emb_file.with_suffix(".json.tmp")
-                            emb_tmp.write_text(json.dumps(emb_data))
-                            emb_tmp.replace(emb_file)
-                    except Exception:
-                        pass
+            _append_memory_entry(
+                project_dir,
+                {
+                    "id": entry_id,
+                    "content": content,
+                    "category": "mistake",
+                    "source": "auto-detected",
+                    "relevance": 9,
+                    "created_at": time.time(),
+                    "last_accessed": time.time(),
+                    "access_count": 1,
+                    "tags": tags,
+                    "related_files": related_files,
+                },
+            )
 
             return mistake_type
         except Exception:
