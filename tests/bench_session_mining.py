@@ -523,6 +523,75 @@ def test_incremental_processing() -> list[tuple[str, bool, str]]:
     return results
 
 
+def test_incremental_append_merges() -> list[tuple[str, bool, str]]:
+    """A grown session re-indexed from its offset must MERGE with the existing
+    entry, not replace it with tail-only counts (the PreCompact-then-SessionEnd
+    double-mining bug: counts and files_edited silently reset)."""
+    results = []
+    from claude_engram.mining.session_index import merge_session_meta
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sid = _make_session_id()
+        session_file = _write_synthetic_session(tmpdir, session_id=sid, n_exchanges=5)
+
+        idx_dir = Path(tmpdir) / "index"
+        idx_dir.mkdir()
+        idx = SessionIndex(idx_dir / "session_index.json")
+
+        # First pass (full)
+        meta1 = build_index_for_session(session_file)
+        idx.update_session(meta1)
+        idx.save()
+        full_count = meta1.message_count
+        full_files = set(meta1.files_edited)
+
+        # Simulate appended messages: rewrite the SAME session file with extra
+        # exchanges so it grows past the stored offset.
+        bigger = _write_synthetic_session(tmpdir, session_id=sid, n_exchanges=9)
+
+        needs, offset = idx.needs_processing(bigger)
+        results.append(
+            (
+                f"Grown file needs incremental pass from offset {offset}",
+                needs and offset > 0,
+                f"needs={needs}, offset={offset}",
+            )
+        )
+
+        tail = build_index_for_session(bigger, start_offset=offset)
+        tail_count = tail.message_count
+        existing = idx.get_by_jsonl_file(bigger.name)
+        merged = merge_session_meta(existing, tail)
+        idx.update_session(merged)
+        idx.save()
+
+        entry = idx.get_by_jsonl_file(bigger.name)
+        results.append(
+            (
+                f"Merged count {entry['message_count']} = full {full_count} + tail {tail_count}",
+                entry["message_count"] == full_count + tail_count
+                and entry["message_count"] > full_count,
+                "",
+            )
+        )
+        results.append(
+            (
+                "Files from the first pass survive the merge",
+                full_files.issubset(set(entry["files_edited"])),
+                f"lost: {full_files - set(entry['files_edited'])}",
+            )
+        )
+        results.append(
+            (
+                "Identity fields survive (first_timestamp, session_id)",
+                bool(entry["first_timestamp"]) and bool(entry["session_id"]),
+                "",
+            )
+        )
+
+    return results
+
+
 def test_tool_chunk_extraction() -> list[tuple[str, bool, str]]:
     """Test that tool_use/tool_result pairs produce searchable chunks."""
     results = []
@@ -711,28 +780,24 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
             )
         )
 
-        # Check test result has file context
-        loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
-        if loop_file.exists():
-            ld = json.loads(loop_file.read_text())
-            test_results = ld.get("test_results", [])
-            if test_results:
-                last = test_results[-1]
-                has_files = "files_since_last_test" in last
-                file_names = [
-                    Path(f).name for f in last.get("files_since_last_test", [])
-                ]
-                results.append(
-                    (
-                        f"Test result has file context: {file_names}",
-                        has_files,
-                        "",
-                    )
+        # Check test result has file context (loop data lives in the
+        # per-session hook state now, not a shared loop_detector.json)
+        test_results = load_state().get("loop", {}).get("test_results", [])
+        if test_results:
+            last = test_results[-1]
+            has_files = "files_since_last_test" in last
+            file_names = [
+                Path(f).name for f in last.get("files_since_last_test", [])
+            ]
+            results.append(
+                (
+                    f"Test result has file context: {file_names}",
+                    has_files,
+                    "",
                 )
-            else:
-                results.append(("Test results exist", False, "empty"))
+            )
         else:
-            results.append(("Loop detector file exists", False, "missing"))
+            results.append(("Test results exist", False, "empty"))
 
     return results
 
@@ -758,6 +823,7 @@ def main():
         ("7. Session Index", test_session_index),
         ("8. Index Performance", test_index_performance),
         ("9. Incremental Processing", test_incremental_processing),
+        ("9b. Incremental Append Merges", test_incremental_append_merges),
         ("10. Tool Chunk Extraction", test_tool_chunk_extraction),
         ("11. Post-Test File Linking", test_post_test_file_linking),
     ]

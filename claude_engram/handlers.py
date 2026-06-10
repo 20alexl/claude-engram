@@ -29,7 +29,6 @@ from .tools import (
     Thinker,
 )
 from .tools.code_quality import CodeQualityChecker
-from .tools.loop_detector import LoopDetector
 from .tools.scope_guard import ScopeGuard
 from .tools.context_guard import ContextGuard
 from .tools.output_validator import OutputValidator
@@ -63,16 +62,12 @@ class Handlers:
         self.session_manager = SessionManager(self.memory, self.conventions)
         self.work_tracker = WorkTracker(self.memory)
         self.code_quality = CodeQualityChecker()
-        self.loop_detector = LoopDetector()
         self.scope_guard = ScopeGuard()
         self.context_guard = ContextGuard()
         self.output_validator = OutputValidator()
         self.thinker = Thinker(self.memory, self.search_engine, self.llm)
         self.habit_tracker = get_habit_tracker()
 
-        # Track session state to remind Claude to use tools properly
-        self._active_sessions: set[str] = set()  # project paths with active sessions
-        self._tool_call_count = 0  # how many tool calls since session_start
         self._last_project_path: str | None = None  # for session_end() with no args
 
     def close(self):
@@ -88,20 +83,6 @@ class Handlers:
     def __exit__(self, *args):
         self.close()
 
-    def _check_session(self, project_path: str | None) -> str | None:
-        """
-        Check if session_start was called for this project.
-        Returns a warning message if not, None if OK.
-        """
-        self._tool_call_count += 1
-
-        if not project_path:
-            return None
-
-        # Normalize path for comparison
-        normalized = project_path.rstrip("/")
-
-        # Sessions auto-start via hooks — no need to nag about manual session_start
 
     # -------------------------------------------------------------------------
     # Status
@@ -181,9 +162,6 @@ class Handlers:
             return self._needs_clarification(
                 "No directory provided", "Which directory should I search in?"
             )
-
-        # Check if session was started
-        session_warning = self._check_session(directory)
 
         # Run search in thread pool to not block
         loop = asyncio.get_running_loop()
@@ -569,8 +547,6 @@ class Handlers:
 
         # Register this session as active
         if project_path:
-            self._active_sessions.add(project_path.rstrip("/"))
-            self._tool_call_count = 0  # Reset counter
             self._last_project_path = project_path  # For session_end() with no args
             # Start work tracking for this project
             self.work_tracker.start_session(project_path)
@@ -799,10 +775,6 @@ class Handlers:
         except Exception:
             pass
 
-        # 5. Remove from active sessions
-        if project_path:
-            self._active_sessions.discard(project_path.rstrip("/"))
-
         lines.append("")
         lines.append("=" * 50)
         lines.append(
@@ -847,9 +819,6 @@ class Handlers:
                 "No project root provided", "What is the project root directory?"
             )
 
-        # Check if session was started
-        session_warning = self._check_session(project_root)
-
         # Run analyzer in thread pool
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
@@ -859,11 +828,7 @@ class Handlers:
             ),
         )
 
-        output = response.to_formatted_string()
-        if session_warning:
-            output = f"{session_warning}\n\n---\n\n{output}"
-
-        return [TextContent(type="text", text=output)]
+        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
     # Convention Tracker
@@ -879,9 +844,6 @@ class Handlers:
         importance: int,
     ) -> list[TextContent]:
         """Handle convention add requests."""
-        # Check session - but don't block convention adds
-        session_warning = self._check_session(project_path)
-
         response = self.conventions.add_convention(
             project_path=project_path,
             rule=rule,
@@ -891,11 +853,7 @@ class Handlers:
             importance=importance,
         )
 
-        output = response.to_formatted_string()
-        if session_warning:
-            output = f"{session_warning}\n\n---\n\n{output}"
-
-        return [TextContent(type="text", text=output)]
+        return [TextContent(type="text", text=response.to_formatted_string())]
 
     async def convention_get(
         self,
@@ -903,19 +861,12 @@ class Handlers:
         category: str | None,
     ) -> list[TextContent]:
         """Handle convention get requests."""
-        # Check session
-        session_warning = self._check_session(project_path)
-
         response = self.conventions.get_conventions(
             project_path=project_path,
             category=category,
         )
 
-        output = response.to_formatted_string()
-        if session_warning:
-            output = f"{session_warning}\n\n---\n\n{output}"
-
-        return [TextContent(type="text", text=output)]
+        return [TextContent(type="text", text=response.to_formatted_string())]
 
     async def convention_check(
         self,
@@ -927,9 +878,6 @@ class Handlers:
         Uses LLM-based checking by default for accurate violation detection.
         Falls back to simple pattern matching if LLM is unavailable.
         """
-        # Check session
-        session_warning = self._check_session(project_path)
-
         # Use LLM-based checking for accurate results (the simple keyword check
         # misses most violations). Run off the event loop — the LLM call blocks.
         loop = asyncio.get_running_loop()
@@ -1088,23 +1036,7 @@ class Handlers:
         except Exception as e:
             work_log.what_failed.append(f"Work check failed: {str(e)}")
 
-        # 2. Loop detector - are we stuck?
-        try:
-            loop_response = self.loop_detector.check_before_edit(file_path)
-            if loop_response.warnings:
-                all_warnings.extend(loop_response.warnings)
-            if loop_response.suggestions:
-                all_suggestions.extend(loop_response.suggestions)
-            if loop_response.data:
-                combined_data["loop_risk"] = loop_response.data.get("risk_level", "low")
-                combined_data["edit_count"] = loop_response.data.get("edit_count", 0)
-            if loop_response.status == "warning":
-                overall_status = "warning"
-            work_log.what_worked.append("Checked loop risk")
-        except Exception as e:
-            work_log.what_failed.append(f"Loop check failed: {str(e)}")
-
-        # 3. Scope guard - is this file in scope?
+        # 2. Scope guard - is this file in scope?
         try:
             scope_response = self.scope_guard.check_file(file_path)
             if scope_response.warnings:
@@ -1132,8 +1064,6 @@ class Handlers:
 
         # Build summary
         issues = []
-        if combined_data.get("loop_risk") == "high":
-            issues.append("high loop risk")
         if combined_data.get("in_scope") is False:
             issues.append("out of scope")
         if combined_data.get("work_context", {}).get("past_mistakes"):
@@ -1159,71 +1089,6 @@ class Handlers:
     # -------------------------------------------------------------------------
     # Code Quality Checker
     # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Loop Detector
-    # -------------------------------------------------------------------------
-
-    async def loop_record_edit(
-        self,
-        file_path: str,
-        description: str,
-    ) -> list[TextContent]:
-        """Record that a file was edited."""
-        if not file_path:
-            return self._needs_clarification(
-                "No file path provided", "Which file was edited?"
-            )
-
-        # Notify hook that edit was recorded
-        try:
-            from .hooks.remind import mark_loop_record_done
-
-            mark_loop_record_done(file_path)
-        except Exception:
-            pass
-
-        response = self.loop_detector.record_edit(file_path, description or "")
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def loop_check_before_edit(self, file_path: str) -> list[TextContent]:
-        """Check if editing a file might create a loop."""
-        if not file_path:
-            return self._needs_clarification(
-                "No file path provided", "Which file are you about to edit?"
-            )
-
-        response = self.loop_detector.check_before_edit(file_path)
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def loop_record_test(
-        self,
-        passed: bool,
-        error_message: str,
-    ) -> list[TextContent]:
-        """Record test results."""
-        self.loop_detector.record_test_result(passed, error_message or "")
-
-        # Notify hook that test was recorded
-        try:
-            from .hooks.remind import mark_test_recorded
-
-            mark_test_recorded()
-        except Exception:
-            pass
-
-        response = MiniClaudeResponse(
-            status="success",
-            confidence="high",
-            reasoning=f"Test result recorded: {'PASSED' if passed else 'FAILED'}",
-            work_log=WorkLog(what_worked=["Test result logged"]),
-        )
-        return [TextContent(type="text", text=response.to_formatted_string())]
-
-    async def loop_status(self) -> list[TextContent]:
-        """Get loop detection status."""
-        response = self.loop_detector.get_status()
-        return [TextContent(type="text", text=response.to_formatted_string())]
 
     # -------------------------------------------------------------------------
     # Scope Guard
@@ -1846,7 +1711,7 @@ class Handlers:
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "embed_all":
-            force = arguments.get("force", False)
+            force = args.get("force", False)
             count = self.memory.embed_all_memories(project_path, force=force)
             response = MiniClaudeResponse(
                 status="success",
@@ -1965,35 +1830,9 @@ class Handlers:
                 "Use: declare, check, expand, status, or clear",
             )
 
-    async def handle_loop(self, operation: str, args: dict) -> list[TextContent]:
-        """Route loop operations to existing handlers."""
-        if operation == "record_edit":
-            return await self.loop_record_edit(
-                file_path=args.get("file_path", ""),
-                description=args.get("description", ""),
-            )
-        elif operation == "record_test":
-            return await self.loop_record_test(
-                passed=args.get("passed", False),
-                error_message=args.get("error_message", ""),
-            )
-        elif operation == "check":
-            return await self.loop_check_before_edit(args.get("file_path", ""))
-        elif operation == "status":
-            return await self.loop_status()
-        elif operation == "reset":
-            self.loop_detector.reset()
-            response = MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning="Loop tracking reset. All edit counts and test history cleared.",
-            )
-            return [TextContent(type="text", text=response.to_formatted_string())]
-        else:
-            return self._needs_clarification(
-                f"Unknown loop operation: {operation}",
-                "Use: record_edit, record_test, check, status, or reset",
-            )
+    # NOTE: handle_loop REMOVED - loop detection lives in the hooks (per-session
+    # state, auto-tracked on every edit/test). The MCP-side LoopDetector kept a
+    # divergent in-memory count and clobbered the hooks' test history on write.
 
     @staticmethod
     def _coerce_list(val) -> list:

@@ -155,18 +155,33 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
     if not _acquire_lock():
         return
 
-    try:
+    started = time.time()
+    current_phase = "indexing"
+    # Per-phase failures are isolated and recorded here instead of aborting the
+    # remaining phases: a runtime error in extraction must not silently kill
+    # patterns/cleanup/code-index for the run (the old blocks caught only
+    # ImportError, so any other exception did exactly that).
+    phase_errors: dict[str, str] = {}
+
+    def _phase_status(phase: str, **extra):
+        nonlocal current_phase
+        current_phase = phase
         _write_status(
             {
                 "status": "running",
                 "project": project_path,
                 "mode": mode,
-                "started": time.time(),
-                "phase": "indexing",
+                "started": started,
+                "phase": phase,
+                **extra,
             }
         )
 
-        # Phase 1: Build/update session index
+    try:
+        _phase_status("indexing")
+
+        # Phase 1: Build/update session index. Not isolated: every later phase
+        # consumes the index, so there is nothing useful to continue with.
         from claude_engram.mining.session_index import build_project_index
 
         index = build_project_index(project_path, engram_storage_dir)
@@ -189,17 +204,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         # Phase 2: Run extractors (if mode supports it)
         extraction_count = 0
         if mode in ("post_session", "bootstrap", "full"):
-            _write_status(
-                {
-                    "status": "running",
-                    "project": project_path,
-                    "mode": mode,
-                    "started": time.time(),
-                    "phase": "extracting",
-                    "sessions_indexed": sessions_count,
-                }
-            )
-
+            _phase_status("extracting", sessions_indexed=sessions_count)
             try:
                 from claude_engram.mining.extractors import run_extraction_pipeline
 
@@ -207,38 +212,36 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                     project_path, index, engram_storage_dir
                 )
             except ImportError:
-                pass
+                pass  # optional dependency missing -- expected, not an error
+            except Exception as e:
+                phase_errors["extracting"] = str(e)[:200]
 
         # Phase 3: Generate embeddings (incremental -- skips already-embedded
         # sessions, so it is cheap to refresh every session end)
         if mode in ("post_session", "embed", "bootstrap", "full"):
-            _write_status(
-                {
-                    "status": "running",
-                    "project": project_path,
-                    "mode": mode,
-                    "started": time.time(),
-                    "phase": "embedding",
-                }
-            )
-
+            _phase_status("embedding")
             try:
                 from claude_engram.mining.search import build_session_embeddings
 
                 build_session_embeddings(project_path, index, engram_storage_dir)
             except ImportError:
-                pass  # search not built yet (Phase 3)
+                pass  # search/embedding deps not installed
+            except Exception as e:
+                phase_errors["embedding"] = str(e)[:200]
 
         # Phase 4: Pattern detection -- run every session end so the session-start
         # "recurring errors / struggles" banner stays current instead of frozen at
         # the one-time bootstrap (cheap: aggregates the already-built index)
         if mode in ("post_session", "bootstrap", "full"):
+            _phase_status("patterns")
             try:
                 from claude_engram.mining.patterns import detect_all_patterns
 
                 detect_all_patterns(project_path, index, engram_storage_dir)
             except ImportError:
                 pass
+            except Exception as e:
+                phase_errors["patterns"] = str(e)[:200]
 
         # Phase 5: Auto-cleanup (dedup + broken removal) AND keep memory
         # embeddings fresh. embed_all_memories is incremental (only new entries),
@@ -246,57 +249,62 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         # stale embeddings.npy. Both reuse one store; embedding has its own try
         # so a cleanup failure never blocks it.
         if mode in ("post_session", "bootstrap", "full"):
+            _phase_status("memory_maintenance")
             try:
                 from claude_engram.tools.memory import MemoryStore
 
                 store = MemoryStore(storage_dir=engram_storage_dir)
                 try:
                     store.cleanup_memories(project_path, dry_run=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    phase_errors["memory_cleanup"] = str(e)[:200]
                 try:
                     store.embed_all_memories(project_path)
-                except Exception:
-                    pass
-            except Exception:
-                pass
+                except Exception as e:
+                    phase_errors["memory_embedding"] = str(e)[:200]
+            except Exception as e:
+                phase_errors["memory_maintenance"] = str(e)[:200]
 
         # Phase 6: Code index (per-project symbol table) -- the substrate for
         # pre-edit import/export verification + blast-radius. Incremental,
         # mtime-keyed, ast-only, scoped to one project (cheap every session end).
         if mode in ("post_session", "bootstrap", "full"):
+            _phase_status("code_index")
             try:
                 from claude_engram.mining.code_index import build_code_index
                 from claude_engram.hooks.paths import get_project_memory_dir
 
                 build_code_index(project_path, get_project_memory_dir(project_path))
-            except Exception:
-                pass
+            except Exception as e:
+                phase_errors["code_index"] = str(e)[:200]
 
-        _write_status(
-            {
-                "status": "completed",
-                "project": project_path,
-                "mode": mode,
-                "result": {
-                    "sessions": sessions_count,
-                    "messages": messages_count,
-                    "extractions": extraction_count,
-                },
-                "completed": time.time(),
-            }
-        )
+        final = {
+            "status": "completed",
+            "project": project_path,
+            "mode": mode,
+            "result": {
+                "sessions": sessions_count,
+                "messages": messages_count,
+                "extractions": extraction_count,
+            },
+            "completed": time.time(),
+        }
+        if phase_errors:
+            final["phase_errors"] = phase_errors
+        _write_status(final)
 
     except Exception as e:
-        _write_status(
-            {
-                "status": "error",
-                "project": project_path,
-                "mode": mode,
-                "error": str(e),
-                "completed": time.time(),
-            }
-        )
+        status = {
+            "status": "error",
+            "project": project_path,
+            "mode": mode,
+            "phase": current_phase,
+            "error": str(e),
+            "completed": time.time(),
+        }
+        if phase_errors:
+            status["phase_errors"] = phase_errors
+        _write_status(status)
     finally:
         _release_lock()
 

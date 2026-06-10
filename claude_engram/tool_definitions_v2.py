@@ -261,39 +261,9 @@ TOOL_DEFINITIONS = [
             "required": ["operation"],
         },
     ),
-    Tool(
-        name="loop",
-        description="""Loop detection to prevent death spirals. Operations:
-- record_edit: Log file edit (file_path, description)
-- record_test: Log test result (passed, error_message)
-- check: Check if safe to edit (file_path)
-- status: Get edit counts and warnings
-- reset: Clear all loop tracking for a fresh start""",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["record_edit", "record_test", "check", "status", "reset"],
-                    "description": "Operation",
-                },
-                "file_path": {"type": "string", "description": "File being edited"},
-                "description": {
-                    "type": "string",
-                    "description": "For record_edit: what changed",
-                },
-                "passed": {
-                    "type": "boolean",
-                    "description": "For record_test: did tests pass",
-                },
-                "error_message": {
-                    "type": "string",
-                    "description": "For record_test: error if failed",
-                },
-            },
-            "required": ["operation"],
-        },
-    ),
+    # NOTE: "loop" tool REMOVED - loop detection is hook-automatic: edits and
+    # test results are tracked per-session by the PreToolUse/PostToolUse hooks,
+    # which warn on real spirals (repeat edits with failing tests).
     Tool(
         name="context",
         description="""Context protection for long tasks. Checkpoint and handoff are ONE construct (a durable ring) — checkpoint_* are the primary names; handoff_* are deprecated aliases kept for back-compat. Operations:
@@ -773,7 +743,6 @@ _TOOL_TITLES = {
     "memory": "Memory",
     "work": "Work Log",
     "scope": "Task Scope Guard",
-    "loop": "Loop Guard",
     "context": "Checkpoint & Handoff",
     "convention": "Coding Conventions",
     "output": "Output Validator",

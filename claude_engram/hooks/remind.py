@@ -266,30 +266,11 @@ def mark_pre_edit_check_done(file_path: str):
     save_state(state)
 
 
-def mark_loop_record_done(file_path: str):
-    """Mark that loop_record_edit was called."""
-    state = load_state()
-    state["last_loop_record"] = time.time()
-    state["last_loop_file"] = file_path
-    state["edits_without_loop_record"] = 0
-    _increment_tool_usage(state, "loop_record_edit")
-    save_state(state)
-
-
 def mark_scope_declared():
     """Mark that scope_declare was called."""
     state = load_state()
     state["last_scope_declare"] = time.time()
     _increment_tool_usage(state, "scope_declare")
-    save_state(state)
-
-
-def mark_test_recorded():
-    """Mark that loop_record_test was called."""
-    state = load_state()
-    state["last_test_record"] = time.time()
-    state["tests_without_record"] = 0
-    _increment_tool_usage(state, "loop_record_test")
     save_state(state)
 
 
@@ -527,14 +508,12 @@ def check_session_active(project_dir: str) -> bool:
 
 
 def get_loop_status() -> dict:
-    """Get loop detection status."""
-    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
-    if not loop_file.exists():
-        return {}
-    try:
-        return json.loads(loop_file.read_text())
-    except Exception:
-        return {}
+    """Loop-detection data (edit counts + recent test results) for this session.
+
+    Lives inside the per-session hook state: the old shared loop_detector.json
+    let two concurrent sessions cross-contaminate each other's edit counts and
+    test results (and the MCP-side writer clobbered the test history)."""
+    return load_state().get("loop", {})
 
 
 def get_scope_status() -> dict:
@@ -701,43 +680,9 @@ def _format_restored_context(entry: dict) -> list[str]:
 # NOTE: detect_complex_task REMOVED - too many false positives
 # Almost every prompt contains "add", "create", "modify" etc.
 
-
-def check_loop_detected(file_path: str = "") -> tuple[bool, int]:
-    """
-    Check if we're in a death spiral (editing same file, tests failing).
-
-    Only warns when there's evidence of actual trouble:
-    - Tests have run AND are failing AND file edited 3+ times = spiral
-    - No tests run yet but file edited 8+ times = high edit count, warn
-    - Otherwise silent
-
-    Returns:
-        (in_loop, edit_count)
-    """
-    loop_status = get_loop_status()
-    file_edits = loop_status.get("file_edit_counts", {})
-    test_results = loop_status.get("recent_test_results", [])
-
-    if not file_path or file_path not in file_edits:
-        return (False, 0)
-
-    count = file_edits[file_path]
-
-    # Only warn with evidence of trouble
-    if len(test_results) >= 1:
-        # Tests have run. Check if any recent failures.
-        recent = test_results[-3:]
-        last_failing = not recent[-1].get("passed", True)
-        if last_failing and count >= 3:
-            return (True, count)  # Death spiral — tests failing, still editing
-        # Tests passing or mixed = iterative work, not a spiral
-        return (False, count)
-
-    # No test runs yet. Only warn if edit count is very high (building without testing).
-    if count >= 8:
-        return (True, count)
-
-    return (False, count)
+# NOTE: check_loop_detected REMOVED - it read keys nothing ever wrote
+# (file_edit_counts / recent_test_results), so its warning branch was dead.
+# The live loop check is in _auto_run_pre_edit_check (edit_counts/test_results).
 
 
 # NOTE: check_risky_file and check_recent_thinker_usage REMOVED
@@ -920,69 +865,37 @@ def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
         return []
 
 
-def _auto_record_edit(file_path: str, description: str = "auto-tracked"):
+def _auto_record_edit(file_path: str, description: str = "auto-tracked") -> int:
     """
-    Automatically record an edit in loop detector.
-    Called post-edit to track changes invisibly.
+    Record an edit in the per-session loop tracker (invisible, post-edit).
+    Returns the file's updated edit count so callers don't re-read state.
     """
-    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
-    loop_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load loop detector state
-    if loop_file.exists():
-        try:
-            loop_data = json.loads(loop_file.read_text())
-        except Exception:
-            loop_data = {"edit_counts": {}, "test_results": []}
-    else:
-        loop_data = {"edit_counts": {}, "test_results": []}
-
-    # Increment edit count for this file
+    state = load_state()
+    loop = state.setdefault("loop", {})
+    counts = loop.setdefault("edit_counts", {})
     file_name = Path(file_path).name
-    counts = loop_data.get("edit_counts", {})
     counts[file_path] = counts.get(file_path, 0) + 1
     counts[file_name] = counts.get(file_name, 0) + 1  # Track both full path and name
-    loop_data["edit_counts"] = counts
-
-    # Save
-    try:
-        loop_file.write_text(json.dumps(loop_data, indent=2))
-    except Exception:
-        pass  # Silently fail
-
-    # Mark in state
-    state = load_state()
     state["last_loop_record"] = time.time()
     state["last_loop_file"] = file_path
     _increment_tool_usage(state, "loop_record_edit")
     save_state(state)
+    return counts[file_path]
 
 
 def _auto_record_test(passed: bool, error_message: str = "") -> str:
     """
-    Automatically record test result in loop detector.
-    Called after test runs to track results invisibly.
+    Record a test result in the per-session loop tracker (invisible).
     Returns confirmation message.
     """
-    loop_file = Path.home() / ".claude_engram" / "loop_detector.json"
-    loop_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Load loop detector state
-    if loop_file.exists():
-        try:
-            loop_data = json.loads(loop_file.read_text())
-        except Exception:
-            loop_data = {"edit_counts": {}, "test_results": []}
-    else:
-        loop_data = {"edit_counts": {}, "test_results": []}
+    state = load_state()
+    loop = state.setdefault("loop", {})
 
     # Link test result to recently-edited files
-    state = load_state()
     recent_files = state.get("files_edited_this_session", [])[-5:]
     recent_file_names = [Path(f).name for f in recent_files]
 
-    # Add test result with file context
-    test_results = loop_data.get("test_results", [])
+    test_results = loop.setdefault("test_results", [])
     test_results.append(
         {
             "timestamp": time.time(),
@@ -992,16 +905,8 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
         }
     )
     # Keep last 20 results
-    loop_data["test_results"] = test_results[-20:]
+    loop["test_results"] = test_results[-20:]
 
-    # Save
-    try:
-        loop_file.write_text(json.dumps(loop_data, indent=2))
-    except Exception:
-        pass  # Silently fail
-
-    # Mark in state
-    state = load_state()
     state["last_test_record"] = time.time()
     state["last_test_passed"] = passed
     state["test_runs_this_session"] = state.get("test_runs_this_session", 0) + 1
@@ -1203,25 +1108,14 @@ def reminder_for_edit(project_dir: str, file_path: str = "") -> str:
             lines.append("")
             has_content = True
 
-    # Loop detection - only warn if tests are failing (real spiral)
-    is_loop, loop_count = check_loop_detected(file_path)
-    if is_loop and loop_count >= 5:
-        # check_loop_detected returns True only if tests are failing or no test data
-        # and count >= 3. We raise to 5 to reduce false positives on iterative work.
-        lines.append(f"LOOP WARNING: {loop_count} edits without passing tests")
-        lines.append("")
-        has_content = True
-
     # ENFORCE: Session must be active
     if not session_active:
         # Auto-start silently — SessionStart hook handles this,
         # but if it didn't fire, just start without nagging.
         mark_session_started(project_dir)
 
-    # Track this edit
-    record_file_edit(file_path)
-
-    # Auto-recording happens silently post-edit - no need to announce it
+    # Edit tracking happens post-edit (PostToolUse) — recording here would
+    # count edits that were denied or failed before they ever ran.
 
     lines.append("</engram-edit-reminder>")
 
@@ -2432,18 +2326,14 @@ def main():
                     if first_word in ["ls", "dir", "find", "locate", "where", "which"]:
                         record_search_success()
 
-                # Reset loop detector on git commit (edit cycle completed)
+                # Reset loop edit counts on git commit (edit cycle completed);
+                # test history is kept — it still describes the current state.
                 if command and "git commit" in command:
                     try:
-                        loop_file = (
-                            Path.home() / ".claude_engram" / "loop_detector.json"
-                        )
-                        if loop_file.exists():
-                            ld = json.loads(loop_file.read_text())
-                            ld["file_edit_counts"] = {}
-                            ld["edit_counts"] = {}
-                            ld["total_edits"] = 0
-                            loop_file.write_text(json.dumps(ld, indent=2))
+                        state = load_state()
+                        if state.get("loop", {}).get("edit_counts"):
+                            state["loop"]["edit_counts"] = {}
+                            save_state(state)
                     except Exception:
                         pass
 
@@ -2489,32 +2379,13 @@ def main():
                 file_path = data.get("tool_input", {}).get("file_path", "")
                 if file_path:
                     project_dir = get_project_dir(file_path)
-                    _auto_record_edit(file_path, "auto-tracked")
+                    edit_count = _auto_record_edit(file_path, "auto-tracked")
 
                     # Track files edited (including by subagents — we want to know)
-                    state = load_state()
-                    files_edited = state.get("files_edited_this_session", [])
-                    if file_path not in files_edited:
-                        files_edited.append(file_path)
-                        state["files_edited_this_session"] = files_edited[-50:]
-                        state["last_session_files"] = files_edited[-50:]
-                        save_state(state)
+                    record_file_edit(file_path)
 
                     # Skip output for subagents — don't waste their context
                     if not is_subagent:
-                        loop_file = (
-                            Path.home() / ".claude_engram" / "loop_detector.json"
-                        )
-                        edit_count = 1
-                        if loop_file.exists():
-                            try:
-                                loop_data = json_module.loads(loop_file.read_text())
-                                edit_count = loop_data.get("edit_counts", {}).get(
-                                    file_path, 1
-                                )
-                            except Exception:
-                                pass
-
                         file_name = Path(file_path).name
                         # Quiet the routine per-edit line: it's noise on the first
                         # couple of touches. Only surface it once a file is edited

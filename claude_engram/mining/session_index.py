@@ -239,6 +239,13 @@ class SessionIndex:
         self._data.setdefault("sessions", {})[meta.session_id] = asdict(meta)
         self._dirty = True
 
+    def get_by_jsonl_file(self, jsonl_name: str) -> Optional[dict]:
+        """Find a session entry by its JSONL filename."""
+        for meta in self.sessions.values():
+            if meta.get("jsonl_file") == jsonl_name:
+                return meta
+        return None
+
     def get_latest_session(self) -> Optional[dict]:
         """Get the most recent session by timestamp."""
         sessions = self.sessions
@@ -335,6 +342,53 @@ def get_or_create_index(project_hash_dir: Path) -> SessionIndex:
     return SessionIndex(index_path)
 
 
+def merge_session_meta(existing: dict, tail: SessionMeta) -> SessionMeta:
+    """
+    Merge a tail-only SessionMeta (built from a byte offset) into the existing
+    index entry for the same session.
+
+    Mining runs at PreCompact AND SessionEnd on the same still-growing JSONL.
+    Without this merge the second run REPLACED the entry with tail-only counts,
+    silently resetting message_count / files_edited / tools_used and feeding
+    undercounted data to patterns, struggles, and timeline.
+
+    Counters add; collections union; identity fields keep the existing value
+    (set when the session head was scanned); freshness fields (last_timestamp,
+    summary, file sizes) and full-recount fields (subagent_count) take the tail.
+    """
+    tail.session_id = tail.session_id or existing.get("session_id", "")
+    tail.git_branch = tail.git_branch or existing.get("git_branch", "")
+    tail.first_timestamp = existing.get("first_timestamp") or tail.first_timestamp
+    tail.last_timestamp = tail.last_timestamp or existing.get("last_timestamp", "")
+    tail.summary = tail.summary or existing.get("summary", "")
+    tail.last_user_message = tail.last_user_message or existing.get(
+        "last_user_message", ""
+    )
+
+    for counter in (
+        "message_count",
+        "user_message_count",
+        "assistant_message_count",
+        "error_count",
+        "compaction_count",
+    ):
+        setattr(tail, counter, getattr(tail, counter) + existing.get(counter, 0))
+    tail.has_errors = tail.has_errors or existing.get("has_errors", False)
+
+    tail.files_edited = sorted(
+        set(tail.files_edited) | set(existing.get("files_edited", []))
+    )
+    merged_tools = dict(existing.get("tools_used", {}))
+    for tool, n in tail.tools_used.items():
+        merged_tools[tool] = merged_tools.get(tool, 0) + n
+    tail.tools_used = merged_tools
+
+    usage = existing.get("token_usage", {})
+    tail.token_usage["input"] += usage.get("input", 0)
+    tail.token_usage["output"] += usage.get("output", 0)
+    return tail
+
+
 def build_project_index(
     project_path: str,
     engram_storage_dir: str = "~/.claude_engram",
@@ -385,6 +439,13 @@ def build_project_index(
             continue
 
         meta = build_index_for_session(jsonl_path, start_offset=start_offset)
+        if start_offset > 0:
+            # Incremental pass over a grown session (mining runs at PreCompact
+            # AND SessionEnd): merge with the existing entry instead of
+            # replacing it with tail-only counts.
+            existing = index.get_by_jsonl_file(jsonl_path.name)
+            if existing:
+                meta = merge_session_meta(existing, meta)
         index.update_session(meta)
 
     index.save()

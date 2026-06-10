@@ -85,11 +85,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 args=arguments,
             )
 
-        case "loop":
-            return await handlers.handle_loop(
-                operation=arguments.get("operation", ""),
-                args=arguments,
-            )
+        # NOTE: "loop" case REMOVED - loop detection is hook-automatic (per-session)
 
         case "context":
             return await handlers.handle_context(
