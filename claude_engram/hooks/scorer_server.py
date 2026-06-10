@@ -1,11 +1,13 @@
 """
-Persistent AllMiniLM scorer server.
+Persistent embedding/scorer server.
 
-Keeps the model loaded in memory and serves scoring requests via TCP localhost.
-Auto-starts on first hook call, auto-exits after 30 min idle.
+Keeps the configured sentence-transformers model loaded in memory and serves
+scoring/embedding requests via TCP localhost. Auto-starts on first hook call,
+auto-exits after 30 min idle. The model is set by embed_config (default
+all-MiniLM-L6-v2, ~90MB; e.g. google/embeddinggemma-300m is heavier but
+substantially better).
 
-Memory: ~90MB (AllMiniLM model)
-Latency: ~5ms per request (vs ~500ms cold start without server)
+Latency: ~5ms per request on MiniLM (vs ~500ms cold start without server)
 
 Protocol: JSON lines over TCP
   Request:  {"text": "let's use Redis"}\n
@@ -22,43 +24,38 @@ import time
 import threading
 from pathlib import Path
 
+from claude_engram.embed_config import embed_signature
+
 # How long to stay alive without requests (seconds)
 IDLE_TIMEOUT = int(
     os.environ.get("CLAUDE_ENGRAM_SCORER_TIMEOUT", "1800")
 )  # 30 min default
 
-# Where to store the port number so hooks can find us
+# Where to store the port number so hooks can find us. MODEL_FILE records the
+# embedding signature the running server loaded: a client whose configured
+# model differs must not use this server (vectors from two models share no
+# space), so it replaces it instead.
 PORT_FILE = Path.home() / ".claude_engram" / "scorer_port"
 PID_FILE = Path.home() / ".claude_engram" / "scorer_pid"
+MODEL_FILE = Path.home() / ".claude_engram" / "scorer_model"
 
 
 def _load_model_and_templates():
-    """Load AllMiniLM and pre-computed template embeddings."""
+    """Load the configured embedding model and template embeddings."""
     import numpy as np
-    from sentence_transformers import SentenceTransformer
 
-    cache_file = (
-        Path.home() / ".claude_engram" / "embeddings" / "decision_templates.json"
-    )
+    from claude_engram.embed_config import load_sentence_transformer
+    from claude_engram.hooks.intent import _get_or_build_template_cache
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = load_sentence_transformer()
 
-    if cache_file.exists():
-        cache = json.loads(cache_file.read_text())
-        decision_embs = np.array(cache["decision_embeddings"])
-        non_decision_embs = np.array(cache["non_decision_embeddings"])
-    else:
-        # Build cache on the fly
-        from claude_engram.hooks.intent import (
-            DECISION_TEMPLATES,
-            NON_DECISION_TEMPLATES,
-            build_template_cache,
-        )
-
-        build_template_cache()
-        cache = json.loads(cache_file.read_text())
-        decision_embs = np.array(cache["decision_embeddings"])
-        non_decision_embs = np.array(cache["non_decision_embeddings"])
+    # _get_or_build_template_cache is signature-stamped: it rebuilds the
+    # template embeddings automatically when the configured model changed.
+    cache = _get_or_build_template_cache()
+    if cache is None:
+        raise RuntimeError("could not build decision template cache")
+    decision_embs = np.array(cache["decision_embeddings"])
+    non_decision_embs = np.array(cache["non_decision_embeddings"])
 
     return model, decision_embs, non_decision_embs
 
@@ -147,7 +144,8 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
 def serve():
     """Run the scorer server. Blocks until idle timeout."""
     # Load model (the expensive part — only done once)
-    print("Loading AllMiniLM model...", file=sys.stderr)
+    sig = embed_signature()
+    print(f"Loading embedding model {sig}...", file=sys.stderr)
     model, decision_embs, non_decision_embs = _load_model_and_templates()
     print("Model loaded.", file=sys.stderr)
 
@@ -158,10 +156,11 @@ def serve():
     port = server_sock.getsockname()[1]
     server_sock.listen(8)
 
-    # Write port and PID so hooks can find us
+    # Write port, PID, and model signature so hooks can find and validate us
     PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
     PORT_FILE.write_text(str(port))
     PID_FILE.write_text(str(os.getpid()))
+    MODEL_FILE.write_text(sig)
 
     print(
         f"Scorer server listening on 127.0.0.1:{port} (PID {os.getpid()})",
@@ -204,19 +203,46 @@ def serve():
 
 
 def _cleanup():
-    """Remove port/pid files on shutdown."""
+    """Remove port/pid/model files on shutdown."""
+    for f in (PORT_FILE, PID_FILE, MODEL_FILE):
+        try:
+            f.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _server_model_matches() -> bool:
+    """Does the running server's embedding model match the configured one?
+    A missing MODEL_FILE (pre-stamping server) counts as a mismatch only when
+    the configured signature isn't the default."""
+    from claude_engram.embed_config import DEFAULT_SIGNATURE
+
+    current = embed_signature()
+    if MODEL_FILE.exists():
+        try:
+            return MODEL_FILE.read_text().strip() == current
+        except Exception:
+            return False
+    return current == DEFAULT_SIGNATURE
+
+
+def _stop_running_server():
+    """Terminate a running scorer server (used when the model config changed).
+    Best-effort: on failure the stale files are removed so a new server starts
+    and the old one dies at its idle timeout."""
     try:
-        PORT_FILE.unlink(missing_ok=True)
+        pid = int(PID_FILE.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.2)
     except Exception:
         pass
-    try:
-        PID_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
+    _cleanup()
 
 
 def is_server_running() -> bool:
-    """Check if the scorer server is running."""
+    """Check if the scorer server is running WITH the configured model.
+    A reachable server loaded with a different model is replaced — using it
+    would mix vector spaces."""
     if not PORT_FILE.exists() or not PID_FILE.exists():
         return False
     try:
@@ -227,11 +253,14 @@ def is_server_running() -> bool:
         sock.settimeout(0.5)
         sock.connect(("127.0.0.1", port))
         sock.close()
-        return True
     except Exception:
         # Stale files — clean up
         _cleanup()
         return False
+    if not _server_model_matches():
+        _stop_running_server()
+        return False
+    return True
 
 
 def start_server_background():
@@ -310,8 +339,11 @@ def _ensure_server() -> bool:
     """Auto-start scorer server if not running. Returns True if server is available."""
     global _auto_start_attempted
     if PORT_FILE.exists():
-        _auto_start_attempted = False
-        return True
+        if _server_model_matches():
+            _auto_start_attempted = False
+            return True
+        # Config changed under a running server: replace it.
+        _stop_running_server()
     if _auto_start_attempted:
         return False
     _auto_start_attempted = True
@@ -326,7 +358,7 @@ def _ensure_server() -> bool:
 def embed_via_server(text: str) -> list[float]:
     """
     Get embedding vector for text from the persistent server.
-    Auto-starts server if not running. Returns 384-dim list or empty list.
+    Auto-starts server if not running. Returns a model-dim list or empty list.
     """
     if not _ensure_server():
         return []
@@ -360,7 +392,7 @@ def embed_batch_via_server(texts: list[str]) -> list[list[float]]:
 
     The server encodes all texts in one model.encode() call with batch_size=64,
     which is much faster than individual calls (1 roundtrip vs N roundtrips).
-    Returns list of 384-dim vectors. Empty list entries for failures.
+    Returns list of model-dim vectors. Empty list entries for failures.
     """
     if not texts:
         return []

@@ -178,7 +178,7 @@ class MemoryStore:
 
         # v4: Vector embeddings for semantic search (now per-project)
         self._embeddings_file = self.storage_dir / "embeddings.json"  # legacy
-        self._embeddings: dict[str, list[float]] = {}  # memory_id -> 384-dim vector
+        self._embeddings: dict[str, list[float]] = {}  # memory_id -> vector
         self._embeddings_loaded: bool = False
         self._np = None  # numpy module, loaded lazily
         self._try_numpy()
@@ -244,13 +244,31 @@ class MemoryStore:
         )
 
     def _merge_pending_embeddings(self, norm_path: str):
-        """Merge pending embeddings into the main embeddings for a project."""
+        """Merge pending embeddings into the main embeddings for a project.
+
+        Pending files are signature-stamped ({"model": sig, "vectors": {...}};
+        a legacy flat {id: vec} dict counts as the default model). Vectors
+        from a different model than the configured one are dropped, not
+        merged — embed_all_memories re-embeds them in the current space.
+        """
+        from ..embed_config import DEFAULT_SIGNATURE, embed_signature
+
+        sig = embed_signature()
         pdir = self._project_dir(norm_path)
         pending_file = pdir / "embeddings_pending.json"
         if not pending_file.exists():
             return
         try:
-            pending = json.loads(pending_file.read_text())
+            raw = json.loads(pending_file.read_text())
+            if isinstance(raw, dict) and "vectors" in raw:
+                pending_sig = raw.get("model", DEFAULT_SIGNATURE)
+                pending = raw.get("vectors", {})
+            else:
+                pending_sig = DEFAULT_SIGNATURE
+                pending = raw
+            if pending_sig != sig:
+                pending_file.unlink(missing_ok=True)
+                return
             if not pending:
                 return
 
@@ -264,14 +282,16 @@ class MemoryStore:
                 if npy_file.exists() and index_file.exists():
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
+                    stamp = idx_data.get("model", DEFAULT_SIGNATURE)
                     loaded = self._np.load(str(npy_file))
                     if (
-                        len(loaded.shape) == 2
-                        and loaded.shape[1] == 384
+                        stamp == sig
+                        and len(loaded.shape) == 2
                         and loaded.shape[0] == len(ids)
                     ):
                         matrix = loaded
                     else:
+                        # Different model or corrupt: discard, rebuild fresh
                         ids = []
 
                 existing_set = set(ids)
@@ -284,6 +304,14 @@ class MemoryStore:
 
                 if new_ids:
                     new_arr = self._np.array(new_vecs, dtype=self._np.float32)
+                    if (
+                        matrix is not None
+                        and len(matrix) > 0
+                        and matrix.shape[1] != new_arr.shape[1]
+                    ):
+                        # Dim mismatch despite stamps — refuse to mix
+                        pending_file.unlink(missing_ok=True)
+                        return
                     if matrix is not None and len(matrix) > 0:
                         matrix = self._np.vstack([matrix, new_arr])
                     else:
@@ -295,7 +323,7 @@ class MemoryStore:
                     self._np.save(str(tmp_npy), matrix)  # creates embeddings_tmp.npy
                     (pdir / "embeddings_tmp.npy").replace(npy_file)
                     temp = index_file.with_suffix(".json.tmp")
-                    temp.write_text(json.dumps({"ids": ids}))
+                    temp.write_text(json.dumps({"ids": ids, "model": sig}))
                     temp.replace(index_file)
             else:
                 # JSON fallback path: merge into embeddings.json in project dir
@@ -2293,13 +2321,16 @@ class MemoryStore:
     # =========================================================================
 
     def _save_project_embeddings(self, norm_path: str, ids: list[str], vecs: list):
-        """Save embeddings for a project (numpy binary or JSON fallback)."""
+        """Save embeddings for a project (numpy binary or JSON fallback),
+        stamped with the embedding signature so a model change is detected."""
+        from ..embed_config import embed_signature
+
         pdir = self._project_dir(norm_path)
         if self._np is not None and vecs:
             matrix = self._np.array(vecs, dtype=self._np.float32)
             self._np.save(str(pdir / "embeddings.npy"), matrix)
             temp = (pdir / "embeddings_index.json").with_suffix(".json.tmp")
-            temp.write_text(json.dumps({"ids": ids}))
+            temp.write_text(json.dumps({"ids": ids, "model": embed_signature()}))
             temp.replace(pdir / "embeddings_index.json")
         elif vecs:
             emb_dict = {mid: vec for mid, vec in zip(ids, vecs)}
@@ -2311,8 +2342,12 @@ class MemoryStore:
         """
         Load embeddings for a project. Returns (ids, matrix_or_dict).
         matrix_or_dict is np.ndarray if numpy available, else dict[str, list[float]].
-        Returns ([], None) if no embeddings exist or data is corrupt.
+        Returns ([], None) if no embeddings exist, data is corrupt, or the
+        store was built by a different embedding model (its vectors share no
+        space with current queries — treat as absent so the miner rebuilds).
         """
+        from ..embed_config import DEFAULT_SIGNATURE, embed_signature
+
         pdir = self._project_dir(norm_path)
 
         if self._np is not None:
@@ -2322,10 +2357,11 @@ class MemoryStore:
                 try:
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
+                    stamp = idx_data.get("model", DEFAULT_SIGNATURE)
                     matrix = self._np.load(str(npy_file), mmap_mode="r")
                     if (
-                        len(matrix.shape) == 2
-                        and matrix.shape[1] == 384
+                        stamp == embed_signature()
+                        and len(matrix.shape) == 2
                         and matrix.shape[0] == len(ids)
                     ):
                         return ids, matrix
@@ -2499,10 +2535,11 @@ class MemoryStore:
         limit: int = 10,
     ) -> list[tuple[MemoryEntry, float]]:
         """
-        Pure vector search using AllMiniLM embeddings.
+        Pure vector search using the configured embedding model.
 
         Encodes query, computes cosine similarity against stored embeddings.
-        Uses vectorized numpy dot product when available.
+        Uses vectorized numpy dot product when available. Stores built by a
+        different model load as empty (signature check) until re-embedded.
         Returns list of (entry, similarity) sorted descending.
         """
         norm = self._normalize_path(project_path)
@@ -2676,7 +2713,9 @@ class MemoryStore:
 
             count = 0
             for entry, emb in zip(pending_entries, embeddings):
-                if emb and len(emb) == 384:
+                # Dim is model-dependent; only require consistency within the
+                # batch being saved (the store is signature-stamped anyway).
+                if emb and (not all_vecs or len(emb) == len(all_vecs[0])):
                     all_ids.append(entry.id)
                     all_vecs.append(emb)
                     count += 1

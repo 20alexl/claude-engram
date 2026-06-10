@@ -274,14 +274,23 @@ def build_session_embeddings(
     emb_path = hash_dir / "session_embeddings.npy"
     idx_path = hash_dir / "session_embeddings_index.json"
 
-    # Load existing index
+    from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
+
+    sig = embed_signature()
+
+    # Load existing index. An index built by a different embedding model is
+    # discarded wholesale: its vectors share no space with the configured
+    # model's, so the store rebuilds from scratch in the new space.
     existing_chunks: list[dict] = []
     existing_sessions: set[str] = set()
     if idx_path.exists():
         try:
             data = json.loads(idx_path.read_text(encoding="utf-8"))
-            existing_chunks = data.get("chunks", [])
-            existing_sessions = {c["session_id"] for c in existing_chunks}
+            if data.get("model", DEFAULT_SIGNATURE) == sig:
+                existing_chunks = data.get("chunks", [])
+                existing_sessions = {c["session_id"] for c in existing_chunks}
+            else:
+                emb_path.unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -477,7 +486,9 @@ def build_session_embeddings(
     ]
 
     tmp = idx_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"chunks": all_chunks}, indent=2), encoding="utf-8")
+    tmp.write_text(
+        json.dumps({"chunks": all_chunks, "model": sig}, indent=2), encoding="utf-8"
+    )
     tmp.replace(idx_path)
 
     return len(valid_chunks)
@@ -558,9 +569,16 @@ def search_sessions(
             if matched > 0:
                 keyword_scores[i] = matched / len(query_words)
 
-    # Semantic scoring
+    # Semantic scoring. Skipped when the stored vectors were built by a
+    # different embedding model than the configured one (the query embeds in
+    # the current space; dotting it against another model's vectors is
+    # garbage even when the dims happen to agree). Keyword scoring still
+    # works; the miner rebuilds the store on its next run.
     semantic_scores = [0.0] * len(chunks)
-    if method in ("semantic", "hybrid"):
+    from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
+
+    _index_model = idx_data.get("model", DEFAULT_SIGNATURE)
+    if method in ("semantic", "hybrid") and _index_model == embed_signature():
         emb_path = hash_dir / "session_embeddings.npy"
         try:
             import numpy as np

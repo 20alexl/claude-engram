@@ -382,10 +382,10 @@ TOOL_DEFINITIONS = [
     # NOTE: habit tool REMOVED - meta-tracking of tool usage adds noise without value
     Tool(
         name="convention",
-        description="""Manage project coding conventions and style rules. Stores rules per-project with categories, checks code against them using LLM, and enforces consistency across the codebase. Operations:
+        description="""Manage project coding conventions and style rules. Stores rules per-project with categories, checks code against them with deterministic pattern matching, and enforces consistency across the codebase. Operations:
 - add: Store a new convention rule with category and reasoning
 - get: Retrieve all conventions, optionally filtered by category
-- check: Validate code or a filename against stored conventions using LLM analysis
+- check: Validate code or a filename against stored conventions (deterministic pattern check)
 - remove: Delete a convention rule by matching its text""",
         inputSchema={
             "type": "object",

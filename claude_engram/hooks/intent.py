@@ -111,7 +111,12 @@ def _get_or_build_template_cache() -> Optional[dict]:
     Returns dict with 'decision_embeddings' and 'non_decision_embeddings' as lists,
     or None if sentence-transformers is not available.
     """
-    # Try to load from cache first
+    from claude_engram.embed_config import embed_signature, load_sentence_transformer
+
+    sig = embed_signature()
+
+    # Try to load from cache first; a cache built by a different embedding
+    # model is invalid (vectors from two models share no space) and rebuilds.
     if _TEMPLATE_CACHE.exists():
         try:
             cache = json.loads(_TEMPLATE_CACHE.read_text())
@@ -119,19 +124,18 @@ def _get_or_build_template_cache() -> Optional[dict]:
             if (
                 cache.get("decision_count") == len(DECISION_TEMPLATES)
                 and cache.get("non_decision_count") == len(NON_DECISION_TEMPLATES)
-                and cache.get("model") == "all-MiniLM-L6-v2"
+                and cache.get("model") == sig
             ):
                 return cache
         except Exception:
             pass
 
     # Need to rebuild — requires sentence-transformers
-    SentenceTransformer = _try_import_sentence_transformers()
-    if SentenceTransformer is None:
+    if _try_import_sentence_transformers() is None:
         return None
 
     try:
-        model = SentenceTransformer("all-MiniLM-L6-v2")
+        model = load_sentence_transformer()
 
         decision_embs = model.encode(DECISION_TEMPLATES, normalize_embeddings=True)
         non_decision_embs = model.encode(
@@ -139,7 +143,7 @@ def _get_or_build_template_cache() -> Optional[dict]:
         )
 
         cache = {
-            "model": "all-MiniLM-L6-v2",
+            "model": sig,
             "decision_count": len(DECISION_TEMPLATES),
             "non_decision_count": len(NON_DECISION_TEMPLATES),
             "decision_embeddings": decision_embs.tolist(),
@@ -188,8 +192,7 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
     except Exception:
         pass
 
-    SentenceTransformer = _try_import_sentence_transformers()
-    if SentenceTransformer is None:
+    if _try_import_sentence_transformers() is None:
         return (0.0, "")
 
     cache = _get_or_build_template_cache()
@@ -199,7 +202,9 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
     try:
         import numpy as np
 
-        model = SentenceTransformer("all-MiniLM-L6-v2")
+        from claude_engram.embed_config import load_sentence_transformer
+
+        model = load_sentence_transformer()
 
         # Split into sentences and score each
         sentences = re.split(r"(?<=[.!])\s+|\n+", text)

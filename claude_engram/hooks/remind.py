@@ -1884,18 +1884,27 @@ def _append_memory_entry(project_dir: str, entry: dict, skip_if=None) -> bool:
     tmp.replace(mem_file)
 
     # Embed to pending file (fast, no full store load); merged on next load.
+    # Stamped with the embedding signature so a model change between write
+    # and merge can't mix vector spaces (legacy flat files = default model).
     try:
+        from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
         from claude_engram.hooks.scorer_server import embed_via_server
 
         emb = embed_via_server(entry["content"])
         if emb:
+            sig = embed_signature()
             pending_file = pdir / "embeddings_pending.json"
-            pending = {}
+            vectors = {}
             if pending_file.exists():
-                pending = json.loads(pending_file.read_text())
-            pending[entry["id"]] = emb
+                raw = json.loads(pending_file.read_text())
+                if isinstance(raw, dict) and "vectors" in raw:
+                    if raw.get("model", DEFAULT_SIGNATURE) == sig:
+                        vectors = raw.get("vectors", {})
+                elif isinstance(raw, dict) and DEFAULT_SIGNATURE == sig:
+                    vectors = raw
+            vectors[entry["id"]] = emb
             etmp = pending_file.with_suffix(".json.tmp")
-            etmp.write_text(json.dumps(pending))
+            etmp.write_text(json.dumps({"model": sig, "vectors": vectors}))
             etmp.replace(pending_file)
     except Exception:
         pass
