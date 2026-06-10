@@ -807,8 +807,16 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
         # (bare except, print count, file size, "run tests", "restart server")
         # that wasted tokens without providing actionable context.
 
-        # 5. NEW: Contextual memory injection
-        contextual_memories = get_contextual_memories(project_dir, file_path)
+        # 5. NEW: Contextual memory injection — reuses the entries loaded
+        # above (one memory.json parse per hook, not two) and excludes
+        # mistakes already shown in the past-mistakes section (the same
+        # mistake in two sections of one banner is pure token waste).
+        contextual_memories = get_contextual_memories(
+            project_dir,
+            file_path,
+            entries=project_memory.get("entries", []),
+            exclude=results["past_mistakes"],
+        )
         if contextual_memories:
             results["contextual_memories"] = contextual_memories
 
@@ -829,23 +837,44 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     return results
 
 
-def get_contextual_memories(project_dir: str, file_path: str) -> list[str]:
+def get_contextual_memories(
+    project_dir: str,
+    file_path: str,
+    entries: "list[dict] | None" = None,
+    exclude: "list[str] | None" = None,
+) -> list[str]:
     """
-    Get scored memories relevant to a file context using HotMemoryReader.
+    Get scored memories relevant to a file context.
 
     Uses relevance scoring (file match, tags, recency, importance) instead
     of naive filename substring matching. Returns top 3 most relevant.
+
+    ``entries``: pre-loaded memory entries (with ancestors) — pass them when
+    the caller already parsed memory.json so the hook doesn't parse it twice.
+    ``exclude``: content snippets already shown elsewhere in the banner
+    (e.g. the past-mistakes section) — duplicates are dropped.
     """
     try:
-        from claude_engram.tools.memory import HotMemoryReader
+        from claude_engram.hooks.hot_reader import (
+            HotMemoryReader,
+            score_loaded_entries,
+        )
 
-        reader = HotMemoryReader()
         context = {
             "file_path": file_path,
             "tool_name": "Edit",
             "tags": [],
         }
-        scored = reader.get_scored_memories(project_dir, context, limit=3)
+        if entries is None:
+            entries = HotMemoryReader().load_entries(project_dir)
+        scored = score_loaded_entries(entries, context, limit=3)
+        if exclude:
+            keys = [str(x)[:60] for x in exclude if x]
+            scored = [
+                m
+                for m in scored
+                if not any(k in m.get("content", "") for k in keys)
+            ]
         # Append each memory's age so staleness is visible at the point of use: a
         # code-pointer memory goes wrong after a refactor, and "(40d old)" is the
         # cue to verify before trusting it. Silent when no timestamp is stored.

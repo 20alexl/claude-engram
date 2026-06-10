@@ -333,10 +333,32 @@ def install_hooks_config():
 
 
 def get_mcp_config():
-    """Generate the .mcp.json configuration."""
+    """Generate the .mcp.json configuration.
+
+    Points Claude Code straight at the venv python: every wrapper layer
+    (cmd.exe running a .bat) adds a process between the host and the server,
+    and under heavy CPU load that contributed to 30s-handshake timeouts where
+    the host tears the server down. The launcher script remains only as a
+    fallback when no venv exists.
+    """
     script_dir = Path(__file__).parent.resolve()
 
-    # Use launcher script (handles paths with spaces better)
+    if is_windows():
+        venv_python = script_dir / "venv" / "Scripts" / "python.exe"
+    else:
+        venv_python = script_dir / "venv" / "bin" / "python"
+
+    if venv_python.exists():
+        return {
+            "mcpServers": {
+                "claude-engram": {
+                    "command": str(venv_python),
+                    "args": ["-m", "claude_engram.server"],
+                }
+            }
+        }
+
+    # Fallback: launcher script (resolves a python at run time)
     if is_windows():
         launcher = script_dir / "scripts" / "run_server.bat"
     else:
@@ -345,21 +367,10 @@ def get_mcp_config():
     if launcher.exists():
         return {"mcpServers": {"claude-engram": {"command": str(launcher), "args": []}}}
 
-    # Fallback to direct python path
-    if is_windows():
-        venv_python = script_dir / "venv" / "Scripts" / "python.exe"
-    else:
-        venv_python = script_dir / "venv" / "bin" / "python"
-
-    if venv_python.exists():
-        python_path = str(venv_python)
-    else:
-        python_path = sys.executable
-
     return {
         "mcpServers": {
             "claude-engram": {
-                "command": python_path,
+                "command": sys.executable,
                 "args": ["-m", "claude_engram.server"],
             }
         }

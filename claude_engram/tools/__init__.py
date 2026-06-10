@@ -1,23 +1,29 @@
-"""Claude Engram Tools - Individual capabilities that claude_engram provides."""
+"""Claude Engram Tools - individual capabilities.
 
-from .scout import SearchEngine
-from .memory import MemoryStore
-from .summarizer import FileSummarizer
-from .dependencies import DependencyMapper
-from .conventions import ConventionTracker
-from .impact import ImpactAnalyzer
-from .session import SessionManager
-from .work_tracker import WorkTracker
-from .thinker import Thinker
+Lazy exports (PEP 562): importing one tool must not pay for all of them.
+The pre-edit hook imports memory scoring on a 1s budget; an eager __init__
+dragged httpx + pydantic + the audit engine into every hook process.
+"""
 
-__all__ = [
-    "SearchEngine",
-    "MemoryStore",
-    "FileSummarizer",
-    "DependencyMapper",
-    "ConventionTracker",
-    "ImpactAnalyzer",
-    "SessionManager",
-    "WorkTracker",
-    "Thinker",
-]
+import importlib
+
+_EXPORTS = {
+    "SearchEngine": ".scout",
+    "MemoryStore": ".memory",
+    "FileSummarizer": ".summarizer",
+    "DependencyMapper": ".dependencies",
+    "ConventionTracker": ".conventions",
+    "ImpactAnalyzer": ".impact",
+    "SessionManager": ".session",
+    "WorkTracker": ".work_tracker",
+    "Thinker": ".thinker",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name):
+    if name in _EXPORTS:
+        module = importlib.import_module(_EXPORTS[name], __name__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

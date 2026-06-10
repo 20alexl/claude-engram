@@ -40,22 +40,9 @@ _PROJECT_MARKERS = {
 }
 
 # Generic filenames present in nearly every project — a bare basename match on
-# these pulls in unrelated projects' mistakes (a service-a __init__.py mistake firing
-# on a service-b __init__.py edit), so the pre-edit check requires a full-path match
-# for them. Mirrors memory._GENERIC_BASENAMES (kept local to avoid importing
-# the heavy memory module on the hot hook path).
-_GENERIC_BASENAMES = {
-    "__init__.py",
-    "__main__.py",
-    "__init__.ts",
-    "index.js",
-    "index.ts",
-    "index.tsx",
-    "mod.rs",
-    "setup.py",
-    "conftest.py",
-    "types.ts",
-}
+# these pulls in unrelated projects' mistakes, so the pre-edit check requires a
+# full-path match for them. One definition, in the stdlib-only hot_reader.
+from .hot_reader import _GENERIC_BASENAMES  # noqa: E402,F401
 
 # Cache: file_path -> resolved project dir (avoids repeated filesystem walks)
 _project_dir_cache: dict[str, str] = {}

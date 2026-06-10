@@ -84,10 +84,12 @@ context(
 - Only file-relevant memories inject before edits (no generic noise)
 - Pre-edit injection is path-aware: a shared basename across diverging paths (e.g. service-a/.../__init__.py vs service-b/.../__init__.py) is not treated as a match; generic basenames like `__init__.py` or `index.js` require a full-path signal to score
 - Mistakes only logged from errors in project files (not inline python, not pip packages)
-- Loop counter resets after git commits
+- Loop detection state is per-session: edit counts and test results live in the session's hook state, so two concurrent sessions never cross-contaminate; the counter resets after git commits
 - Scorer server auto-starts on demand (no silent degradation)
 - Session mining runs in background after SessionEnd
 - Bootstrap: first session on new project auto-mines existing history
 - Checkpoints/handoffs are durable: one ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one; manual always wins; retrieve any entry via `checkpoint_restore(index=N)` or browse with `checkpoint_list`
 - Checkpoints are per-project (multi-project workspaces don't clobber each other)
 - Subagents: memory injection and output are skipped (saves context), but file edits are still tracked
+- Ollama is optional: only `memory(consolidate)` and `session_mine(reflect)` insight synthesis use it (both background, both degrade silently); `scout_search` uses it when available. Everything else is LLM-free
+- No emojis in any output
