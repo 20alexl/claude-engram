@@ -14,7 +14,7 @@ These happen via hooks. You don't call anything:
 |---|---|---|
 | **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff |
 | **Edit tracking** | PostToolUse Edit/Write | "Edit tracked: file.py (edit #3)" |
-| **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times |
+| **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times (state lives in per-session hook state, so concurrent sessions don't cross-contaminate) |
 | **Scored memory injection** | PreToolUse Edit/Write | Top 3 relevant memories for the file |
 | **Test tracking** | PostToolUse Bash | "PASS/FAIL Test tracked" |
 | **Error auto-logging** | PostToolUseFailure (all tools) | Mistakes auto-saved from any failed tool |
@@ -217,8 +217,8 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 
 ## Technical Notes
 
-- Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`)
-- Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/)
+- Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`) — **optional**. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis. Both background ops degrade silently when Ollama is absent. Everything proactive (hooks, code index, precheck, blast-radius, injection scoring) is LLM-free.
+- Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/). Override the location with `CLAUDE_ENGRAM_DIR`.
 - Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
 - Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding
 - Session mining: background subprocess, fire-and-forget, no hook timeout impact

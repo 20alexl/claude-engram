@@ -18,12 +18,11 @@ Claude Code
     │   ├── SessionStart / SessionEnd / Stop     → lifecycle management
     │   └── PreCompact / PostCompact             → checkpoint + re-inject context
     │
-    ├── MCP Server (server.py → handlers.py)  ← Tools for manual operations
-    │   ├── memory (20 operations)
-    │   ├── work (log_mistake, log_decision)
-    │   ├── scope, loop, context, convention, output
-    │   ├── audit_batch (file mode: LLM audit; inline mode: heuristic lint)
-    │   └── scout_search, impact_analyze, find_similar_issues, ...
+    ├── MCP Server (server.py → handlers.py)  ← Tools for manual operations (16)
+    │   ├── memory, work (log_mistake, log_decision)
+    │   ├── scope, context, convention
+    │   ├── audit_batch (file mode + inline mode — both pure regex/AST)
+    │   └── scout_search, file_summarize, deps_map, impact_analyze, find_similar_issues, session_mine
     │
     ├── Scorer Server (scorer_server.py)      ← Persistent AllMiniLM process
     │   └── TCP localhost, ~90MB RAM, ~5-25ms per score, batch embedding
@@ -38,8 +37,8 @@ Claude Code
     │   ├── Code index (ast-only symbol table per project, incremental by mtime)
     │   └── Outcome log (injection precision: which kinds precede passing tests)
     │
-    └── Ollama (local LLM)                    ← Semantic search, code analysis
-        └── gemma3:12b (configurable)
+    └── Ollama (local LLM, optional)          ← memory(consolidate), session_mine(reflect)
+        └── gemma3:12b (configurable); scout_search uses it when present
 
 Storage: ~/.claude_engram/
     ├── manifest.json        ← Maps project paths to hash dirs; migrations_applied list
@@ -58,9 +57,9 @@ Storage: ~/.claude_engram/
     │   └── handoff_history.json     ← Global slot ring buffer (last 20 handoffs)
     ├── embeddings/          ← Cached AllMiniLM decision templates
     ├── sessions/
-    │   └── <session_id>.json        ← Per-session hook state (auto-prune after 7 days)
+    │   └── <session_id>.json        ← Per-session hook state: edit counts, test results (loop detection lives here; auto-prune after 7 days)
     ├── hook_state.json      ← Hook tracking counters (legacy/global fallback)
-    ├── loop_detector.json   ← Edit counts per file
+    ├── loop_detector.json   ← Abandoned in v0.8.0 (state moved to sessions/<sid>.json; old file harmless)
     ├── scope_guard.json     ← Declared scope state
     ├── conventions.json     ← Project coding rules
     ├── injection_outcomes.json ← Pre-edit injection vs test-outcome correlation log
@@ -131,7 +130,7 @@ Storage: ~/.claude_engram/
 
 **What it does:** Communicates with Ollama for semantic search and code analysis. Includes retry logic, request queueing (serializes parallel requests to prevent GPU contention), and health checking.
 
-**Why it's separate:** Isolates the Ollama dependency. LLM (gemma3:12b via Ollama) is used only by on-demand analysis tools: `scout_search`, `scout_analyze`, `file_summarize` (detailed mode), `audit_batch` (file mode), `convention(check)`, and `session_mine(reflect)` insights synthesis. All hooks, the code index, import precheck, blast-radius, and the outcome log are LLM-free.
+**Why it's separate:** Isolates the optional Ollama dependency. LLM (gemma3:12b via Ollama) is used only by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently if Ollama is down), plus `scout_search` when available. Everything else — all hooks, the code index, import precheck, blast-radius, the outcome log, `convention(check)`, `file_summarize`, `audit_batch`, `find_similar_issues` — is LLM-free.
 
 ### Code Index (`mining/code_index.py`)
 
@@ -215,7 +214,7 @@ Storage: ~/.claude_engram/
        │  ├── get_contextual_memories() → HotMemoryReader scores + ranks
        │  ├── precheck_edit() → import/export check against code index
        │  ├── blast_radius() → reverse-edge lookup from code index
-       │  ├── check_loop_detected() → reads loop_detector.json
+       │  ├── check_loop_detected() → reads per-session state (sessions/<sid>.json)
        │  └── get_scope_status() → reads scope_guard.json
        │  └── record_injection() → logs injection kinds to outcome log
        ▼
@@ -259,14 +258,16 @@ claude_engram/
 │   ├── mining/
 │   │   ├── __init__.py
 │   │   ├── background.py    # Background subprocess spawner + 6-phase worker
-│   │   ├── session_index.py # JSONL parser, session index, incremental cursors
+│   │   ├── jsonl_reader.py  # Streaming JSONL session-log reader
+│   │   ├── session_index.py # Session index, incremental byte-offset cursors
 │   │   ├── extractors.py    # Structural + semantic extractors (decisions, etc.)
 │   │   ├── search.py        # Cross-session search (AllMiniLM embeddings)
 │   │   ├── patterns.py      # Pattern detection (struggles, errors, correlations)
 │   │   ├── predictive.py    # Predictive context (related files, likely errors)
 │   │   ├── cross_project.py # Cross-project aggregate insights
 │   │   ├── timeline.py      # Project timeline builder
-│   │   ├── reflect.py       # LLM-synthesized insights from recurring patterns
+│   │   ├── commitments.py   # Live-transcript open-loop scan (session_mine commitments)
+│   │   ├── reflect.py       # LLM-synthesized insights from recurring patterns (optional Ollama)
 │   │   ├── code_index.py    # Per-project ast symbol table (Phase 6)
 │   │   └── outcomes.py      # Pre-edit injection vs test-outcome correlation log
 │   └── tools/
@@ -274,18 +275,15 @@ claude_engram/
 │       ├── memory.py         # MemoryStore + HotMemoryReader
 │       ├── session.py        # SessionManager
 │       ├── work_tracker.py   # WorkTracker (mistakes, decisions)
-│       ├── loop_detector.py  # LoopDetector
 │       ├── scope_guard.py    # ScopeGuard
 │       ├── context_guard.py  # ContextGuard (checkpoints, handoffs)
-│       ├── conventions.py    # ConventionTracker
-│       ├── output_validator.py
-│       ├── code_quality.py   # Inline heuristic lint (used by audit_batch inline mode)
-│       ├── scout.py          # Semantic search
-│       ├── summarizer.py     # File summarizer
+│       ├── conventions.py    # ConventionTracker (deterministic convention check)
+│       ├── code_quality.py   # Inline regex/AST lint (audit_batch inline mode)
+│       ├── scout.py          # Semantic search (optional Ollama)
+│       ├── summarizer.py     # Structural file summarizer (no LLM)
 │       ├── dependencies.py   # Dependency mapper
 │       ├── impact.py         # Impact analyzer (reads code index; regex fallback)
-│       ├── thinker.py        # Code audit / pattern finder (audit_batch file mode)
-│       └── habit_tracker.py  # Session statistics
+│       └── thinker.py        # Code audit / pattern finder — regex/AST (audit_batch file mode, find_similar_issues)
 ├── hooks_config.json         # Reference hook config
 ├── install.py                # Installer (hooks, MCP, launcher scripts)
 ├── pyproject.toml

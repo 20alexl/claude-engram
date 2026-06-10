@@ -74,15 +74,7 @@ All operations require `operation` and `project_path`.
 | `status` | — | Get violations and scope state |
 | `clear` | — | Reset scope |
 
-### `loop` Tool
-
-| Operation | Parameters | Description |
-|-----------|-----------|-------------|
-| `record_edit` | `file_path`, `description?` | Log a file edit |
-| `record_test` | `passed`, `error_message?` | Log test result |
-| `check` | `file_path` | Check loop risk for a file |
-| `status` | — | Edit counts and warnings |
-| `reset` | — | Clear all tracking |
+> The `loop` tool was removed in v0.8.0. Loop detection is hook-automatic: edits and test results are tracked in per-session hook state by the PreToolUse/PostToolUse hooks, which warn on real spirals (repeat edits with failing tests). There is no agent-callable loop op.
 
 ### `context` Tool
 
@@ -104,31 +96,27 @@ Checkpoint and handoff are one unified ring buffer. `checkpoint_*` are the prima
 |-----------|-----------|-------------|
 | `add` | `project_path`, `rule`, `category?`, `reason?`, `examples?`, `importance?` | Store convention |
 | `get` | `project_path`, `category?` | Get conventions |
-| `check` | `project_path`, `code_or_filename` | Check against conventions (LLM) |
+| `check` | `project_path`, `code_or_filename` | Deterministic pattern check against stored conventions (no LLM) |
 | `remove` | `project_path`, `rule` | Remove by matching text |
 
-### `output` Tool
-
-| Operation | Parameters | Description |
-|-----------|-----------|-------------|
-| `validate_code` | `code`, `context?` | Check for silent failures |
-| `validate_result` | `output`, `expected_format?`, `should_contain?`, `should_not_contain?` | Validate command output |
+> The `output` tool (`validate_code` / `validate_result`) was removed in v0.8.0. Its inline checks are covered by `audit_batch`'s inline mode (`code` + `language`).
 
 ### Standalone Tools
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `scout_search` | `query`, `directory`, `max_results?` | Semantic codebase search |
-| `scout_analyze` | `code`, `question` | LLM code analysis |
-| `file_summarize` | `file_path`, `mode?` | Quick or detailed summary |
+| `scout_search` | `query`, `directory`, `max_results?` | Semantic codebase search (uses Ollama when available) |
+| `file_summarize` | `file_path` | Structural summary (purpose, exports, dependencies, complexity) — pattern-based, no LLM |
 | `deps_map` | `file_path`, `project_root?`, `include_reverse?` | Map dependencies |
 | `impact_analyze` | `file_path`, `project_root`, `proposed_changes?` | Change impact analysis |
-| `audit_batch` | `file_paths`+`min_severity?` (files) · or `code`+`language?` (inline) | Audit files, or lint a snippet for AI-slop patterns |
-| `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns |
+| `audit_batch` | `file_paths`+`min_severity?` (files) · or `code`+`language?` (inline) | Audit files or lint a snippet for AI-slop patterns — pure regex/AST, no LLM |
+| `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns — pure regex/AST, no LLM |
+
+> `scout_analyze` was removed in v0.8.0 (zero recorded use — the agent reads code better than a 12B commentary pass).
 
 ### MCP Tool Annotations
 
-All 19 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title`, `openWorldHint`). 10 read-only analysis tools (e.g., `memory(search/recall/recent/list_*)`, `session_mine`, `scope(check/status)`, `loop(check/status)`, `claude_engram_status`, `pre_edit_check`) are marked `readOnlyHint=true` and `idempotentHint=true`. Operation-enum tools that write state are marked `readOnlyHint=false`. All tools are local (`openWorldHint=false`). MCP clients and Claude Code's permission system use these annotations to skip confirmation prompts on read-only calls.
+All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title`, `openWorldHint`). 8 read-only analysis tools (`claude_engram_status`, `pre_edit_check`, `scout_search`, `file_summarize`, `deps_map`, `impact_analyze`, `find_similar_issues`, `audit_batch`) are marked `readOnlyHint=true` and `idempotentHint=true`. Operation-enum tools that bundle reads and writes under one name (e.g. `memory`, `session_mine`, `scope`, `context`) are marked `readOnlyHint=false`. All tools are local (`openWorldHint=false`). MCP clients and Claude Code's permission system use these annotations to skip confirmation prompts on read-only calls.
 
 ### `session_mine` Tool
 
@@ -156,8 +144,9 @@ All 19 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `CLAUDE_ENGRAM_MODEL` | `str` | `gemma3:12b` | Ollama model name |
-| `CLAUDE_ENGRAM_OLLAMA_URL` | `str` | `http://localhost:11434` | Ollama API URL |
+| `CLAUDE_ENGRAM_DIR` | `str` | `~/.claude_engram` | Storage location override (also the supported test-isolation seam) |
+| `CLAUDE_ENGRAM_MODEL` | `str` | `gemma3:12b` | Ollama model name (optional LLM — `scout_search`, `memory(consolidate)`, `session_mine(reflect)`) |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `str` | `http://localhost:11434` | Ollama API URL (optional LLM) |
 | `CLAUDE_ENGRAM_TIMEOUT` | `float` | `300` | LLM call timeout (seconds) |
 | `CLAUDE_ENGRAM_KEEP_ALIVE` | `str/int` | `0` | Ollama model keep-alive (`0`, `5m`, `-1`) |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `int` | `14` | Days until inactive memories archive |
@@ -231,8 +220,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │       └── extractions/           # Per-session extracted intelligence
 │           └── <session_id>.json  # Decisions, mistakes, approaches, corrections
 ├── conventions.json         # Project coding conventions
-├── hook_state.json          # Hook tracking state (counters, files edited)
-├── loop_detector.json       # Per-file edit counts
+├── sessions/                # Per-session hook state (edit counts, test results); keyed by session_id, auto-pruned
+│   └── <session_id>.json    #   Loop-detection state lives here now — concurrent sessions stay isolated
+├── hook_state.json          # Legacy/global fallback hook counters (superseded by sessions/)
+├── loop_detector.json       # Abandoned in v0.8.0 (loop state moved to sessions/<sid>.json; old file is harmless if present)
 ├── scope_guard.json         # Declared scope state
 ├── scorer_port              # TCP port for scorer server (auto-managed)
 ├── scorer_pid               # PID of scorer server (auto-managed)
@@ -248,6 +239,21 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.0 — 2026-06-10
+
+- **Tool surface trimmed (19 → 16).** Removed `loop` (loop detection is hook-automatic and per-session now), `output` (its `validate_code`/`validate_result` checks are covered by `audit_batch`'s inline mode), and `scout_analyze` (zero recorded use). The remaining 16: `claude_engram_status`, `session_start`, `session_end`, `pre_edit_check`, `memory`, `work`, `scope`, `context`, `convention`, `scout_search`, `file_summarize`, `deps_map`, `impact_analyze`, `find_similar_issues`, `audit_batch`, `session_mine`.
+- **LLM role narrowed — Ollama is now an optional flavor.** It is used only by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently without it), plus `scout_search` when available. Everything proactive — hooks, code index, precheck, blast-radius, injection scoring — is LLM-free.
+- **`convention(check)` is now a deterministic pattern check** against stored conventions (the LLM mode was removed: its "no check-mark means violation" heuristic was a false-positive machine with zero recorded use).
+- **`file_summarize` is structural only** — the `mode` parameter and the LLM "detailed" mode are gone. It returns purpose, exports, dependencies, and a complexity estimate from pattern/structure analysis.
+- **`audit_batch` and `find_similar_issues` are pure regex/AST** — no LLM, no network (they never were; the docs are now explicit).
+- **Loop-detection state is per-session.** Edit counts and test results live in the session's hook state (`sessions/<sid>.json`), not the shared `~/.claude_engram/loop_detector.json` — two concurrent sessions no longer cross-contaminate. The old `loop_detector.json` is abandoned (harmless if present).
+- **Pre-edit no longer records file edits** (only post-edit does), so denied or failed edits aren't counted toward the loop threshold.
+- **Session-mining merge + per-phase error isolation.** A session that grows after being indexed (PreCompact then SessionEnd) now MERGES counts instead of resetting them; each miner phase is error-isolated and `mining_status.json` records which phase failed (`phase_errors`).
+- **Auto-logged mistakes/decisions in a brand-new project are no longer dropped** — the project is auto-registered in the manifest first.
+- **New env var `CLAUDE_ENGRAM_DIR`** overrides the storage location (default `~/.claude_engram`) and is the supported test-isolation seam.
+- **`memory(embed_all)` fixed** — it crashed with a `NameError` since the args rename; it now reads its `force` flag from the call args.
+- **No emojis in any output.**
 
 ### v0.7.1 — 2026-06-02
 

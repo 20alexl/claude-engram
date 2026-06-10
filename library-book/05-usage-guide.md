@@ -138,12 +138,7 @@ scope(operation="check", file_path="database/models.py")  # "OUT OF SCOPE"
 scope(operation="expand", files_to_add=["database/models.py"], reason="Login query needs model changes")
 ```
 
-### Check Loop Status
-
-```python
-loop(operation="status")   # See edit counts per file
-loop(operation="reset")    # Clear after changing approach
-```
+> There is no `loop` tool to call. Loop detection is fully automatic: the PreToolUse/PostToolUse hooks track edit counts and test results in per-session state and warn on real spirals (repeat edits with failing tests). The counter resets after a git commit.
 
 ---
 
@@ -182,15 +177,17 @@ context(operation="checkpoint_list", project_path="/path")
 
 ---
 
-## Code Analysis (requires Ollama)
+## Code Analysis
 
-### Semantic Search
+Only `scout_search` uses Ollama (and only when it's available — it falls back to keyword matching otherwise). `impact_analyze` and `audit_batch` are pure regex/AST and never call an LLM.
+
+### Semantic Search (uses Ollama when available)
 
 ```python
 scout_search(query="how does the payment processing work", directory="/path/to/project")
 ```
 
-Reads actual code files, uses LLM to find semantically relevant results. Better than grep for natural language queries.
+Reads actual code files; uses the local LLM to rank semantically relevant results when Ollama is up, otherwise keyword search. Better than grep for natural language queries.
 
 ### Impact Analysis
 
@@ -198,21 +195,21 @@ Reads actual code files, uses LLM to find semantically relevant results. Better 
 impact_analyze(file_path="models/user.py", project_root="/path")
 ```
 
-Shows what depends on a file, what it exports, and risk level for changes.
+Shows what depends on a file, what it exports, and risk level for changes. Reads the cached code index (reverse edges); no LLM.
 
-### Audit Files (LLM)
+### Audit Files
 
 ```python
 # Audit one or more files for bugs, missing error handling, security issues, TODOs, anti-patterns
 audit_batch(file_paths=["src/auth.py", "src/models/*.py"], min_severity="warning")
 ```
 
-`min_severity`: `"critical"` (bugs only) | `"warning"` (bugs + smells) | `"info"` (everything).
+`min_severity`: `"critical"` (bugs only) | `"warning"` (bugs + smells) | `"info"` (everything). Pure regex/AST — no LLM, no network.
 
-### Lint a Code Snippet (no LLM)
+### Lint a Code Snippet
 
 ```python
-# Fast structural/naming lint of an inline snippet — no I/O, no Ollama required
+# Fast structural/naming lint of an inline snippet — no I/O
 audit_batch(code="def f(a,b,c,d,e,f): ...", language="python")
 ```
 

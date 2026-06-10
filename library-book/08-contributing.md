@@ -18,7 +18,8 @@ source venv/bin/activate  # or venv\Scripts\activate on Windows
 # Install in development mode with all optional deps
 pip install -e ".[semantic]"
 
-# Install Ollama and pull model (for LLM-powered tools)
+# Optional: install Ollama and pull a model — only needed for the LLM-backed
+# paths (scout_search semantic mode, memory consolidate, session_mine reflect synthesis)
 ollama pull gemma3:12b
 ```
 

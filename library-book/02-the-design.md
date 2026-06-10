@@ -16,15 +16,15 @@ Memories are worthless if they're buried in a database. The system surfaces the 
 
 ### 3. Never lose, always degrade gracefully
 
-Memories are archived, not deleted. Rules and mistakes are protected from decay. Hot tier keeps things fast, cold tier keeps things safe. If the scorer server is down, regex fallback works. If Ollama is down, everything except semantic search still works. If a hook times out, it fails silently — never blocks Claude.
+Memories are archived, not deleted. Rules and mistakes are protected from decay. Hot tier keeps things fast, cold tier keeps things safe. If the scorer server is down, regex fallback works. Ollama is optional: if it is down, the two background insight paths (`memory(consolidate)`, `session_mine(reflect)`) skip their synthesis step and `scout_search` falls back to keyword matching — everything else is unaffected. If a hook times out, it fails silently — never blocks Claude.
 
 ### 4. Scope memory to where it matters
 
 In a multi-project workspace, editing `auth.py` in project A should surface project A's memories, not project B's. But workspace-level rules cascade down to all sub-projects. The system resolves sub-projects automatically from file paths. The same scoping applies to the code index (see Principle 6): each project gets its own symbol table; a workspace root does not bleed into sibling sub-projects.
 
-### 5. Zero infrastructure beyond Ollama
+### 5. Zero required infrastructure
 
-No cloud services, no databases, no background daemons (except the optional ~90MB scorer server). Everything persists to flat JSON files in `~/.claude_engram/`. The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
+No cloud services, no databases, no background daemons (except the optional ~90MB scorer server). Ollama is optional too — only the two background insight paths and `scout_search` touch it; the whole proactive system runs without it. Everything persists to flat JSON files in `~/.claude_engram/` (override with `CLAUDE_ENGRAM_DIR`). The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
 
 ### 6. Proactive code awareness — no LLM, no latency
 

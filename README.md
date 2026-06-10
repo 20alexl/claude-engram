@@ -11,7 +11,7 @@ Zero manual effort. Works with any MCP-compatible client.
 - Auto-captures decisions from your prompts ("let's use X", "switch to Y")
 - Injects the 3 most relevant memories before every file edit
 - Warns when you're about to repeat a past mistake
-- Detects edit loops (same file 3+ times without progress)
+- Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
 - Survives context compaction — checkpoints before, re-injects after
 - Mines your session history in the background after every session
 - Verifies imports in proposed edits against a per-project code index (AST, no LLM) — `<engram-precheck>` with closest-name suggestions
@@ -146,9 +146,12 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model (optional — only for scout_search, convention checking) |
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model — optional. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis |
+| `CLAUDE_ENGRAM_EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers embedding model. Any ST model works (e.g. `google/embeddinggemma-300m` roughly doubles decision-capture F1); also settable via `embed_model` in `~/.claude_engram/config.json` |
+| `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for embeddinggemma). Embedding stores are signature-stamped: changing the model rebuilds them automatically, never mixes vector spaces |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
-| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | AllMiniLM server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Override the storage location (also the test-isolation seam) |
 
 ## Reindexing
 

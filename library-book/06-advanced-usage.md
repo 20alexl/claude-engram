@@ -280,12 +280,21 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model for search/analysis |
-| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint |
+| `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Storage location override (also the supported test-isolation seam) |
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Optional Ollama model — `scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis |
+| `CLAUDE_ENGRAM_EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers embedding model (scorer server, decision capture, memory + session embeddings). Also `embed_model` in `config.json` |
+| `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for `google/embeddinggemma-300m`). Also `embed_dim` in `config.json` |
+| `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint (optional LLM) |
 | `CLAUDE_ENGRAM_TIMEOUT` | `300` | LLM call timeout (seconds) |
 | `CLAUDE_ENGRAM_KEEP_ALIVE` | `0` | How long Ollama keeps model loaded (`0`, `5m`, `-1`) |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
-| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
+
+Embedding stores (decision-template cache, memory embeddings, session-search
+embeddings) are stamped with the active `model@dim` signature. Changing the
+model discards and rebuilds them in the background — two models' vectors are
+never mixed. Measured on the decision-capture bench: MiniLM semantic F1 36.9%
+vs `embeddinggemma-300m@256` 67.3% at equal precision.
 
 ---
 

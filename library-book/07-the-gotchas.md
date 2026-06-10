@@ -110,11 +110,11 @@ export CLAUDE_ENGRAM_MODEL="gemma3:4b"
 
 **Symptom:** Ollama isn't running but Claude Engram seems to work fine.
 
-**Cause:** Ollama is only needed for `scout_search`, `scout_analyze`, `file_summarize`, LLM-based convention checking, and `session_mine(reflect)` insights. All hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving, code index, pre-edit import verification, blast-radius) work without Ollama.
+**Cause:** Ollama is only needed by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently without it), plus `scout_search` when available. Everything else — all hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving, code index, pre-edit import verification, blast-radius) plus `convention(check)`, `file_summarize`, `audit_batch`, and `find_similar_issues` — is LLM-free.
 
-**Fix:** Nothing to fix. Just know that `claude_engram_status` will report "failed" if Ollama is down, but that only affects the LLM-powered tools.
+**Fix:** Nothing to fix. Just know that `claude_engram_status` will report "failed" if Ollama is down, but that only affects the two optional insight paths and `scout_search`'s semantic mode.
 
-**Lesson:** Claude Engram has two layers: the hook/analysis system (no external deps — pure ast/regex) and the LLM tools (requires Ollama). They're independent.
+**Lesson:** Claude Engram has two layers: the proactive/analysis system (no external deps — pure ast/regex) and an optional LLM flavor (Ollama, for `consolidate`/`reflect` synthesis and `scout_search`). They're independent.
 
 ---
 
@@ -165,7 +165,7 @@ python install.py
 
 **Symptom:** `session_mine(reflect)` shows injection precision that seems slightly off, missing a few injections or test results.
 
-**Cause:** The outcome log (`mining/outcomes.py`) and per-session state are global/shared files. Under two concurrent Claude Code sessions, the last writer wins on each atomic write, so a small number of events from the other session can be overwritten.
+**Cause:** The outcome log (`mining/outcomes.py`) is a single global file (the edit hook and bash hook see different cwds, so per-project attribution is ambiguous). Under two concurrent Claude Code sessions, the last writer wins on each atomic write, so a small number of outcome events from the other session can be overwritten. Note: loop-detection state is NOT affected — it moved to per-session files (`sessions/<sid>.json`) in v0.8.0, so edit counts and test results never cross-contaminate.
 
 **Fix:** Nothing to fix. The outcome log is bounded (1000 events) and atomic per write, so it's correct for single sessions. For concurrent sessions, precision metrics are approximate — tolerable for a tuning signal.
 

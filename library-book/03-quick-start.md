@@ -7,10 +7,7 @@
 ## Install
 
 ```bash
-# 1. Install Ollama and pull the default model
-ollama pull gemma3:12b
-
-# 2. Clone and install
+# 1. Clone and install
 git clone https://github.com/20alexl/claude-engram.git
 cd claude-engram
 python -m venv venv
@@ -26,15 +23,19 @@ pip install -e .
 # With semantic decision capture (recommended)
 pip install -e ".[semantic]"
 
-# 3. Run installer
+# 2. Run installer
 python install.py
+
+# 3. (Optional) Ollama — only for scout_search semantic mode, memory(consolidate),
+#    and session_mine(reflect) insight synthesis. Everything else works without it.
+ollama pull gemma3:12b
 ```
 
 ### Requirements
 
 - Python 3.10+
-- Ollama (for semantic search and code analysis)
 - Claude Code (CLI, desktop app, or IDE extension)
+- Ollama — optional, only for the LLM-backed paths (`scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis)
 
 ## First Use
 

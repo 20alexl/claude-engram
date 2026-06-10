@@ -6,7 +6,7 @@
 
 ## What is Claude Engram?
 
-Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also builds a per-project code index (symbol table, imports, reverse-dependency edges) and uses it to warn proactively about broken imports before edits land. A local LLM (via Ollama) powers semantic code search and analysis, but the core system — hooks, memory, code index, pre-edit checks — runs without it.
+Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also builds a per-project code index (symbol table, imports, reverse-dependency edges) and uses it to warn proactively about broken imports before edits land. Ollama is an optional flavor — a local LLM powers `scout_search`'s semantic mode and the background `memory(consolidate)` / `session_mine(reflect)` insight synthesis — but the whole proactive system (hooks, memory, code index, pre-edit checks, scoring) runs without it.
 
 ## Who is it for?
 

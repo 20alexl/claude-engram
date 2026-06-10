@@ -52,6 +52,26 @@
 | Outcome feedback loop (`mining/outcomes.py`) | Capability 6. Logs injection kinds (memory/prediction/precheck/blast) + following test pass/fail; `session_mine(reflect)` surfaces injection precision and LLM-synthesized insights. |
 | Hybrid search auto-refresh (miner Phase 5) | `memory(hybrid_search)` no longer requires a prior `embed_all` — the miner auto-refreshes embeddings. |
 
+## Done / Shipped (v0.8)
+
+| Feature | Notes |
+|---------|-------|
+| Tool surface trimmed (19 → 16) | Removed `loop` (loop detection is hook-automatic and per-session), `output` (its `validate_code`/`validate_result` checks are covered by `audit_batch`'s inline mode), and `scout_analyze` (zero recorded use). |
+| Ollama is now optional | Used only by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently) plus `scout_search` when available. Everything proactive — hooks, code index, precheck, blast-radius, injection scoring — is LLM-free. |
+| `convention(check)` made deterministic | Pattern check against stored conventions; the LLM mode (a false-positive machine) was removed. |
+| `file_summarize` is structural only | The `mode` parameter and the LLM "detailed" mode were removed — purpose/exports/deps/complexity from structure analysis. |
+| `audit_batch` / `find_similar_issues` documented as LLM-free | Pure regex/AST, no network (they always were; now the docs say so). |
+| Per-session loop-detection state | Edit counts and test results moved from the shared `loop_detector.json` to `sessions/<sid>.json`; two concurrent sessions no longer cross-contaminate. The old file is abandoned (harmless). |
+| Pre-edit no longer records edits | Only post-edit records, so denied/failed edits aren't counted toward the loop threshold. |
+| Session-mining robustness | A session that grows after indexing (PreCompact then SessionEnd) MERGES counts instead of resetting; miner phases are error-isolated and `mining_status.json` records which phase failed (`phase_errors`). |
+| New-project auto-registration | Auto-logged mistakes/decisions in a brand-new project are no longer dropped — the project is registered in the manifest first. |
+| `CLAUDE_ENGRAM_DIR` env var | Overrides the storage location (default `~/.claude_engram`); also the supported test-isolation seam. |
+| `memory(embed_all)` fix | Crashed with a `NameError` since the args rename; now reads `force` from the call args. |
+| Configurable embedding model | `CLAUDE_ENGRAM_EMBED_MODEL` / `CLAUDE_ENGRAM_EMBED_DIM` (or `config.json`). All embedding stores are signature-stamped (`model@dim`) and rebuild on model change — vector spaces are never mixed. Decision-capture semantic F1 measured 36.9% (MiniLM) vs 67.3% (`embeddinggemma-300m@256`). |
+| Pre-edit hook ~2x faster | ~400ms to ~220ms median: stdlib-only `hooks/hot_reader.py`, lazy `tools/__init__`, one memory.json parse per hook, and banner dedup (a mistake no longer appears in two sections). |
+| MCP launch hardening | `install.py` points `.mcp.json` straight at the venv python instead of the `.bat` wrapper (fewer process layers between the host and the server under load). |
+| No emojis in any output | — |
+
 ## What's Next
 
 - [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.
