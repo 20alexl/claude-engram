@@ -240,6 +240,12 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.2 — 2026-06-11
+
+- **GPU embeddings, auto-detected.** `load_sentence_transformer()` resolves the device once: `CLAUDE_ENGRAM_DEVICE` override, else `cuda` when a CUDA-enabled torch is present, else cpu — and a broken CUDA runtime degrades to cpu instead of killing the scorer. The device is deliberately not part of the embedding signature (cuda and cpu produce identical vectors), so switching devices never rebuilds stores. `embed_batch` runs batch 256 on GPU / 64 on CPU; the scorer writes a `scorer_device` breadcrumb that `claude_engram_status` reports.
+- **Live mining ticks — engram stays fresh during the session.** The Stop hook fires a debounced (`CLAUDE_ENGRAM_LIVE_MINE`, default 300s) background mine in the new `live` mode: session index, extraction, search embeddings, and the two most-recent code indexes — every phase cursor/watermark-incremental, so each tick costs only the new transcript tail. Cross-session search and `replay`/`predict` now see the running session's earlier turns; previously everything waited for SessionEnd.
+- **Decision-gate retune for bge-base.** `AMBIGUITY_MARGIN` 0.05 → 0.025 (the old value was tuned on MiniLM): semantic F1 72.7% → 76.9%, combined 77.4% → 79.0% on the 220-prompt bench. Recall +10.8 for precision -3.8 — lost decisions are unrecoverable, noise captures get deduped, so the recall side wins. `DECISION_THRESHOLD` measured as a dead knob below 0.575 (the `score >= 0.45` capture cutoff already implies sim >= 0.525) and left at 0.45.
+
 ### v0.8.1 — 2026-06-11
 
 - **Error deja-vu at failure time.** PostToolUseFailure now matches the fresh error against mined recurring errors (`patterns.json`) and the hot mistake store, and injects the past fix inline: `Deja vu: TypeError hit in 3 past session(s) - fix: ...`. Template matching reuses the miner's signature normalization, guarded by quoted-identifier overlap (an unrelated class never inherits someone else's fix); class-less failures (Edit conflicts, CLI errors) match manual mistakes by word overlap. Runs before auto-log so it can't match itself.

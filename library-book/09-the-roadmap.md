@@ -91,6 +91,14 @@
 | `archived_at` honored by hook readers | Pre-existing bug: `acknowledge_mistake` set the flag but hook readers never filtered it, so acknowledged mistakes kept injecting. Hot readers and banner counters now skip archived entries, and `acknowledge_mistake` does a real move into `archive.json`. |
 | Known-good test commands | PASS/FAIL bash test runs are tracked per project (`test_commands.json`); session start surfaces the top currently-passing commands. Throwaway shapes (inline `python -c`, heredocs, `.scratch` scripts) are never recorded; a command whose latest run failed drops out until it passes again. |
 
+## Done / Shipped (v0.8.2)
+
+| Feature | Notes |
+|---------|-------|
+| GPU embeddings (auto) | The encoder loads on `cuda` automatically when a CUDA torch is installed (`CLAUDE_ENGRAM_DEVICE` overrides; a broken CUDA runtime degrades to cpu instead of killing the scorer). Vectors are device-identical, so the device is deliberately NOT part of the embedding signature — switching never rebuilds stores. `embed_batch` uses batch 256 on GPU (64 on CPU); 512 chunks measured at ~430ms through the TCP daemon on an RTX 4070 SUPER. `claude_engram_status` reports the active device via the `scorer_device` breadcrumb. |
+| Live mining ticks | The Stop hook (every turn end) spawns a debounced incremental mine (`CLAUDE_ENGRAM_LIVE_MINE`, default 300s; `0`/`off` disables): session index, extraction, search embeddings, and the two most-recent code indexes refresh DURING the session. All phases are cursor/watermark-keyed, so a tick costs the new transcript tail. `session_mine(search)` now sees this session's earlier work. Patterns and memory maintenance stay session-end work. |
+| Decision-gate retune for bge-base | `AMBIGUITY_MARGIN` 0.05 → 0.025 (the 0.05 was tuned on MiniLM). Bench: semantic F1 72.7% → 76.9% (recall 66.7 → 77.5, precision 80.0 → 76.2), combined 77.4% → 79.0%. `DECISION_THRESHOLD` confirmed a dead knob below 0.575 (the capture cutoff binds first) and left at 0.45. |
+
 ## What's Next
 
 - [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.

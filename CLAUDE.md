@@ -35,6 +35,7 @@ These happen via hooks. You don't call anything:
 | **Error deja-vu** | PostToolUseFailure | "Deja vu: TypeError hit in 3 past session(s) - fix: ..." when a fresh failure matches a mined recurring error or stored mistake (identifier-guarded, so an unrelated class never inherits someone else's fix) |
 | **Known-good test commands** | SessionStart | The project's top tracked test commands that currently pass — verification starts from what worked, not a guess |
 | **Mistake hygiene** | Background miner | Stale auto-captured one-off mistakes (3+ weeks, never recurred, away from current work) move to the archive — banners keep their signal; restorable via `memory(restore)` |
+| **Live mining tick** | Stop (per turn, debounced) | Session index, extractions, search embeddings, and the active code indexes refresh DURING the session — `session_mine(search)` sees this session's earlier work, not just past sessions. Interval `CLAUDE_ENGRAM_LIVE_MINE` (default 300s) |
 
 ## Multi-Project Workspaces
 
@@ -225,11 +226,11 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 
 - Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`) — **optional**. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis. Both background ops degrade silently when Ollama is absent. Everything proactive (hooks, code index, precheck, blast-radius, injection scoring) is LLM-free.
 - Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/). Override the location with `CLAUDE_ENGRAM_DIR`.
-- Semantic scoring: configured encoder (default `BAAI/bge-base-en-v1.5`) via persistent TCP server on localhost (auto-managed)
+- Semantic scoring: configured encoder (default `BAAI/bge-base-en-v1.5`) via persistent TCP server on localhost (auto-managed). Runs on GPU automatically when a CUDA torch is installed (`CLAUDE_ENGRAM_DEVICE` overrides; broken CUDA degrades to cpu; vectors are device-identical so stores never rebuild). `claude_engram_status` shows the active device.
 - Hook daemon: the same server runs high-frequency hooks in-process (warm imports); hooks are thin `python -S` clients with a full in-process fallback when the daemon is down
 - Outcome feedback: injection kinds that precede passing tests above baseline get a bounded scoring boost (0.8-1.2x), computed by the miner from `session_mine(reflect)` data
-- Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding
-- Session mining: background subprocess, fire-and-forget, no hook timeout impact
+- Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding (batch 256 on GPU, 64 on CPU)
+- Session mining: background subprocess, fire-and-forget, no hook timeout impact; plus debounced live ticks at turn end (`CLAUDE_ENGRAM_LIVE_MINE`, default 300s) so the index tracks the running session
 - Keep-alive: Set `CLAUDE_ENGRAM_KEEP_ALIVE=5m` to keep Ollama model loaded
 - Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
 - All file writes use atomic temp-then-replace pattern.

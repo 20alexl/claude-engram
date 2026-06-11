@@ -25,7 +25,8 @@ Claude Code
     │   └── scout_search, file_summarize, deps_map, impact_analyze, find_similar_issues, session_mine
     │
     ├── Scorer Server (scorer_server.py)      ← Persistent encoder process
-    │   └── TCP localhost, ~1.1GB RAM (default model), ~5-25ms per score, batch embedding
+    │   └── TCP localhost, GPU when available (else ~1.1GB RAM on cpu),
+    │       ~5-25ms per score, batch embedding (256 GPU / 64 CPU)
     │
     ├── Session Mining (mining/)              ← Background intelligence from session logs
     │   ├── JSONL parser, session index, incremental cursors
@@ -65,8 +66,10 @@ Storage: ~/.claude_engram/
     ├── scope_guard.json     ← Declared scope state
     ├── conventions.json     ← Project coding rules
     ├── injection_outcomes.json ← Pre-edit injection vs test-outcome correlation log
+    ├── live_mine_last       ← Debounce marker for live mining ticks
     ├── scorer_port          ← TCP port for scorer server
-    └── scorer_pid           ← PID of scorer server
+    ├── scorer_pid           ← PID of scorer server
+    └── scorer_device        ← Device the loaded encoder runs on (cuda/cpu)
 ```
 
 ## Core Components

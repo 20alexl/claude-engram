@@ -16,7 +16,7 @@ Zero manual effort. Works with any MCP-compatible client.
 - Surfaces the project's known-good test commands at session start (tracked from runs that actually passed)
 - Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
 - Survives context compaction — checkpoints before, re-injects after
-- Mines your session history in the background after every session
+- Mines your session history in the background after every session — and live during it: debounced ticks at turn end keep search, extractions, and code indexes fresh mid-session
 - Verifies imports in proposed edits against a per-project code index (AST, no LLM) — `<engram-precheck>` with closest-name suggestions
 - Shows blast radius before editing a shared module — lists its importers (`<engram-blast-radius>`)
 - Measures injection precision — tracks which injected context precedes passing tests (view via `session_mine(reflect)`) — and feeds it back: a bounded per-kind multiplier (0.8-1.2) tunes how eagerly memories inject
@@ -69,7 +69,8 @@ Claude Code
     |   memory, session_mine, work, scope, context, ...
     |
     +-- Scorer/Hook Daemon (scorer_server.py) <- Persistent encoder + warm hook dispatch
-        TCP localhost, ~1.1GB RAM (default model), batch embeddings
+        TCP localhost, batch embeddings; runs on GPU automatically when
+        torch+CUDA is present (~1.1GB RAM on CPU with the default model)
         High-frequency hooks run as thin clients (one round trip, full
         in-process fallback when the daemon is down)
 ```
@@ -154,6 +155,8 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 | `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model — optional. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis |
 | `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (~440MB on first use, ~1.1GB scorer RAM). Decision-capture semantic F1 measured 37.7% (`all-MiniLM-L6-v2`) vs 72.7% (default). Set `all-MiniLM-L6-v2` for a ~90MB lightweight setup. `google/embeddinggemma-300m` scores 67.3% but is license-gated (HF account + token + `sentence-transformers>=5`). Also settable via `embed_model` in `~/.claude_engram/config.json` |
 | `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for embeddinggemma). Embedding stores are signature-stamped: changing the model rebuilds them automatically, never mixes vector spaces |
+| `CLAUDE_ENGRAM_DEVICE` | auto | Embedding device. Auto-detects `cuda` when a CUDA-enabled torch is installed (a broken CUDA runtime degrades to cpu). Install GPU torch with e.g. `pip install torch --index-url https://download.pytorch.org/whl/cu128`. Vectors are device-identical — switching never rebuilds stores |
+| `CLAUDE_ENGRAM_LIVE_MINE` | `300` | Live mining tick interval in seconds — at most one incremental mine per interval, triggered at turn end, keeps search/extractions/code-index fresh during long sessions. `0`/`off` disables (mining then happens only at SessionEnd) |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
 | `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Override the storage location (also the test-isolation seam) |

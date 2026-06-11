@@ -7,7 +7,8 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 
 ## Automatic (hooks, zero invocation)
 - Edit/error/decision tracking, loop warnings, compaction survival
-- Session mining: background indexing of conversations after every session
+- Session mining: background indexing after every session PLUS debounced live ticks at turn end — search/extractions/code-index stay fresh mid-session (CLAUDE_ENGRAM_LIVE_MINE, default 300s)
+- Embeddings run on GPU automatically when CUDA torch is installed (CLAUDE_ENGRAM_DEVICE overrides; status shows the device)
 - Smart session start: last session context + recurring patterns
 - Predictive context: related files + likely errors before edits
 - Pre-edit import/export check: proposed imports verified against the per-project code index (AST, LLM-free) — `<engram-precheck>` banner with closest-name suggestions
