@@ -959,9 +959,14 @@ class MemoryStore:
         stats = {
             "projects_tracked": len(manifest_projects),
             "total_entries": total_entries,
-            "global_entries": len(self._global_entries),
             "storage_path": str(self.storage_dir),
         }
+        # global.json is a legacy cross-project store nothing writes anymore
+        # (workspace-wide rules live in the workspace-root PROJECT and cascade
+        # by path) — surface the count only when a legacy install has entries,
+        # a structural zero just reads as something missing.
+        if self._global_entries:
+            stats["global_entries"] = len(self._global_entries)
 
         # Report any errors
         if self._load_error:
