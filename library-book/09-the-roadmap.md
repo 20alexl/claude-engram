@@ -80,6 +80,17 @@
 | Isolated-storage servers | `scorer_port`/`scorer_pid`/`scorer_model` and the decision-template cache honor `CLAUDE_ENGRAM_DIR` — tests and parallel storage roots get their own daemon instead of colliding with the real one. |
 | No emojis in any output | — |
 
+## Done / Shipped (v0.8.1)
+
+| Feature | Notes |
+|---------|-------|
+| Error deja-vu | PostToolUseFailure matches the fresh error against mined recurring errors (`patterns.json` — real how-to-avoid text) and the hot mistake store, and injects the past fix inline at failure time. Template matching reuses the miner's signature normalization, guarded by quoted-identifier overlap so an unrelated class never inherits someone else's fix. |
+| Symbol lookup | `deps_map(symbol="X")` answers "where is X defined?" from the code index: defining file, signature (`__init__` + methods for classes), and reverse-import blast radius. Typo-tolerant (closest-name suggestion). No grep, no LLM. |
+| Sub-project code-index freshness | The miner's code-index phase only built the mined project's index, and the workspace walk prunes nested project dirs — sub-project indexes went stale forever (one real index was 13 days old; another had never been built). Phase 6 now also refreshes every sub-project edited in the last ~10 sessions. |
+| Mistake hygiene | Auto-captured mistakes that never recurred (3+ weeks old, signature absent from mined recurring errors, no overlap with recently-edited files) move to the archive in miner phase 5. Manual `log_mistake` entries and rules are untouched; archived entries stay searchable and restorable. |
+| `archived_at` honored by hook readers | Pre-existing bug: `acknowledge_mistake` set the flag but hook readers never filtered it, so acknowledged mistakes kept injecting. Hot readers and banner counters now skip archived entries, and `acknowledge_mistake` does a real move into `archive.json`. |
+| Known-good test commands | PASS/FAIL bash test runs are tracked per project (`test_commands.json`); session start surfaces the top currently-passing commands. Throwaway shapes (inline `python -c`, heredocs, `.scratch` scripts) are never recorded; a command whose latest run failed drops out until it passes again. |
+
 ## What's Next
 
 - [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.

@@ -13,6 +13,9 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - Pre-edit import/export check: proposed imports verified against the per-project code index (AST, LLM-free) — `<engram-precheck>` banner with closest-name suggestions
 - Blast-radius: editing a shared module lists its importers — `<engram-blast-radius>`
 - Read context: before Read of an indexed file, code-index orientation + that file's memories (`<engram-read-context>`, once per file per session)
+- Error deja-vu: a failure matching a known recurring error gets the past fix injected inline at failure time ("Deja vu: TypeError hit in 3 past session(s) - fix: ...")
+- Known-good test commands: session start lists the project's tracked test commands that currently pass
+- Mistake hygiene: stale auto-captured one-off mistakes (3+ weeks, never recurred, away from current work) auto-archive in the background — restorable via `memory(restore)`
 - Outcome feedback loop: tracks which injection kinds (memory/prediction/precheck/blast) precede passing tests AND feeds back a bounded (0.8-1.2x) memory-injection multiplier; see `session_mine(reflect)`
 - Tool duration tracking: slow tools surfaced in handoffs
 
@@ -33,6 +36,10 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 ## Work Tools
 - `work(log_decision, decision="...", reason="...")` — log architectural choice
 - `work(log_mistake, description="...", how_to_avoid="...")` — log complex mistake
+
+## Code Lookup
+- `deps_map(symbol="ClassOrFunc")` — where is it defined? File, signature, importers from the code index (typo-tolerant; cheaper than grep + read)
+- `deps_map(file_path="...", include_reverse=true)` — a file's dependency graph + who imports it
 
 ## Session Mining Tools
 - `session_mine(search, query="...", project_path="...")` — search past conversations (includes tool content)
@@ -76,7 +83,7 @@ context(
 | Category | Protected | Auto-captured |
 |---|---|---|
 | rule | Never archived | Manual (via memory add_rule) |
-| mistake | Archivable via acknowledge | Auto from errors in project files |
+| mistake | Archivable via acknowledge; stale auto-captured one-offs self-archive | Auto from errors in project files |
 | decision | No | Auto from prompts + session mining |
 | discovery | No | Manual |
 

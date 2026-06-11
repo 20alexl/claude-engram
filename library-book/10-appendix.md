@@ -107,7 +107,7 @@ Checkpoint and handoff are one unified ring buffer. `checkpoint_*` are the prima
 |------|-----------|-------------|
 | `scout_search` | `query`, `directory`, `max_results?` | Semantic codebase search (uses Ollama when available) |
 | `file_summarize` | `file_path` | Structural summary (purpose, exports, dependencies, complexity) — pattern-based, no LLM |
-| `deps_map` | `file_path`, `project_root?`, `include_reverse?` | Map dependencies |
+| `deps_map` | `file_path` or `symbol`, `project_root?`, `include_reverse?` | Map a file's dependencies, or locate a symbol (file, signature, importers) via the code index |
 | `impact_analyze` | `file_path`, `project_root`, `proposed_changes?` | Change impact analysis |
 | `audit_batch` | `file_paths`+`min_severity?` (files) · or `code`+`language?` (inline) | Audit files or lint a snippet for AI-slop patterns — pure regex/AST, no LLM |
 | `find_similar_issues` | `issue_pattern`, `project_path`, `file_extensions?`, `exclude_paths?` | Search for bug patterns — pure regex/AST, no LLM |
@@ -239,6 +239,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.1 — 2026-06-11
+
+- **Error deja-vu at failure time.** PostToolUseFailure now matches the fresh error against mined recurring errors (`patterns.json`) and the hot mistake store, and injects the past fix inline: `Deja vu: TypeError hit in 3 past session(s) - fix: ...`. Template matching reuses the miner's signature normalization, guarded by quoted-identifier overlap (an unrelated class never inherits someone else's fix); class-less failures (Edit conflicts, CLI errors) match manual mistakes by word overlap. Runs before auto-log so it can't match itself.
+- **Symbol lookup via `deps_map(symbol="X")`.** Answers "where is X defined?" from the background code index: defining file, signature (`__init__` + method list for classes), dotted module, and reverse-import blast radius. Typo-tolerant (closest-name suggestion). No grep, no LLM, no build.
+- **Sub-project code indexes no longer go stale.** The miner only built the mined project's index, and the workspace walk prunes nested project dirs — in workspace setups, sub-project indexes (read by precheck, blast-radius, read-context, and the new symbol lookup) silently froze. Miner phase 6 now also refreshes every sub-project edited in the last ~10 sessions (incremental, mtime-keyed, cheap).
+- **Mistake hygiene.** Auto-captured mistakes that never recurred — 3+ weeks old, signature absent from mined recurring errors, no overlap with recently-edited files — are moved to the archive by miner phase 5. Manual `log_mistake` entries and rules are never touched. Archived mistakes stay searchable (`archive_search`) and restorable (`restore`).
+- **Fix: `archived_at` is now honored by hook readers.** `acknowledge_mistake` set the flag but hot readers and banner counters never filtered it, so acknowledged mistakes kept appearing in pre-edit warnings. Hook readers now skip archived entries, and `acknowledge_mistake` performs a real move into `archive.json` (restorable) instead of an in-place flag.
+- **Known-good test commands.** Test invocations the bash hooks already classify as test runs are tracked per project with pass/fail counts (`test_commands.json`, capped at 30). Session start surfaces the top currently-passing commands. Inline `python -c`, heredocs, `.scratch` scripts, and 160+ char contraptions are never recorded; a command whose latest run failed drops out until it passes again.
 
 ### v0.8.0 — 2026-06-10
 

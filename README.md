@@ -12,6 +12,8 @@ Zero manual effort. Works with any MCP-compatible client.
 - Injects the 3 most relevant memories before every file edit
 - Orients before file reads: code-index summary (what the module is, who imports it) + that file's past mistakes, once per file per session
 - Warns when you're about to repeat a past mistake
+- Error deja-vu: when a failure matches a known recurring error, the past fix is injected inline at failure time ("you hit this in 3 sessions — fix was X")
+- Surfaces the project's known-good test commands at session start (tracked from runs that actually passed)
 - Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
 - Survives context compaction — checkpoints before, re-injects after
 - Mines your session history in the background after every session
@@ -32,7 +34,7 @@ Zero manual effort. Works with any MCP-compatible client.
 - `memory` — store, search, archive, and manage memories
 - `session_mine` — search past conversations (taggable by kind: decision / next-step / error), find decisions, replay file history, detect patterns, and surface what you said you'd do this session (`commitments`)
 - `work` — log decisions and mistakes with reasoning
-- Plus: scope guard, context checkpoints (`checkpoint_save/restore/list`; `handoff_*` are deprecated aliases), convention tracking, impact analysis
+- Plus: scope guard, context checkpoints (`checkpoint_save/restore/list`; `handoff_*` are deprecated aliases), convention tracking, impact analysis, symbol lookup (`deps_map(symbol="X")` — defining file, signature, importers from the code index)
 
 All MCP tools carry annotations (read-only / idempotent hints + a title), so clients and permission systems know which are safe to call without a prompt.
 
@@ -137,7 +139,7 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 
 ## Key Features
 
-**Memory** — hybrid search (keyword + vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and mistakes never archive); per-sub-project scoping with cascading workspace rules.
+**Memory** — hybrid search (keyword + vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and manual mistakes never archive; stale auto-captured one-off mistakes self-archive to keep banners high-signal); per-sub-project scoping with cascading workspace rules.
 
 **Session mining** — structural extraction (conversation flow, not template matching) over conversation *and* tool content; cross-session semantic/keyword/hybrid search, typed by kind (decision / next-step / error) and filterable; `session_mine(commitments)` reads the *live* transcript for open loops the post-session index can't see; pattern detection, predictive context, cross-project learning; retroactive bootstrap on first install.
 

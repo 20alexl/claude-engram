@@ -14,7 +14,7 @@ Claude Code
     │   ├── PreToolUse Edit/Write                → inject memories, precheck imports,
     │   │                                          blast-radius banner, loop check
     │   ├── PostToolUse Bash/Edit/Write          → track edits, tests, search spirals
-    │   ├── PostToolUseFailure (all tools)       → auto-log errors as mistakes
+    │   ├── PostToolUseFailure (all tools)       → error deja-vu (past fix inline), auto-log mistakes
     │   ├── SessionStart / SessionEnd / Stop     → lifecycle management
     │   └── PreCompact / PostCompact             → checkpoint + re-inject context
     │
@@ -51,7 +51,9 @@ Storage: ~/.claude_engram/
     │       ├── embeddings_index.json   ← ID-to-row mapping
     │       ├── embeddings_pending.json ← Hook writes (merged on load)
     │       ├── handoff_history.json    ← Capped ring buffer (last 20 handoffs)
-    │       └── code_index.json         ← Per-project symbol table (mtime-keyed, ast)
+    │       ├── code_index.json         ← Per-project symbol table (mtime-keyed, ast)
+    │       ├── patterns.json           ← Mined struggles / recurring errors / correlations
+    │       └── test_commands.json      ← Tracked test invocations (pass/fail counts, capped 30)
     ├── checkpoints/         ← Task state, handoffs
     │   ├── latest_handoff.json      ← Most recent handoff (kept in sync; backward-compatible)
     │   └── handoff_history.json     ← Global slot ring buffer (last 20 handoffs)
@@ -80,7 +82,7 @@ Storage: ~/.claude_engram/
 - Path normalization (`D:\Code` → `d:/Code`, lowercase drive, forward slashes) prevents duplicate project buckets
 - Deduplication uses Jaccard similarity (word-set overlap) with 0.85 threshold
 - Scoring: `0.35*file_match + 0.20*tag_overlap + 0.20*recency + 0.15*relevance + 0.10*access_freq` plus category bonuses
-- Archive: entries with `last_accessed > 14 days` and `relevance < 7` move to `archive.json`. Rules/mistakes never archive.
+- Archive: entries with `last_accessed > 14 days` and `relevance < 7` move to `archive.json`. Rules never archive. Mistakes: manual `log_mistake` entries never archive; stale auto-captured one-offs (3+ weeks old, never recurred per `patterns.json`, no overlap with recently-edited files) are moved to the archive by the miner — restorable via `memory(restore)`. Hook readers skip anything with `archived_at` set, which is also what makes `acknowledge_mistake` stick.
 
 ### HotMemoryReader (`tools/memory.py`)
 

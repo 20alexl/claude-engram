@@ -32,6 +32,9 @@ These happen via hooks. You don't call anything:
 | **Outcome feedback loop** | PreToolUse + PostToolUse Bash | Injection kinds correlated with test pass/fail; surfaced via `session_mine(reflect)` |
 | **Schema canary** | SessionStart | Warning when Claude Code's log format stops being recognized (mining would otherwise degrade silently) |
 | **Read context** | PreToolUse Read | `<engram-read-context>`: code-index orientation + the file's most relevant memories, once per file per session |
+| **Error deja-vu** | PostToolUseFailure | "Deja vu: TypeError hit in 3 past session(s) - fix: ..." when a fresh failure matches a mined recurring error or stored mistake (identifier-guarded, so an unrelated class never inherits someone else's fix) |
+| **Known-good test commands** | SessionStart | The project's top tracked test commands that currently pass — verification starts from what worked, not a guess |
+| **Mistake hygiene** | Background miner | Stale auto-captured one-off mistakes (3+ weeks, never recurred, away from current work) move to the archive — banners keep their signal; restorable via `memory(restore)` |
 
 ## Multi-Project Workspaces
 
@@ -49,6 +52,7 @@ Rules and mistakes from the workspace root are inherited by all sub-projects. Yo
 - `work(log_mistake)` - Log a complex mistake the auto-detection missed.
 - `impact_analyze` - Before refactoring shared files.
 - `scout_search` - Semantic codebase search when grep isn't enough.
+- `deps_map(symbol="X")` - "Where is X defined?" from the code index: file, signature, importers. Cheaper than a grep + read when you know the name but not its home.
 
 ### Advanced (Optional)
 
@@ -146,7 +150,7 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 | Category | Purpose | Protected | Auto-captured |
 |---|---|---|---|
 | `rule` | Project rules that always apply | Never archived or decayed | No - manual |
-| `mistake` | Errors to avoid repeating | Never archived or decayed | Yes - from failed tools |
+| `mistake` | Errors to avoid repeating | Manual ones never archive; stale auto-captured one-offs auto-archive (restorable) | Yes - from failed tools |
 | `decision` | Choices and reasoning | No | Yes - from user prompts |
 | `discovery` | Facts learned about the codebase | No | No - manual |
 | `context` | Session-specific notes | No | No - manual |
@@ -156,7 +160,7 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 - **Hot tier** (`memory.json`) - Rules, mistakes, recent memories. Loaded by hooks on every tool call.
 - **Cold tier** (`archive.json`) - Old inactive memories. Searchable, restorable, never loaded on hot path.
 - Memories auto-archive after 14 days without access (configurable: `CLAUDE_ENGRAM_ARCHIVE_DAYS`).
-- Rules and mistakes never archive. High-relevance (7+) memories stay hot longer.
+- Rules never archive. Mistakes: manual ones never; auto-captured one-offs that went stale (3+ weeks, never recurred, away from current work) are archived by the background miner. High-relevance (7+) memories stay hot longer.
 - `cleanup` archives before deleting. Nothing is lost without review.
 
 ### Smart Injection
