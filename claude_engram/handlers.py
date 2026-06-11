@@ -93,20 +93,23 @@ class Handlers:
                         f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)"
                     )
 
+            from .embed_config import embed_signature
+
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
                 reasoning="Claude Engram is ready. Did you call session_start yet?",
                 work_log=WorkLog(
                     what_worked=[
-                        "LLM connection verified",
-                        f"Model '{self.llm.model}' is available",
+                        f"Embedding model: {embed_signature()}",
+                        f"Ollama (optional): '{self.llm.model}'",
                         f"Memory tracking {stats['projects_tracked']} projects",
                     ]
                     + queue_info
                 ),
                 data={
-                    "model": self.llm.model,
+                    "embed_model": embed_signature(),
+                    "ollama_model": self.llm.model,
                     "memory_stats": stats,
                     "queue_stats": queue_stats,
                 },

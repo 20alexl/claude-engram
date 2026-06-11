@@ -284,6 +284,17 @@ def serve():
     print(f"Loading embedding model {sig} in background...", file=sys.stderr)
     threading.Thread(target=holder.load, daemon=True).start()
 
+    def _warm_hook_imports():
+        # Pre-import the hook dispatcher so the first hook_event doesn't pay
+        # (or race) the import under the dispatch lock.
+        try:
+            with _HOOK_LOCK:
+                from claude_engram.hooks import remind  # noqa: F401
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm_hook_imports, daemon=True).start()
+
     print(
         f"Scorer server listening on 127.0.0.1:{port} (PID {os.getpid()})",
         file=sys.stderr,

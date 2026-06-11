@@ -253,6 +253,17 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 - **Auto-logged mistakes/decisions in a brand-new project are no longer dropped** — the project is auto-registered in the manifest first.
 - **New env var `CLAUDE_ENGRAM_DIR`** overrides the storage location (default `~/.claude_engram`) and is the supported test-isolation seam.
 - **`memory(embed_all)` fixed** — it crashed with a `NameError` since the args rename; it now reads its `force` flag from the call args.
+- **Pre-edit hook ~2x faster** (~400ms → ~220ms median): stdlib-only `hooks/hot_reader.py` scoring path, lazy `tools/__init__`, one `memory.json` parse per hook, banner dedup.
+- **Configurable embedding model** via `CLAUDE_ENGRAM_EMBED_MODEL` / `CLAUDE_ENGRAM_EMBED_DIM` (or `config.json`). Every embedding store is signature-stamped (`model@dim`) and rebuilds on model change; unstamped legacy stores read as the pinned `LEGACY_SIGNATURE` (`all-MiniLM-L6-v2@native`).
+- **Default encoder is `BAAI/bge-base-en-v1.5`** — ungated (no HF account/token; `embeddinggemma` was evaluated and reverted: license-gated, ~3.3GB scorer RSS). Decision-capture semantic F1 at shipped thresholds: MiniLM 37.7% → bge-base 72.7%; live combined capture 77.4%. MiniLM remains the one-line ~90MB lightweight option.
+- **Session-search embeddings are sharded by month** (`session_embeddings/<YYYY-MM>.npy`) instead of one ever-growing matrix fully rewritten at every session end; v1 stores migrate automatically. Optional `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` prunes old months.
+- **Append-aware re-mining.** Sessions that grow after indexing contribute their new tail to search embeddings (per-file watermarks) and are re-extracted for decisions/mistakes — previously they were skipped as already-seen.
+- **JSONL schema canary.** The miner tracks what fraction of session-log lines it recognizes; a collapse vs the historical baseline warns at session start instead of degrading mining silently.
+- **Hook daemon.** The scorer server doubles as a warm hook dispatcher; high-frequency hooks are thin `python -S` clients (one TCP round trip, in-daemon ~15-25ms, full in-process fallback). Heaviest hook measured 313ms → 216ms median on Windows; Linux gains more.
+- **Proactive recall before Read** — `<engram-read-context>` with code-index orientation + the file's most relevant memories, once per file per session. Optional `CLAUDE_ENGRAM_LAST_FILE_PATH` statusline mirror.
+- **Outcome feedback loop closed.** Per-kind injection pass-rate lift becomes a bounded (0.8-1.2x) multiplier on the memory-injection relevance gate (miner-computed `injection_weights.json`).
+- **Isolated-storage daemons.** `scorer_port`/`scorer_pid`/`scorer_model` and the decision-template cache honor `CLAUDE_ENGRAM_DIR`.
+- **MCP launch hardening** — `install.py` points `.mcp.json` straight at the venv python instead of the `.bat` wrapper.
 - **No emojis in any output.**
 
 ### v0.7.1 — 2026-06-02
