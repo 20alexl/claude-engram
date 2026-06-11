@@ -20,7 +20,7 @@ Zero manual effort. Works with any MCP-compatible client.
 
 **Session Mining (automatic, background):**
 - Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
-- Extracts decisions, mistakes, approaches, and user corrections using structural analysis + AllMiniLM semantic scoring (typo-tolerant)
+- Extracts decisions, mistakes, approaches, and user corrections using structural analysis + semantic scoring (typo-tolerant)
 - Builds a searchable index across all past conversations (20k+ chunks with subagents)
 - Detects recurring struggles, error patterns, and file edit correlations
 - Predicts what files and context you'll need before edits
@@ -65,8 +65,8 @@ Claude Code
     +-- MCP Server (server.py)              <- Tools for manual operations
     |   memory, session_mine, work, scope, context, ...
     |
-    +-- Scorer Server (scorer_server.py)    <- Persistent AllMiniLM process
-        TCP localhost, ~90MB RAM, batch embeddings
+    +-- Scorer Server (scorer_server.py)    <- Persistent encoder process
+        TCP localhost, ~1.1GB RAM (default model), batch embeddings
 ```
 
 Hooks fire on every tool call (1-2s budget each). Heavy processing happens in a background subprocess after session end. The scorer server stays loaded in memory for fast semantic scoring.
@@ -100,7 +100,7 @@ python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 
 pip install -e .                # Core
-pip install -e ".[semantic]"    # + AllMiniLM for vector search and semantic scoring
+pip install -e ".[semantic]"    # + embedding model for vector search and semantic scoring
 
 python install.py               # Configure hooks, MCP server, and /engram skill
 ```
@@ -134,7 +134,7 @@ Already deep in a project? Install normally. On first session, engram auto-detec
 
 ## Key Features
 
-**Memory** — hybrid search (keyword + AllMiniLM vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and mistakes never archive); per-sub-project scoping with cascading workspace rules.
+**Memory** — hybrid search (keyword + vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and mistakes never archive); per-sub-project scoping with cascading workspace rules.
 
 **Session mining** — structural extraction (conversation flow, not template matching) over conversation *and* tool content; cross-session semantic/keyword/hybrid search, typed by kind (decision / next-step / error) and filterable; `session_mine(commitments)` reads the *live* transcript for open loops the post-session index can't see; pattern detection, predictive context, cross-project learning; retroactive bootstrap on first install.
 
@@ -147,7 +147,7 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 | Variable | Default | Description |
 |---|---|---|
 | `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model — optional. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis |
-| `CLAUDE_ENGRAM_EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers embedding model. Any ST model works (e.g. `google/embeddinggemma-300m` roughly doubles decision-capture F1); also settable via `embed_model` in `~/.claude_engram/config.json` |
+| `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (~440MB on first use, ~1.1GB scorer RAM). Decision-capture semantic F1 measured 37.7% (`all-MiniLM-L6-v2`) vs 72.7% (default). Set `all-MiniLM-L6-v2` for a ~90MB lightweight setup. `google/embeddinggemma-300m` scores 67.3% but is license-gated (HF account + token + `sentence-transformers>=5`). Also settable via `embed_model` in `~/.claude_engram/config.json` |
 | `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for embeddinggemma). Embedding stores are signature-stamped: changing the model rebuilds them automatically, never mixes vector spaces |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |

@@ -187,7 +187,7 @@ python install.py
 | Behavior | Why It Looks Wrong | Why It's Intentional |
 |----------|-------------------|---------------------|
 | Same memory appears from workspace AND sub-project | Looks like a duplicate | Parent-path inheritance. Workspace rules should be visible everywhere. |
-| Scorer server consumes 90MB RAM | Seems excessive for a hook | It's a loaded ML model. Shared across all hook calls. Exits after 30 min idle. |
+| Scorer server consumes ~1.1GB RAM | Seems excessive for a hook | It's a loaded ML model (default `bge-base-en-v1.5`; `all-MiniLM-L6-v2` via config drops it to ~90MB). Shared across all hook calls. Exits after 30 min idle. |
 | `session_end` does nothing new | Expected a big summary | Stop + SessionEnd hooks handle everything. `session_end` is just a display tool. |
 | Decisions captured from user prompts have `(from user)` prefix | Looks redundant | Distinguishes auto-captured decisions from manually logged ones. |
 

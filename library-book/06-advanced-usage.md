@@ -71,7 +71,7 @@ Top 3 by score are injected as `additionalContext` in the PreToolUse hook.
 
 User prompts are scored for decision intent using two tiers:
 
-1. **AllMiniLM semantic scoring** (if `sentence-transformers` installed) — Compares the prompt against ~35 decision templates and ~18 non-decision templates via cosine similarity. A persistent TCP server keeps the model loaded (~90MB, ~5-25ms per call).
+1. **Semantic scoring** (if `sentence-transformers` installed) — Compares the prompt against ~35 decision templates and ~18 non-decision templates via cosine similarity. A persistent TCP server keeps the model loaded (~1.1GB RAM with the default `bge-base-en-v1.5`, ~5-25ms per call).
 
 2. **Regex fallback** — Weighted keyword analysis: decision verbs (switch to, adopt, replace, get rid of) + directive markers (let's, we should, from now on, please) + contrast signals (instead of, rather than) + negation (don't, stop, avoid, never). Instant, no dependencies.
 
@@ -282,7 +282,7 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 |----------|---------|---------|
 | `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Storage location override (also the supported test-isolation seam) |
 | `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Optional Ollama model — `scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis |
-| `CLAUDE_ENGRAM_EMBED_MODEL` | `all-MiniLM-L6-v2` | sentence-transformers embedding model (scorer server, decision capture, memory + session embeddings). Also `embed_model` in `config.json` |
+| `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (scorer server, decision capture, memory + session embeddings). Also `embed_model` in `config.json` |
 | `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for `google/embeddinggemma-300m`). Also `embed_dim` in `config.json` |
 | `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint (optional LLM) |
 | `CLAUDE_ENGRAM_TIMEOUT` | `300` | LLM call timeout (seconds) |
@@ -293,8 +293,10 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 Embedding stores (decision-template cache, memory embeddings, session-search
 embeddings) are stamped with the active `model@dim` signature. Changing the
 model discards and rebuilds them in the background — two models' vectors are
-never mixed. Measured on the decision-capture bench: MiniLM semantic F1 36.9%
-vs `embeddinggemma-300m@256` 67.3% at equal precision.
+never mixed. Measured on the decision-capture bench (precision held ~77-81%):
+`all-MiniLM-L6-v2` semantic F1 37.7%, `embeddinggemma-300m@256` 67.3% (license-gated:
+HF token + `sentence-transformers>=5`), `bge-small-en-v1.5` 70.7%,
+`BAAI/bge-base-en-v1.5` (the default) 72.7%.
 
 ---
 

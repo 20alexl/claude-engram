@@ -180,7 +180,7 @@ Subagents (detected via `agent_id` in hook stdin) are handled differently: memor
 
 User prompts are scored for decision intent using two tiers:
 
-1. **Semantic scoring** (if `sentence-transformers` installed) - AllMiniLM cosine similarity against decision templates. A persistent scorer server (~90MB RAM, ~5-25ms per call) auto-starts on session start and auto-exits after 30 min idle.
+1. **Semantic scoring** (if `sentence-transformers` installed) - embedding cosine similarity against decision templates. A persistent scorer server (~1.1GB RAM with the default `bge-base-en-v1.5`, ~90MB with `all-MiniLM-L6-v2`; ~5-25ms per call) auto-starts on session start and auto-exits after 30 min idle.
 2. **Regex fallback** - Weighted keyword + sentence structure analysis. Always available, no dependencies.
 
 Captures patterns like "let's use X", "switch to Y", "don't use Z", "from now on always W". Does not capture questions, requests for info, or ambiguous statements.
@@ -219,7 +219,7 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 
 - Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`) — **optional**. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis. Both background ops degrade silently when Ollama is absent. Everything proactive (hooks, code index, precheck, blast-radius, injection scoring) is LLM-free.
 - Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/). Override the location with `CLAUDE_ENGRAM_DIR`.
-- Semantic scoring: AllMiniLM via persistent TCP server on localhost (auto-managed)
+- Semantic scoring: configured encoder (default `BAAI/bge-base-en-v1.5`) via persistent TCP server on localhost (auto-managed)
 - Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding
 - Session mining: background subprocess, fire-and-forget, no hook timeout impact
 - Keep-alive: Set `CLAUDE_ENGRAM_KEEP_ALIVE=5m` to keep Ollama model loaded

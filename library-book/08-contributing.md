@@ -64,7 +64,7 @@ print(f'All {len(types)} handlers present')
 | `bench_handoff_durability.py` | Ring buffer, promotion guard, walk-up resolution, manual-wins semantics |
 | `bench_path_relevance.py` | Path-aware `file_match` — no cross-version false positives, generic basenames require full-path signal |
 | `bench_migrations.py` | Idempotent migration steps: seed handoff history, re-extract related_files |
-| `bench_decision_capture.py` | Decision intent scoring (AllMiniLM + regex) |
+| `bench_decision_capture.py` | Decision intent scoring (semantic + regex) |
 | `bench_scoring.py` | Memory relevance scoring weights |
 | `bench_integration.py` | End-to-end product behavior (6 scenarios) |
 | `bench_session_mining.py` | Session JSONL indexing and search |
@@ -114,7 +114,7 @@ The session miner runs as a background subprocess. Phases in order:
 | 2 | Extract decisions, mistakes, approaches from messages | `mining/extractors.py` |
 | 3 | Build semantic search embeddings | `mining/search.py` |
 | 4 | Detect patterns (struggles, recurring errors, correlations) | `mining/patterns.py` |
-| 5 | Auto-refresh AllMiniLM embeddings for hybrid_search | `mining/search.py` (embed refresh) |
+| 5 | Auto-refresh embeddings for hybrid_search | `mining/search.py` (embed refresh) |
 | 6 | Incremental code index update (symbol table per project) | `mining/code_index.py` |
 
 ## How Decisions Are Made

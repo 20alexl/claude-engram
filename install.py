@@ -530,7 +530,7 @@ def main():
 
         if build_template_cache():
             print_success(
-                "AllMiniLM decision templates cached (semantic intent scoring enabled)"
+                "Decision templates cached (semantic intent scoring enabled)"
             )
         else:
             print_warning(

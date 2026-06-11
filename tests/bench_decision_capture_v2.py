@@ -2,7 +2,7 @@
 """
 Benchmark: Decision capture precision and recall (expanded).
 
-Tests the two-tier scoring system (regex + semantic AllMiniLM)
+Tests the two-tier scoring system (regex + semantic)
 against 220+ realistic coding prompts labeled as decision/not-decision,
 organized by difficulty category.
 
@@ -798,7 +798,7 @@ def main():
         test_score, _ = score_decision_semantic("let's use PostgreSQL")
         if test_score > 0:
             r2, p2, f1_s = run_scorer(
-                score_decision_semantic, "Semantic Scorer (AllMiniLM)", args.threshold
+                score_decision_semantic, "Semantic Scorer", args.threshold
             )
     except ImportError:
         print("\n=== Semantic Scorer: SKIPPED (not installed) ===")
@@ -840,7 +840,7 @@ def main():
     print(f"  {'-'*56}")
     print(f"  {'Regex':<30} {r1:>7.1f}% {p1:>7.1f}% {f1_r:>7.1f}%")
     if r2 is not None:
-        print(f"  {'Semantic (AllMiniLM)':<30} {r2:>7.1f}% {p2:>7.1f}% {f1_s:>7.1f}%")
+        print(f"  {'Semantic':<30} {r2:>7.1f}% {p2:>7.1f}% {f1_s:>7.1f}%")
     print(f"  {'Combined':<30} {r3:>7.1f}% {p3:>7.1f}% {f1_c:>7.1f}%")
     print("=" * 60)
 

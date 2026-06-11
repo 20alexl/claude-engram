@@ -10,7 +10,7 @@ Builds an embedding index over conversation chunks:
 Stored as session_embeddings.npy + session_embeddings_index.json.
 
 Search modes:
-  - semantic: AllMiniLM cosine similarity (typo-tolerant)
+  - semantic: embedding cosine similarity (typo-tolerant)
   - keyword: substring match on chunk previews (fast, exact)
   - hybrid: both, weighted combination
 """
@@ -255,7 +255,7 @@ def build_session_embeddings(
     Build/update conversation chunk embeddings for search.
 
     Extracts searchable chunks (user messages + assistant text blocks),
-    embeds them with AllMiniLM in batch, stores as .npy + index JSON.
+    embeds them with the configured encoder in batch, stores as .npy + index JSON.
 
     Returns count of new chunks embedded.
     """
@@ -274,7 +274,7 @@ def build_session_embeddings(
     emb_path = hash_dir / "session_embeddings.npy"
     idx_path = hash_dir / "session_embeddings_index.json"
 
-    from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
+    from claude_engram.embed_config import LEGACY_SIGNATURE, embed_signature
 
     sig = embed_signature()
 
@@ -286,7 +286,7 @@ def build_session_embeddings(
     if idx_path.exists():
         try:
             data = json.loads(idx_path.read_text(encoding="utf-8"))
-            if data.get("model", DEFAULT_SIGNATURE) == sig:
+            if data.get("model", LEGACY_SIGNATURE) == sig:
                 existing_chunks = data.get("chunks", [])
                 existing_sessions = {c["session_id"] for c in existing_chunks}
             else:
@@ -575,9 +575,9 @@ def search_sessions(
     # garbage even when the dims happen to agree). Keyword scoring still
     # works; the miner rebuilds the store on its next run.
     semantic_scores = [0.0] * len(chunks)
-    from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
+    from claude_engram.embed_config import LEGACY_SIGNATURE, embed_signature
 
-    _index_model = idx_data.get("model", DEFAULT_SIGNATURE)
+    _index_model = idx_data.get("model", LEGACY_SIGNATURE)
     if method in ("semantic", "hybrid") and _index_model == embed_signature():
         emb_path = hash_dir / "session_embeddings.npy"
         try:

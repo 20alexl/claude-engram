@@ -1885,9 +1885,9 @@ def _append_memory_entry(project_dir: str, entry: dict, skip_if=None) -> bool:
 
     # Embed to pending file (fast, no full store load); merged on next load.
     # Stamped with the embedding signature so a model change between write
-    # and merge can't mix vector spaces (legacy flat files = default model).
+    # and merge can't mix vector spaces (legacy flat files = legacy model).
     try:
-        from claude_engram.embed_config import DEFAULT_SIGNATURE, embed_signature
+        from claude_engram.embed_config import LEGACY_SIGNATURE, embed_signature
         from claude_engram.hooks.scorer_server import embed_via_server
 
         emb = embed_via_server(entry["content"])
@@ -1898,9 +1898,9 @@ def _append_memory_entry(project_dir: str, entry: dict, skip_if=None) -> bool:
             if pending_file.exists():
                 raw = json.loads(pending_file.read_text())
                 if isinstance(raw, dict) and "vectors" in raw:
-                    if raw.get("model", DEFAULT_SIGNATURE) == sig:
+                    if raw.get("model", LEGACY_SIGNATURE) == sig:
                         vectors = raw.get("vectors", {})
-                elif isinstance(raw, dict) and DEFAULT_SIGNATURE == sig:
+                elif isinstance(raw, dict) and LEGACY_SIGNATURE == sig:
                     vectors = raw
             vectors[entry["id"]] = emb
             etmp = pending_file.with_suffix(".json.tmp")
@@ -1916,7 +1916,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
     Auto-capture decisions from user prompts.
 
     Two-tier scoring:
-    1. Semantic (AllMiniLM) — if sentence-transformers is installed, uses cosine
+    1. Semantic — if sentence-transformers is installed, uses cosine
        similarity against pre-computed decision templates. Best accuracy.
     2. Regex fallback — weighted keyword + sentence structure analysis. Fast, no deps.
 
@@ -1939,7 +1939,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         best_score = 0.0
         best_text = ""
 
-        # Tier 1: Try semantic scoring (AllMiniLM)
+        # Tier 1: Try semantic scoring (embedding model)
         try:
             from claude_engram.hooks.intent import score_decision_semantic
 

@@ -67,7 +67,8 @@
 | New-project auto-registration | Auto-logged mistakes/decisions in a brand-new project are no longer dropped — the project is registered in the manifest first. |
 | `CLAUDE_ENGRAM_DIR` env var | Overrides the storage location (default `~/.claude_engram`); also the supported test-isolation seam. |
 | `memory(embed_all)` fix | Crashed with a `NameError` since the args rename; now reads `force` from the call args. |
-| Configurable embedding model | `CLAUDE_ENGRAM_EMBED_MODEL` / `CLAUDE_ENGRAM_EMBED_DIM` (or `config.json`). All embedding stores are signature-stamped (`model@dim`) and rebuild on model change — vector spaces are never mixed. Decision-capture semantic F1 measured 36.9% (MiniLM) vs 67.3% (`embeddinggemma-300m@256`). |
+| Configurable embedding model | `CLAUDE_ENGRAM_EMBED_MODEL` / `CLAUDE_ENGRAM_EMBED_DIM` (or `config.json`). All embedding stores are signature-stamped (`model@dim`) and rebuild on model change — vector spaces are never mixed. |
+| Default encoder → `BAAI/bge-base-en-v1.5` | Ungated (no HF account or token), ~440MB on first use. Decision-capture semantic F1 measured at fixed thresholds: `all-MiniLM-L6-v2` 37.7%, `embeddinggemma-300m@256` 67.3% (license-gated), `bge-small-en-v1.5` 70.7%, `bge-base-en-v1.5` 72.7%. MiniLM stays one config line away for low-RAM setups. |
 | Pre-edit hook ~2x faster | ~400ms to ~220ms median: stdlib-only `hooks/hot_reader.py`, lazy `tools/__init__`, one memory.json parse per hook, and banner dedup (a mistake no longer appears in two sections). |
 | MCP launch hardening | `install.py` points `.mcp.json` straight at the venv python instead of the `.bat` wrapper (fewer process layers between the host and the server under load). |
 | No emojis in any output | — |

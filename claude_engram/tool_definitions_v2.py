@@ -79,7 +79,7 @@ TOOL_DEFINITIONS = [
 - archive_search: Search archived memories (query, tags, limit)
 - archive_status: Show hot vs archived memory counts
 - hybrid_search: Semantic + keyword + scored search (query, file_path, tags, limit). Best retrieval.
-- embed_all: Generate AllMiniLM embeddings for all memories (enables hybrid_search)
+- embed_all: Generate embeddings for all memories (enables hybrid_search)
 - list_mistakes: View tracked mistakes with IDs, file associations, and age
 - acknowledge_mistake: Archive a learned mistake so it stops appearing in pre-edit warnings (memory_id)""",
         inputSchema={

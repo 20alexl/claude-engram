@@ -41,7 +41,7 @@ All operations require `operation` and `project_path`.
 | `forget` | — | Clear all project memories |
 | `search` | `file_path?`, `tags?`, `query?`, `limit?` | Find memories by criteria |
 | `hybrid_search` | `query`, `file_path?`, `tags?`, `limit?` | Semantic + keyword + scored search (best retrieval) |
-| `embed_all` | — | Generate AllMiniLM embeddings for all memories |
+| `embed_all` | — | Generate embeddings for all memories |
 | `cleanup` | `dry_run?`, `min_relevance?`, `max_age_days?` | Dedupe + archive + decay (clustering is internal) |
 | `add_rule` | `content`, `reason?` | Add permanent rule (never decays) |
 | `list_rules` | — | Get all rules for project |
@@ -208,7 +208,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │   └── <hash>/              # Per-project storage (hash from manifest)
 │       ├── memory.json      # This project's hot tier memories
 │       ├── archive.json     # This project's cold tier
-│       ├── embeddings.npy   # Binary AllMiniLM vectors (numpy, optional)
+│       ├── embeddings.npy   # Binary embedding vectors (numpy, optional)
 │       ├── embeddings_index.json  # ID-to-row mapping for embeddings.npy
 │       ├── embeddings_pending.json # Hook embedding writes (merged on load)
 │       ├── handoff_history.json   # Per-project capped ring buffer (last 20 handoffs)
@@ -228,7 +228,7 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ├── scorer_port              # TCP port for scorer server (auto-managed)
 ├── scorer_pid               # PID of scorer server (auto-managed)
 ├── embeddings/
-│   └── decision_templates.json  # Cached AllMiniLM template embeddings
+│   └── decision_templates.json  # Cached template embeddings
 ├── checkpoints/
 │   ├── latest_checkpoint.json   # Most recent checkpoint
 │   ├── latest_handoff.json      # Most recent handoff (kept in sync for backward compat)

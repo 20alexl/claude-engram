@@ -1,7 +1,7 @@
 """
 Benchmark: Decision capture recall and precision.
 
-Tests the two-tier scoring system (semantic AllMiniLM + regex fallback)
+Tests the two-tier scoring system (semantic + regex fallback)
 against a diverse set of decision and non-decision prompts.
 """
 
@@ -113,7 +113,7 @@ def test_regex_scorer():
 
 
 def test_semantic_scorer():
-    """Test the semantic AllMiniLM scorer if available."""
+    """Test the semantic scorer if available."""
     try:
         from claude_engram.hooks.intent import score_decision_semantic
 
@@ -132,7 +132,7 @@ def test_semantic_scorer():
         )
         return None, None, None
 
-    print("\n=== Semantic Decision Scorer (AllMiniLM) ===\n")
+    print("\n=== Semantic Decision Scorer ===\n")
 
     true_pos = 0
     false_pos = 0
@@ -253,7 +253,7 @@ if __name__ == "__main__":
     print("-" * 55)
     print(f"{'Regex':<25} {r1:>7.1f}% {p1:>9.1f}% {f1:>7.1f}%")
     if r2 is not None:
-        print(f"{'Semantic (AllMiniLM)':<25} {r2:>7.1f}% {p2:>9.1f}% {f2:>7.1f}%")
+        print(f"{'Semantic':<25} {r2:>7.1f}% {p2:>9.1f}% {f2:>7.1f}%")
     if r3 is not None:
         print(f"{'Combined':<25} {r3:>7.1f}% {p3:>9.1f}% {f3:>7.1f}%")
     print("=" * 60)

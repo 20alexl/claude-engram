@@ -5,13 +5,15 @@ One place decides which sentence-transformers model (and optional Matryoshka
 truncation dim) every embedding consumer uses: the scorer server, decision
 templates, memory embeddings, and session-search embeddings.
 
-Resolution order: env vars > ~/.claude_engram/config.json > default.
+Resolution order: env vars > ~/.claude_engram/config.json > default
+(BAAI/bge-base-en-v1.5, native 768 dims — ungated, no API token needed).
 
-    CLAUDE_ENGRAM_EMBED_MODEL   e.g. "google/embeddinggemma-300m"
-    CLAUDE_ENGRAM_EMBED_DIM     e.g. "256" (Matryoshka truncation; empty = native)
+    CLAUDE_ENGRAM_EMBED_MODEL   e.g. "all-MiniLM-L6-v2" (light: ~90MB vs ~440MB)
+    CLAUDE_ENGRAM_EMBED_DIM     e.g. "256" (Matryoshka truncation; empty = native;
+                                only for models trained for it, e.g. embeddinggemma)
 
 config.json:
-    {"embed_model": "google/embeddinggemma-300m", "embed_dim": 256}
+    {"embed_model": "all-MiniLM-L6-v2"}
 
 Every embedding store is stamped with embed_signature(). A store whose stamp
 does not match the current signature is discarded and rebuilt rather than
@@ -25,7 +27,13 @@ import json
 import os
 from pathlib import Path
 
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MODEL = "BAAI/bge-base-en-v1.5"
+DEFAULT_DIM = None  # set only if the default model wants Matryoshka truncation
+
+# Signature assumed for UNSTAMPED embedding stores (written before stamping
+# existed, i.e. by the original encoder). Pinned forever — do NOT update this
+# when DEFAULT_MODEL changes, or legacy stores get misread as the new model.
+LEGACY_SIGNATURE = "all-MiniLM-L6-v2@native"
 
 
 def _storage_dir() -> Path:
@@ -55,17 +63,19 @@ def get_embed_config() -> dict:
         dim = int(dim_raw) if dim_raw else None
     except (TypeError, ValueError):
         dim = None
+    if dim is None and dim_raw is None and model == DEFAULT_MODEL:
+        # No dim given anywhere: the default model gets its tuned truncation.
+        # An explicit model choice (even the same string) with an explicit
+        # dim — or any dim value at all — is always respected as-is.
+        dim = DEFAULT_DIM
     return {"model": model, "dim": dim}
 
 
 def embed_signature() -> str:
     """Stable id of the active embedding space, stored in every embedding
-    index. Unstamped legacy stores are treated as the default signature."""
+    index. Unstamped legacy stores are treated as LEGACY_SIGNATURE."""
     c = get_embed_config()
     return f"{c['model']}@{c['dim'] or 'native'}"
-
-
-DEFAULT_SIGNATURE = f"{DEFAULT_MODEL}@native"
 
 
 def load_sentence_transformer():

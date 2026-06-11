@@ -24,13 +24,13 @@ Claude Code
     │   ├── audit_batch (file mode + inline mode — both pure regex/AST)
     │   └── scout_search, file_summarize, deps_map, impact_analyze, find_similar_issues, session_mine
     │
-    ├── Scorer Server (scorer_server.py)      ← Persistent AllMiniLM process
-    │   └── TCP localhost, ~90MB RAM, ~5-25ms per score, batch embedding
+    ├── Scorer Server (scorer_server.py)      ← Persistent encoder process
+    │   └── TCP localhost, ~1.1GB RAM (default model), ~5-25ms per score, batch embedding
     │
     ├── Session Mining (mining/)              ← Background intelligence from session logs
     │   ├── JSONL parser, session index, incremental cursors
     │   ├── Structural + semantic extractors (decisions, mistakes, approaches)
-    │   ├── Cross-session search (AllMiniLM embeddings, 112ms query)
+    │   ├── Cross-session search (semantic embeddings, 112ms query)
     │   ├── Pattern detection (struggles, recurring errors, edit correlations)
     │   ├── Predictive context (related files, likely errors before edits)
     │   ├── Cross-project learning (aggregate insights across all projects)
@@ -47,7 +47,7 @@ Storage: ~/.claude_engram/
     │   └── <hash>/
     │       ├── memory.json         ← This project's memories (hot tier)
     │       ├── archive.json        ← This project's cold tier
-    │       ├── embeddings.npy          ← Binary AllMiniLM vectors (numpy)
+    │       ├── embeddings.npy          ← Binary embedding vectors (numpy)
     │       ├── embeddings_index.json   ← ID-to-row mapping
     │       ├── embeddings_pending.json ← Hook writes (merged on load)
     │       ├── handoff_history.json    ← Capped ring buffer (last 20 handoffs)
@@ -55,7 +55,7 @@ Storage: ~/.claude_engram/
     ├── checkpoints/         ← Task state, handoffs
     │   ├── latest_handoff.json      ← Most recent handoff (kept in sync; backward-compatible)
     │   └── handoff_history.json     ← Global slot ring buffer (last 20 handoffs)
-    ├── embeddings/          ← Cached AllMiniLM decision templates
+    ├── embeddings/          ← Cached decision template embeddings
     ├── sessions/
     │   └── <session_id>.json        ← Per-session hook state: edit counts, test results (loop detection lives here; auto-prune after 7 days)
     ├── hook_state.json      ← Hook tracking counters (legacy/global fallback)
@@ -104,14 +104,14 @@ Storage: ~/.claude_engram/
 - `main()` dispatches on `hook_type` argument (e.g., `prompt_json`, `pre_edit_json`, `bash_json`)
 - All JSON hooks read stdin via `_read_stdin_with_timeout(0.5)` — a cross-platform reader with a daemon thread
 - `get_project_dir(file_path)` resolves sub-projects by walking up from the file looking for project markers
-- `_auto_capture_from_prompt()` uses two-tier scoring: AllMiniLM via scorer server (if available) → regex fallback
+- `_auto_capture_from_prompt()` uses two-tier scoring: semantic via scorer server (if available) → regex fallback
 - Hook output uses Claude Code's `hookSpecificOutput.additionalContext` format for conversation injection
 
 ### Scorer Server (`hooks/scorer_server.py`)
 
-**What it does:** Persistent TCP server that keeps AllMiniLM loaded in memory. Hooks connect, send a prompt, get a decision score back in ~5-25ms instead of ~500ms cold start.
+**What it does:** Persistent TCP server that keeps the embedding model loaded in memory. Hooks connect, send a prompt, get a decision score back in ~5-25ms instead of ~500ms cold start.
 
-**Why it's separate:** Loading `sentence-transformers` + AllMiniLM takes ~500ms per process. Hooks spawn a new process each time. A persistent server amortizes the load cost across all hook calls in a session.
+**Why it's separate:** Loading `sentence-transformers` + the model takes ~500ms+ per process. Hooks spawn a new process each time. A persistent server amortizes the load cost across all hook calls in a session.
 
 **Key internals:**
 - Binds to `127.0.0.1:0` (OS picks port), writes port to `~/.claude_engram/scorer_port`
@@ -169,7 +169,7 @@ Storage: ~/.claude_engram/
 |-------|------|------|
 | 1 | Index sessions (JSONL parse, session index, incremental cursors) | always |
 | 2 | Extract decisions, mistakes, approaches from session text | post_session, bootstrap, full |
-| 3 | Build/refresh session search embeddings (AllMiniLM, incremental) | post_session, embed, bootstrap, full |
+| 3 | Build/refresh session search embeddings (incremental) | post_session, embed, bootstrap, full |
 | 4 | Pattern detection (struggles, recurring errors, edit correlations) | post_session, bootstrap, full |
 | 5 | Memory cleanup (dedup, decay) + embed all memories (keeps hybrid_search current) | post_session, bootstrap, full |
 | 6 | Code index build (per-project ast symbol table) | post_session, bootstrap, full |
@@ -250,8 +250,8 @@ claude_engram/
 │   ├── hooks/
 │   │   ├── __init__.py
 │   │   ├── remind.py        # Hook entry point (~2100 lines)
-│   │   ├── intent.py        # Semantic intent scorer (AllMiniLM)
-│   │   ├── scorer_server.py # Persistent AllMiniLM TCP server
+│   │   ├── intent.py        # Semantic intent scorer (templates)
+│   │   ├── scorer_server.py # Persistent encoder TCP server
 │   │   ├── precheck.py      # Import/export verification + blast-radius
 │   │   ├── paths.py         # Storage path helpers (shared by hooks + mining)
 │   │   └── storage.py       # Atomic file I/O helpers
@@ -261,7 +261,7 @@ claude_engram/
 │   │   ├── jsonl_reader.py  # Streaming JSONL session-log reader
 │   │   ├── session_index.py # Session index, incremental byte-offset cursors
 │   │   ├── extractors.py    # Structural + semantic extractors (decisions, etc.)
-│   │   ├── search.py        # Cross-session search (AllMiniLM embeddings)
+│   │   ├── search.py        # Cross-session search (semantic embeddings)
 │   │   ├── patterns.py      # Pattern detection (struggles, errors, correlations)
 │   │   ├── predictive.py    # Predictive context (related files, likely errors)
 │   │   ├── cross_project.py # Cross-project aggregate insights

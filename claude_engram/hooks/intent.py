@@ -1,13 +1,14 @@
 """
 Semantic intent scorer for auto-capturing decisions from user prompts.
 
-Uses AllMiniLM (sentence-transformers) for cosine similarity against
+Uses the configured embedding model (sentence-transformers) for cosine
+similarity against
 pre-computed decision templates. Falls back to regex scoring if
 sentence-transformers is not installed.
 
-Template embeddings are cached to disk at first use (~80MB model,
-~5ms per encoding after warm-up). The model itself is cached by
-sentence-transformers in ~/.cache/huggingface/.
+Template embeddings are cached to disk at first use (~5ms per encoding
+after warm-up). The model itself is cached by sentence-transformers in
+~/.cache/huggingface/.
 
 Performance:
 - Cold start (first ever): ~2s (model download is separate — user runs install)
@@ -26,8 +27,8 @@ _CACHE_DIR = Path.home() / ".claude_engram" / "embeddings"
 _TEMPLATE_CACHE = _CACHE_DIR / "decision_templates.json"
 
 # Decision templates — sentences that express clear decisions.
-# These use realistic generic nouns (not X/Y placeholders) because MiniLM
-# embeds content semantically — "X" doesn't match "PostgreSQL".
+# These use realistic generic nouns (not X/Y placeholders) because encoders
+# embed content semantically — "X" doesn't match "PostgreSQL".
 DECISION_TEMPLATES = [
     # Technology/tool switches
     "let's use PostgreSQL instead of SQLite for the database",

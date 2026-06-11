@@ -247,11 +247,11 @@ class MemoryStore:
         """Merge pending embeddings into the main embeddings for a project.
 
         Pending files are signature-stamped ({"model": sig, "vectors": {...}};
-        a legacy flat {id: vec} dict counts as the default model). Vectors
+        a legacy flat {id: vec} dict counts as the legacy model). Vectors
         from a different model than the configured one are dropped, not
         merged — embed_all_memories re-embeds them in the current space.
         """
-        from ..embed_config import DEFAULT_SIGNATURE, embed_signature
+        from ..embed_config import LEGACY_SIGNATURE, embed_signature
 
         sig = embed_signature()
         pdir = self._project_dir(norm_path)
@@ -261,10 +261,10 @@ class MemoryStore:
         try:
             raw = json.loads(pending_file.read_text())
             if isinstance(raw, dict) and "vectors" in raw:
-                pending_sig = raw.get("model", DEFAULT_SIGNATURE)
+                pending_sig = raw.get("model", LEGACY_SIGNATURE)
                 pending = raw.get("vectors", {})
             else:
-                pending_sig = DEFAULT_SIGNATURE
+                pending_sig = LEGACY_SIGNATURE
                 pending = raw
             if pending_sig != sig:
                 pending_file.unlink(missing_ok=True)
@@ -282,7 +282,7 @@ class MemoryStore:
                 if npy_file.exists() and index_file.exists():
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
-                    stamp = idx_data.get("model", DEFAULT_SIGNATURE)
+                    stamp = idx_data.get("model", LEGACY_SIGNATURE)
                     loaded = self._np.load(str(npy_file))
                     if (
                         stamp == sig
@@ -1339,7 +1339,7 @@ class MemoryStore:
             else:
                 seen_content[entry.id] = entry
 
-        # Semantic dedup — AllMiniLM catches near-duplicates Jaccard misses
+        # Semantic dedup — embeddings catch near-duplicates Jaccard misses
         # (e.g., same error with slightly different wording)
         try:
             from claude_engram.hooks.scorer_server import embed_batch_via_server
@@ -1388,7 +1388,7 @@ class MemoryStore:
                                 )
                                 semantic_keep.discard(b)
         except Exception:
-            pass  # AllMiniLM not available — skip semantic dedup
+            pass  # sentence-transformers not available — skip semantic dedup
 
         # Archive old inactive memories (before decay, so they're preserved not deleted)
         if apply_decay:
@@ -2346,7 +2346,7 @@ class MemoryStore:
         store was built by a different embedding model (its vectors share no
         space with current queries — treat as absent so the miner rebuilds).
         """
-        from ..embed_config import DEFAULT_SIGNATURE, embed_signature
+        from ..embed_config import LEGACY_SIGNATURE, embed_signature
 
         pdir = self._project_dir(norm_path)
 
@@ -2357,7 +2357,7 @@ class MemoryStore:
                 try:
                     idx_data = json.loads(index_file.read_text())
                     ids = idx_data.get("ids", [])
-                    stamp = idx_data.get("model", DEFAULT_SIGNATURE)
+                    stamp = idx_data.get("model", LEGACY_SIGNATURE)
                     matrix = self._np.load(str(npy_file), mmap_mode="r")
                     if (
                         stamp == embed_signature()
@@ -2604,7 +2604,7 @@ class MemoryStore:
         Merges results from three strategies:
         1. Keyword search (exact term matching)
         2. Score-based ranking (file/tag/recency/relevance)
-        3. Vector similarity (AllMiniLM cosine distance)
+        3. Vector similarity (embedding cosine distance)
 
         Results are fused using Reciprocal Rank Fusion (RRF).
         """

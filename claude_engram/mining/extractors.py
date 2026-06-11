@@ -3,7 +3,7 @@ Extractors — mine decisions, mistakes, approaches, and corrections from sessio
 
 Three-layer extraction:
   1. Structural — conversation flow patterns (most robust, typo-immune)
-  2. Semantic  — AllMiniLM scoring against templates (typo-immune, 5-25ms/call)
+  2. Semantic  — embedding-model scoring against templates (typo-immune, 5-25ms/call)
   3. Regex     — fast pre-filter for obvious patterns (least robust)
 
 All extractors output concise findings, not raw conversation text.
@@ -76,9 +76,9 @@ class SessionExtractions:
     extracted_at: float = 0.0
 
 
-# ─── Semantic scorer (AllMiniLM) ──────────────────────────────────────────
+# ─── Semantic scorer (embedding model) ──────────────────────────────────────────
 
-# Templates for semantic classification. AllMiniLM compares message embeddings
+# Templates for semantic classification. The encoder compares message embeddings
 # against these templates. This is naturally typo-tolerant (100% in benchmarks).
 _DECISION_TEMPLATES = [
     "let's use this approach instead",
@@ -121,7 +121,7 @@ _template_cache: dict[str, list[list[float]]] = {}
 def _get_template_embeddings(
     templates: list[str], key: str
 ) -> Optional[list[list[float]]]:
-    """Get cached template embeddings via AllMiniLM scorer server."""
+    """Get cached template embeddings via the scorer server."""
     if key in _template_cache:
         return _template_cache[key]
 
@@ -152,7 +152,7 @@ def _semantic_score_single(
 
 
 def _batch_embed(texts: list[str]) -> list[list[float]]:
-    """Batch embed texts via AllMiniLM scorer server. Single TCP call."""
+    """Batch embed texts via the scorer server. Single TCP call."""
     if not texts:
         return []
     try:
@@ -169,7 +169,7 @@ def _batch_score(
     templates: list[str],
 ) -> list[float]:
     """
-    Batch score texts against templates using AllMiniLM.
+    Batch score texts against templates using the embedding model.
 
     Embeds all candidate texts in one pass, then scores against template embeddings.
     Much faster than individual calls for multiple candidates.

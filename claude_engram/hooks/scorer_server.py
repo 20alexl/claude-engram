@@ -4,10 +4,9 @@ Persistent embedding/scorer server.
 Keeps the configured sentence-transformers model loaded in memory and serves
 scoring/embedding requests via TCP localhost. Auto-starts on first hook call,
 auto-exits after 30 min idle. The model is set by embed_config (default
-all-MiniLM-L6-v2, ~90MB; e.g. google/embeddinggemma-300m is heavier but
-substantially better).
+BAAI/bge-base-en-v1.5; all-MiniLM-L6-v2 is the light option at ~90MB RAM).
 
-Latency: ~5ms per request on MiniLM (vs ~500ms cold start without server)
+Latency: ~5-25ms per request (vs ~500ms+ cold start without server)
 
 Protocol: JSON lines over TCP
   Request:  {"text": "let's use Redis"}\n
@@ -213,9 +212,10 @@ def _cleanup():
 
 def _server_model_matches() -> bool:
     """Does the running server's embedding model match the configured one?
-    A missing MODEL_FILE (pre-stamping server) counts as a mismatch only when
-    the configured signature isn't the default."""
-    from claude_engram.embed_config import DEFAULT_SIGNATURE
+    A missing MODEL_FILE means a pre-stamping server, which always ran the
+    original encoder — so it only counts as a match when that legacy model
+    is still the configured one."""
+    from claude_engram.embed_config import LEGACY_SIGNATURE
 
     current = embed_signature()
     if MODEL_FILE.exists():
@@ -223,7 +223,7 @@ def _server_model_matches() -> bool:
             return MODEL_FILE.read_text().strip() == current
         except Exception:
             return False
-    return current == DEFAULT_SIGNATURE
+    return current == LEGACY_SIGNATURE
 
 
 def _stop_running_server():

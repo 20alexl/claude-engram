@@ -24,7 +24,7 @@ In a multi-project workspace, editing `auth.py` in project A should surface proj
 
 ### 5. Zero required infrastructure
 
-No cloud services, no databases, no background daemons (except the optional ~90MB scorer server). Ollama is optional too — only the two background insight paths and `scout_search` touch it; the whole proactive system runs without it. Everything persists to flat JSON files in `~/.claude_engram/` (override with `CLAUDE_ENGRAM_DIR`). The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
+No cloud services, no databases, no background daemons (except the optional scorer server — ~1.1GB RAM with the default model, ~90MB with MiniLM). Ollama is optional too — only the two background insight paths and `scout_search` touch it; the whole proactive system runs without it. Everything persists to flat JSON files in `~/.claude_engram/` (override with `CLAUDE_ENGRAM_DIR`). The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
 
 ### 6. Proactive code awareness — no LLM, no latency
 
@@ -44,7 +44,7 @@ A fourth signal — the outcome feedback loop — logs which injection kinds (me
 | File-based JSON storage | SQLite/Redis | Zero dependencies. Atomic writes via temp-then-replace. Good enough for hundreds of memories per project. |
 | Hook-based auto-capture | Requiring manual tool invocations | Users won't call tools consistently. Hooks make tracking invisible. |
 | Tiered hot/cold storage | Single memory file | Hot path (hooks) must be fast. Loading 1000 archived memories on every edit is too slow. |
-| Regex + optional AllMiniLM | LLM-based intent scoring | Hooks have 2s timeout. LLM calls take 500ms+. AllMiniLM at ~5ms via server, regex at ~0ms, both fit the budget. |
+| Regex + optional semantic encoder | LLM-based intent scoring | Hooks have 2s timeout. LLM calls take 500ms+. The encoder at ~5ms via server, regex at ~0ms, both fit the budget. |
 | Workspace-aware sub-project scoping | Single flat memory namespace | Real workspaces have multiple projects. Cross-contamination makes memories useless. |
 | Merge-safe hook installation | Overwriting settings.json | Users have other hooks. Destroying them is unacceptable. |
 | Pure `ast` for code index + precheck | LLM-based code analysis | LLM is too slow for pre-edit hooks. `ast` is deterministic, fast, and produces zero false-positives on syntax errors (returns None, leaves prior record in place). |
