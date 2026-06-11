@@ -945,6 +945,41 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
     return "PASSED" if passed else "FAILED"
 
 
+def _maybe_live_mine(project_dir: str) -> None:
+    """Debounced live-miner spawn — keeps engram fresh DURING long sessions.
+
+    The Stop hook fires at the end of every assistant turn; most turns this
+    is a no-op (marker newer than the interval, or a miner already holds the
+    lock). When it does fire, the "live" mode runs only the incremental
+    phases — session index, extraction, search embeddings, two code
+    indexes — each of which is cursor/watermark-keyed, so a tick costs the
+    new transcript tail, not a re-mine. Tune with CLAUDE_ENGRAM_LIVE_MINE
+    (seconds, default 300; 0/off disables)."""
+    try:
+        raw = os.environ.get("CLAUDE_ENGRAM_LIVE_MINE", "300").strip().lower()
+        if raw in ("0", "off", "false", "no"):
+            return
+        try:
+            interval = max(60, int(raw))
+        except ValueError:
+            interval = 300
+        marker = get_engram_storage_dir() / "live_mine_last"
+        try:
+            if marker.exists() and time.time() - marker.stat().st_mtime < interval:
+                return
+        except OSError:
+            pass
+        from claude_engram.mining.background import start_mining_background
+
+        if start_mining_background(project_dir, mode="live"):
+            try:
+                marker.write_text(str(time.time()))
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
 def _record_test_command(project_dir: str, command: str, passed: bool) -> None:
     """Track test invocations per project so session start can surface the
     known-good ones. Only called when the bash handlers already classified
@@ -3190,6 +3225,11 @@ def main():
 
                 # Also persist session files for next session context
                 mark_session_ended()
+
+            # Live freshness tick: debounced incremental mine so search,
+            # extractions, and code indexes track the session as it runs
+            # instead of waiting for SessionEnd.
+            _maybe_live_mine(project_dir)
         except Exception:
             pass
 

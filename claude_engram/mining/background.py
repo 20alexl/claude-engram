@@ -104,6 +104,9 @@ def start_mining_background(
             - "bootstrap": Full historical mining (all sessions)
             - "embed": Generate/update search embeddings
             - "full": Everything including pattern detection
+            - "live": Mid-session freshness tick — index + extract + embed
+              the active session's new tail and refresh the two most recent
+              code indexes; skips patterns/memory maintenance (session-end work)
         engram_storage_dir: Engram storage directory
 
     Returns:
@@ -298,9 +301,11 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         sessions_count = index.get_session_count()
         messages_count = index.get_total_messages()
 
-        # Phase 2: Run extractors (if mode supports it)
+        # Phase 2: Run extractors (if mode supports it). "live" runs them
+        # too: extraction skips already-seen sessions and re-extracts grown
+        # ones, so mid-session runs only pay for the active session's tail.
         extraction_count = 0
-        if mode in ("post_session", "bootstrap", "full"):
+        if mode in ("post_session", "bootstrap", "full", "live"):
             _phase_status("extracting", sessions_indexed=sessions_count)
             try:
                 from claude_engram.mining.extractors import run_extraction_pipeline
@@ -313,9 +318,10 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except Exception as e:
                 phase_errors["extracting"] = str(e)[:200]
 
-        # Phase 3: Generate embeddings (incremental -- skips already-embedded
-        # sessions, so it is cheap to refresh every session end)
-        if mode in ("post_session", "embed", "bootstrap", "full"):
+        # Phase 3: Generate embeddings (incremental -- watermarks mean only
+        # the new transcript tail embeds, so it is cheap to refresh every
+        # session end and every live tick)
+        if mode in ("post_session", "embed", "bootstrap", "full", "live"):
             _phase_status("embedding")
             try:
                 from claude_engram.mining.search import build_session_embeddings
@@ -389,7 +395,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
         # Phase 6: Code index (per-project symbol table) -- the substrate for
         # pre-edit import/export verification + blast-radius. Incremental,
         # mtime-keyed, ast-only, scoped to one project (cheap every session end).
-        if mode in ("post_session", "bootstrap", "full"):
+        if mode in ("post_session", "bootstrap", "full", "live"):
             _phase_status("code_index")
             try:
                 from claude_engram.mining.code_index import build_code_index
@@ -400,9 +406,11 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 # own refresh: the root build's walk prunes nested
                 # project-marker dirs, so without this the per-sub-project
                 # indexes (read by pre-edit hooks and deps_map symbol lookup)
-                # go stale forever in workspace setups.
+                # go stale forever in workspace setups. Live ticks sweep only
+                # the two most recent (= the active session's projects).
                 try:
-                    for sub in _recent_subprojects(index, project_path):
+                    limit = 2 if mode == "live" else 5
+                    for sub in _recent_subprojects(index, project_path, limit=limit):
                         build_code_index(sub, get_project_memory_dir(sub))
                 except Exception as e:
                     phase_errors["code_index_subprojects"] = str(e)[:200]

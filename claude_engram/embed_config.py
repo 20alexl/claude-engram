@@ -73,17 +73,45 @@ def get_embed_config() -> dict:
 
 def embed_signature() -> str:
     """Stable id of the active embedding space, stored in every embedding
-    index. Unstamped legacy stores are treated as LEGACY_SIGNATURE."""
+    index. Unstamped legacy stores are treated as LEGACY_SIGNATURE.
+    Device is deliberately NOT part of the signature: cuda and cpu produce
+    the same vectors, so switching devices must not rebuild stores."""
     c = get_embed_config()
     return f"{c['model']}@{c['dim'] or 'native'}"
 
 
+def resolve_device() -> str:
+    """Pick the embedding device: CLAUDE_ENGRAM_DEVICE override, else cuda
+    when a working torch+CUDA is present, else cpu. Imports torch — only
+    call from processes that load the model (scorer, miner), never hooks."""
+    explicit = os.environ.get("CLAUDE_ENGRAM_DEVICE", "").strip().lower()
+    if explicit:
+        return explicit
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
 def load_sentence_transformer():
-    """Construct the configured SentenceTransformer (truncated if dim set).
-    Raises ImportError when sentence-transformers is not installed."""
+    """Construct the configured SentenceTransformer (truncated if dim set)
+    on the resolved device. A broken CUDA runtime degrades to cpu instead
+    of killing the caller. Raises ImportError when sentence-transformers is
+    not installed."""
     from sentence_transformers import SentenceTransformer
 
     c = get_embed_config()
+    kwargs = {}
     if c["dim"]:
-        return SentenceTransformer(c["model"], truncate_dim=c["dim"])
-    return SentenceTransformer(c["model"])
+        kwargs["truncate_dim"] = c["dim"]
+    device = resolve_device()
+    try:
+        return SentenceTransformer(c["model"], device=device, **kwargs)
+    except Exception:
+        if device == "cpu":
+            raise
+        return SentenceTransformer(c["model"], device="cpu", **kwargs)

@@ -98,10 +98,16 @@ NON_DECISION_TEMPLATES = [
     "how do I set up the development environment",
 ]
 
-# Minimum similarity to consider a match
+# Minimum similarity to consider a match. Note: the capture cutoff
+# (score >= 0.45 in remind) already implies sim >= 0.525, so this gate
+# only binds above that — kept at 0.45 for the raw-score consumers.
 DECISION_THRESHOLD = 0.45
-# Minimum gap between best decision and best non-decision score
-AMBIGUITY_MARGIN = 0.05
+# Minimum gap between best decision and best non-decision score.
+# Retuned for bge-base (was 0.05, tuned on MiniLM): 0.025 measured
+# F1 72.7% -> 76.9% on the 220-prompt bench (recall 66.7 -> 77.5,
+# precision 80.0 -> 76.2) — lost decisions are unrecoverable, noise
+# captures get deduped, so the recall side of the trade wins.
+AMBIGUITY_MARGIN = 0.025
 
 
 def _try_import_sentence_transformers():

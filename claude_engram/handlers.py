@@ -95,13 +95,27 @@ class Handlers:
 
             from .embed_config import embed_signature
 
+            # The scorer writes its actual device (cuda/cpu) at model load;
+            # reading the breadcrumb avoids importing torch into this process.
+            device = ""
+            try:
+                from .hooks.scorer_server import DEVICE_FILE
+
+                if DEVICE_FILE.exists():
+                    device = DEVICE_FILE.read_text().strip()
+            except Exception:
+                pass
+            embed_line = f"Embedding model: {embed_signature()}"
+            if device:
+                embed_line += f" on {device}"
+
             response = MiniClaudeResponse(
                 status="success",
                 confidence="high",
                 reasoning="Claude Engram is ready. Did you call session_start yet?",
                 work_log=WorkLog(
                     what_worked=[
-                        f"Embedding model: {embed_signature()}",
+                        embed_line,
                         f"Ollama (optional): '{self.llm.model}'",
                         f"Memory tracking {stats['projects_tracked']} projects",
                     ]
@@ -109,6 +123,7 @@ class Handlers:
                 ),
                 data={
                     "embed_model": embed_signature(),
+                    "embed_device": device or "unknown",
                     "ollama_model": self.llm.model,
                     "memory_stats": stats,
                     "queue_stats": queue_stats,

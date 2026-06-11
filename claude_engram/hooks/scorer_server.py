@@ -47,6 +47,7 @@ def _storage_root() -> Path:
 PORT_FILE = _storage_root() / "scorer_port"
 PID_FILE = _storage_root() / "scorer_pid"
 MODEL_FILE = _storage_root() / "scorer_model"
+DEVICE_FILE = _storage_root() / "scorer_device"
 
 
 def _load_model_and_templates():
@@ -120,7 +121,13 @@ class _ModelHolder:
                 self.decision_embs,
                 self.non_decision_embs,
             ) = _load_model_and_templates()
-            print("Model loaded.", file=sys.stderr)
+            try:
+                # Breadcrumb for status display: the device actually in use
+                # (cuda vs cpu), readable without importing torch.
+                DEVICE_FILE.write_text(str(self.model.device))
+            except Exception:
+                pass
+            print(f"Model loaded on {self.model.device}.", file=sys.stderr)
         except Exception as e:
             print(f"Model load failed: {e}", file=sys.stderr)
         finally:
@@ -225,10 +232,18 @@ def _handle_client(conn, holder):
         non_decision_embs = holder.non_decision_embs
 
         if "embed_batch" in request:
-            # Batch embedding: encode all texts in one model call
+            # Batch embedding: encode all texts in one model call. GPU takes
+            # much larger batches without breaking a sweat; CPU keeps 64.
             texts = request["embed_batch"]
             if texts:
-                embs = model.encode(texts, normalize_embeddings=True, batch_size=64)
+                on_gpu = str(getattr(model, "device", "cpu")).startswith(
+                    ("cuda", "mps")
+                )
+                embs = model.encode(
+                    texts,
+                    normalize_embeddings=True,
+                    batch_size=256 if on_gpu else 64,
+                )
                 response = json.dumps({"embeddings": embs.tolist()}) + "\n"
             else:
                 response = json.dumps({"embeddings": []}) + "\n"
@@ -336,8 +351,8 @@ def serve():
 
 
 def _cleanup():
-    """Remove port/pid/model files on shutdown."""
-    for f in (PORT_FILE, PID_FILE, MODEL_FILE):
+    """Remove port/pid/model/device files on shutdown."""
+    for f in (PORT_FILE, PID_FILE, MODEL_FILE, DEVICE_FILE):
         try:
             f.unlink(missing_ok=True)
         except Exception:
