@@ -230,4 +230,4 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 - Hooks timeout: 1-2 seconds per hook. If a hook times out, it silently fails.
 - All file writes use atomic temp-then-replace pattern.
 - Hook installation merges into existing `~/.claude/settings.json` without destroying other hooks.
-- Skill: `/engram` — quick reference installed to `~/.claude/commands/`
+- Skill: `/engram` — quick reference installed to `~/.claude/skills/engram/`
