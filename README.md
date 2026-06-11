@@ -152,6 +152,7 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
 | `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Override the storage location (also the test-isolation seam) |
+| `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search embedding shards older than N days |
 
 ## Reindexing
 

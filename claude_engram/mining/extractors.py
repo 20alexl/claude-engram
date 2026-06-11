@@ -752,13 +752,25 @@ def run_extraction_pipeline(
                     existing.get(k)
                     for k in ("decisions", "mistakes", "approaches", "corrections")
                 )
-                # Skip if: has content AND (scorer was available OR still isn't)
-                # Reprocess if: scorer is now available but wasn't during original extraction
-                if has_content and (had_scorer or not scorer_available):
-                    continue
-                # Skip empty files from genuinely empty sessions (< 10 messages)
-                if not has_content and existing.get("message_count", 999) < 10:
-                    continue
+                # A session that GREW since extraction (PreCompact then
+                # SessionEnd, or resumed days later) is re-extracted whole —
+                # the file is a full per-session overwrite, so this is
+                # idempotent. Old extraction files lack the counter; they
+                # keep the legacy skip behavior until a reindex.
+                expected_main = int(session_meta.get("user_message_count", 0)) + int(
+                    session_meta.get("assistant_message_count", 0)
+                )
+                stored_main = existing.get("main_message_count")
+                grown = stored_main is not None and expected_main > int(stored_main)
+                if not grown:
+                    # Skip if: has content AND (scorer was available OR still isn't)
+                    # Reprocess if: scorer is now available but wasn't during
+                    # the original extraction
+                    if has_content and (had_scorer or not scorer_available):
+                        continue
+                    # Skip empty files from genuinely empty sessions (< 10 messages)
+                    if not has_content and existing.get("message_count", 999) < 10:
+                        continue
             except Exception:
                 pass
 
@@ -769,6 +781,7 @@ def run_extraction_pipeline(
         messages = []
         for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
             messages.append(msg)
+        main_message_count = len(messages)
 
         session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(
             ".jsonl", ""
@@ -782,7 +795,13 @@ def run_extraction_pipeline(
         if not messages:
             # Mark genuinely empty sessions so we don't re-parse their JSONL every run
             extraction_file.write_text(
-                json.dumps({"message_count": 0, "scorer_available": scorer_available}),
+                json.dumps(
+                    {
+                        "message_count": 0,
+                        "main_message_count": 0,
+                        "scorer_available": scorer_available,
+                    }
+                ),
                 encoding="utf-8",
             )
             continue
@@ -800,6 +819,7 @@ def run_extraction_pipeline(
         extraction_data = asdict(extractions)
         extraction_data["scorer_available"] = scorer_available
         extraction_data["message_count"] = len(messages)
+        extraction_data["main_message_count"] = main_message_count
 
         # Always write — even if count is 0. The scorer_available flag
         # lets us know whether to retry when scorer comes back.

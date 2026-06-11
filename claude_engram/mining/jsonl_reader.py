@@ -19,6 +19,22 @@ import re
 from pathlib import Path
 from typing import Iterator, Optional
 
+# Message types this parser understands. The schema canary measures what
+# fraction of log lines carry one of these — a collapse means Claude Code
+# changed its log format and mining is silently degraded.
+KNOWN_TYPES = {
+    "user",
+    "assistant",
+    "system",
+    "file-history-snapshot",
+    "attachment",
+    "queue-operation",
+    "permission-mode",
+    "last-prompt",
+    "summary",
+    "progress",
+}
+
 
 def _get_claude_projects_dir() -> Path:
     """Get the Claude Code projects directory."""
@@ -187,6 +203,7 @@ def iter_messages(
     jsonl_path: Path,
     start_offset: int = 0,
     types: Optional[set[str]] = None,
+    stats: Optional[dict] = None,
 ) -> Iterator[tuple[int, dict]]:
     """
     Stream messages from a JSONL file.
@@ -195,6 +212,9 @@ def iter_messages(
         jsonl_path: Path to the JSONL file
         start_offset: Byte offset to start reading from (for incremental processing)
         types: If set, only yield messages with these types (e.g., {"user", "assistant"})
+        stats: If given, incremented in place: "lines" (every non-blank line),
+            "parse_failures" (lines that aren't JSON), "known_types" (parsed
+            lines whose type is in KNOWN_TYPES). Feeds the schema canary.
 
     Yields:
         (byte_offset, parsed_message) tuples
@@ -208,11 +228,18 @@ def iter_messages(
             line = f.readline()
             if not line:
                 break
+            if stats is not None and line.strip():
+                stats["lines"] = stats.get("lines", 0) + 1
 
             try:
                 msg = json.loads(line.decode("utf-8", errors="replace"))
             except (json.JSONDecodeError, UnicodeDecodeError):
+                if stats is not None and line.strip():
+                    stats["parse_failures"] = stats.get("parse_failures", 0) + 1
                 continue
+
+            if stats is not None and msg.get("type") in KNOWN_TYPES:
+                stats["known_types"] = stats.get("known_types", 0) + 1
 
             if types and msg.get("type") not in types:
                 continue

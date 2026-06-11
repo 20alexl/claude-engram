@@ -805,6 +805,320 @@ def test_post_test_file_linking() -> list[tuple[str, bool, str]]:
 # ─── Runner ─────────────────────────────────────────────────────────────
 
 
+def _fake_vec(text, dim=8):
+    """Deterministic unit vector per text — identical text => cosine 1.0."""
+    import hashlib
+
+    h = hashlib.md5(text.encode("utf-8", errors="replace")).digest()
+    v = [b / 255.0 + 0.01 for b in h[:dim]]
+    n = sum(x * x for x in v) ** 0.5
+    return [x / n for x in v]
+
+
+def test_v2_embedding_store() -> list[tuple[str, bool, str]]:
+    """Sharded v2 store: build, watermarked re-run, append growth,
+    v1 migration, and retention pruning. Embedding transport is patched to a
+    deterministic local function — no scorer server involved."""
+    results = []
+    try:
+        import numpy as np
+    except ImportError:
+        return [("v2 store (numpy missing)", True, "skipped")]
+
+    from claude_engram.hooks import scorer_server
+    from claude_engram.mining import search as search_mod
+    from claude_engram.mining.search import build_session_embeddings, search_sessions
+    from claude_engram.mining.session_index import (
+        SessionIndex,
+        build_index_for_session,
+        merge_session_meta,
+    )
+    from claude_engram.embed_config import embed_signature
+    from claude_engram.mining.search import _normalize_path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmpdir = Path(tmp)
+        storage = tmpdir / "engram"
+        jdir = tmpdir / "jsonl"
+        jdir.mkdir(parents=True)
+        hash_dir = storage / "projects" / "abc12345"
+        hash_dir.mkdir(parents=True)
+        proj_path = "/proj/v2bench"
+        storage.joinpath("manifest.json").write_text(
+            json.dumps(
+                {"version": 5, "projects": {_normalize_path(proj_path): {"hash": "abc12345"}}}
+            )
+        )
+
+        old_resolve = search_mod.resolve_jsonl_dir
+        old_batch = scorer_server.embed_batch_via_server
+        old_single = scorer_server.embed_via_server
+        old_env = os.environ.get("CLAUDE_ENGRAM_DIR")
+        old_ret = os.environ.get("CLAUDE_ENGRAM_SESSION_RETENTION_DAYS")
+        search_mod.resolve_jsonl_dir = lambda p: jdir
+        scorer_server.embed_batch_via_server = lambda texts: [
+            _fake_vec(t) for t in texts
+        ]
+        scorer_server.embed_via_server = lambda t: _fake_vec(t)
+        os.environ["CLAUDE_ENGRAM_DIR"] = str(storage)
+        os.environ.pop("CLAUDE_ENGRAM_SESSION_RETENTION_DAYS", None)
+        try:
+            # --- initial build ---
+            sid = _make_session_id()
+            session_file = _write_synthetic_session(str(jdir), sid, n_exchanges=5)
+            index = SessionIndex(hash_dir / "session_index.json")
+            meta = build_index_for_session(Path(session_file))
+            meta.session_id = sid
+            index.update_session(meta)
+            index.save()
+
+            n1 = build_session_embeddings(proj_path, index, str(storage))
+            results.append(("initial build embeds chunks", n1 > 0, f"n={n1}"))
+
+            idx_path = hash_dir / "session_embeddings_index.json"
+            idx = json.loads(idx_path.read_text())
+            results.append(
+                (
+                    "index is v2 sharded",
+                    idx.get("version") == 2 and "shards" in idx,
+                    "",
+                )
+            )
+            shard_files = list((hash_dir / "session_embeddings").glob("*.npy"))
+            results.append(
+                ("one monthly shard written", len(shard_files) == 1, f"{len(shard_files)}")
+            )
+            if shard_files:
+                key = next(iter(idx["shards"]))
+                m = np.load(str(shard_files[0]))
+                results.append(
+                    (
+                        "shard rows == shard chunks",
+                        m.shape[0] == len(idx["shards"][key]["chunks"]),
+                        f"{m.shape[0]} vs {len(idx['shards'][key]['chunks'])}",
+                    )
+                )
+
+            # --- unchanged re-run: watermark makes it a no-op ---
+            n2 = build_session_embeddings(proj_path, index, str(storage))
+            results.append(("unchanged re-run adds nothing", n2 == 0, f"n={n2}"))
+
+            # --- grow the SAME session (same sid => same filename, more
+            # exchanges), merge index meta exactly like the production
+            # incremental path, then re-embed ---
+            existing = dict(index.sessions[sid])
+            grown_file = _write_synthetic_session(str(jdir), sid, n_exchanges=9)
+            tail = build_index_for_session(
+                Path(grown_file), start_offset=existing["processed_offset"]
+            )
+            tail.session_id = sid
+            merged = merge_session_meta(existing, tail)
+            index.update_session(merged)
+            index.save()
+
+            n3 = build_session_embeddings(proj_path, index, str(storage))
+            results.append(
+                ("grown session contributes its tail", n3 > 0, f"n={n3}")
+            )
+
+            idx = json.loads(idx_path.read_text())
+            all_chunks = [
+                c for s in idx["shards"].values() for c in s["chunks"]
+            ]
+            keys = [
+                (c["jsonl_file"], c["msg_offset"], c["msg_type"], c["preview"])
+                for c in all_chunks
+            ]
+            results.append(
+                (
+                    "no duplicate chunks after growth",
+                    len(keys) == len(set(keys)),
+                    f"{len(keys)} chunks, {len(set(keys))} unique",
+                )
+            )
+            max_off = max(c["msg_offset"] for c in all_chunks)
+            results.append(
+                (
+                    "tail offsets reach the grown end",
+                    max_off > int(existing["user_message_count"])
+                    + int(existing["assistant_message_count"]) - 2,
+                    f"max_off={max_off}",
+                )
+            )
+
+            # shard rows still aligned after append
+            key = next(iter(idx["shards"]))
+            m = np.load(str((hash_dir / "session_embeddings" / f"{key}.npy")))
+            results.append(
+                (
+                    "shard rows realigned after append",
+                    m.shape[0] == len(idx["shards"][key]["chunks"]),
+                    f"{m.shape[0]} vs {len(idx['shards'][key]['chunks'])}",
+                )
+            )
+
+            # --- search across the sharded store ---
+            hits = search_sessions(
+                proj_path, "auth module", limit=5, method="keyword",
+                engram_storage_dir=str(storage),
+            )
+            results.append(("keyword search finds sharded chunks", len(hits) > 0, ""))
+            if all_chunks:
+                target = all_chunks[0]["preview"]
+                hits = search_sessions(
+                    proj_path, target[:80], limit=3, method="semantic",
+                    engram_storage_dir=str(storage),
+                )
+                results.append(
+                    ("semantic search gathers from shards", len(hits) > 0, "")
+                )
+
+            # --- v1 migration (second project) ---
+            hash_dir2 = storage / "projects" / "def67890"
+            hash_dir2.mkdir(parents=True)
+            proj2 = "/proj/v1legacy"
+            manifest = json.loads(storage.joinpath("manifest.json").read_text())
+            manifest["projects"][_normalize_path(proj2)] = {"hash": "def67890"}
+            storage.joinpath("manifest.json").write_text(json.dumps(manifest))
+
+            sid_old = _make_session_id()
+            v1_chunks = [
+                {
+                    "session_id": sid_old,
+                    "jsonl_file": "old.jsonl",
+                    "msg_offset": i + 1,
+                    "timestamp": f"2026-01-0{i + 1}T10:00:00Z",
+                    "msg_type": "user" if i % 2 == 0 else "assistant",
+                    "preview": f"legacy chunk {i} about quantum flux capacitors",
+                    "related_files": [],
+                }
+                for i in range(4)
+            ]
+            v1_vecs = np.array(
+                [_fake_vec(c["preview"]) for c in v1_chunks], dtype=np.float32
+            )
+            np.save(str(hash_dir2 / "session_embeddings"), v1_vecs)  # -> .npy
+            (hash_dir2 / "session_embeddings_index.json").write_text(
+                json.dumps({"chunks": v1_chunks, "model": embed_signature()})
+            )
+
+            index2 = SessionIndex(hash_dir2 / "session_index.json")
+            n4 = build_session_embeddings(proj2, index2, str(storage))
+            idx2 = json.loads(
+                (hash_dir2 / "session_embeddings_index.json").read_text()
+            )
+            results.append(
+                (
+                    "v1 store migrated to shards",
+                    idx2.get("version") == 2 and "2026-01" in idx2.get("shards", {}),
+                    f"shards={list(idx2.get('shards', {}))}",
+                )
+            )
+            results.append(
+                (
+                    "flat npy removed after migration",
+                    not (hash_dir2 / "session_embeddings.npy").exists(),
+                    "",
+                )
+            )
+            mig = np.load(str(hash_dir2 / "session_embeddings" / "2026-01.npy"))
+            results.append(
+                (
+                    "migrated vectors preserved",
+                    mig.shape == v1_vecs.shape
+                    and bool(np.allclose(mig, v1_vecs)),
+                    f"{mig.shape}",
+                )
+            )
+            hits = search_sessions(
+                proj2, "quantum flux capacitors", limit=3, method="hybrid",
+                engram_storage_dir=str(storage),
+            )
+            results.append(
+                ("migrated store still searchable", len(hits) > 0, f"{len(hits)} hits")
+            )
+
+            # --- retention pruning ---
+            os.environ["CLAUDE_ENGRAM_SESSION_RETENTION_DAYS"] = "30"
+            build_session_embeddings(proj2, index2, str(storage))
+            idx2 = json.loads(
+                (hash_dir2 / "session_embeddings_index.json").read_text()
+            )
+            pruned = "2026-01" not in idx2.get("shards", {}) and not (
+                hash_dir2 / "session_embeddings" / "2026-01.npy"
+            ).exists()
+            results.append(("retention prunes old shards", pruned, ""))
+        finally:
+            search_mod.resolve_jsonl_dir = old_resolve
+            scorer_server.embed_batch_via_server = old_batch
+            scorer_server.embed_via_server = old_single
+            if old_env is None:
+                os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+            else:
+                os.environ["CLAUDE_ENGRAM_DIR"] = old_env
+            if old_ret is None:
+                os.environ.pop("CLAUDE_ENGRAM_SESSION_RETENTION_DAYS", None)
+            else:
+                os.environ["CLAUDE_ENGRAM_SESSION_RETENTION_DAYS"] = old_ret
+
+    return results
+
+
+def test_schema_canary() -> list[tuple[str, bool, str]]:
+    """The miner's JSONL-format canary: warns on recognition collapse,
+    stays quiet when healthy or under-informed."""
+    results = []
+    from types import SimpleNamespace
+
+    from claude_engram.mining.background import _schema_canary
+
+    def _sessions(specs):
+        # specs: list of (lines, known, ts)
+        return {
+            f"s{i}": {
+                "line_count": lines,
+                "known_type_count": known,
+                "last_timestamp": ts,
+            }
+            for i, (lines, known, ts) in enumerate(specs)
+        }
+
+    healthy = SimpleNamespace(
+        sessions=_sessions(
+            [(200, 196, f"2026-06-0{i + 1}T10:00:00Z") for i in range(8)]
+        )
+    )
+    results.append(("healthy history stays quiet", _schema_canary(healthy) == "", ""))
+
+    collapsed = SimpleNamespace(
+        sessions=_sessions(
+            [(200, 196, f"2026-06-0{i + 1}T10:00:00Z") for i in range(6)]
+            + [(200, 30, f"2026-06-2{i}T10:00:00Z") for i in range(3)]
+        )
+    )
+    warn = _schema_canary(collapsed)
+    results.append(
+        ("recognition collapse warns", bool(warn), warn[:60] if warn else "no warning")
+    )
+
+    tiny_recent = SimpleNamespace(
+        sessions=_sessions(
+            [(200, 196, f"2026-06-0{i + 1}T10:00:00Z") for i in range(6)]
+            + [(10, 1, f"2026-06-2{i}T10:00:00Z") for i in range(3)]
+        )
+    )
+    results.append(
+        ("tiny sessions don't trigger", _schema_canary(tiny_recent) == "", "")
+    )
+
+    sparse = SimpleNamespace(
+        sessions=_sessions([(200, 30, "2026-06-01T10:00:00Z")] * 3)
+    )
+    results.append(("too little data stays quiet", _schema_canary(sparse) == "", ""))
+
+    return results
+
+
 def main():
     print("=" * 70)
     print("BENCHMARK: Session Mining Foundation")
@@ -826,6 +1140,8 @@ def main():
         ("9b. Incremental Append Merges", test_incremental_append_merges),
         ("10. Tool Chunk Extraction", test_tool_chunk_extraction),
         ("11. Post-Test File Linking", test_post_test_file_linking),
+        ("12. Sharded v2 Embedding Store", test_v2_embedding_store),
+        ("13. Schema Canary", test_schema_canary),
     ]
 
     for suite_name, test_fn in test_suites:

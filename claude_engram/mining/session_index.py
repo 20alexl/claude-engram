@@ -55,6 +55,10 @@ class SessionMeta:
     subagent_count: int = 0
     summary: str = ""
     last_user_message: str = ""
+    # Schema canary counters (see jsonl_reader.iter_messages stats)
+    line_count: int = 0
+    parse_failures: int = 0
+    known_type_count: int = 0
 
 
 def build_index_for_session(
@@ -79,8 +83,11 @@ def build_index_for_session(
     files_edited = set()
     tools_used: dict[str, int] = {}
     last_offset = start_offset
+    canary_stats: dict[str, int] = {}
 
-    for offset, msg in iter_messages(jsonl_path, start_offset=start_offset):
+    for offset, msg in iter_messages(
+        jsonl_path, start_offset=start_offset, stats=canary_stats
+    ):
         last_offset = offset
         msg_type = msg.get("type", "")
         meta.message_count += 1
@@ -150,6 +157,9 @@ def build_index_for_session(
 
     meta.files_edited = sorted(files_edited)
     meta.tools_used = tools_used
+    meta.line_count = canary_stats.get("lines", 0)
+    meta.parse_failures = canary_stats.get("parse_failures", 0)
+    meta.known_type_count = canary_stats.get("known_types", 0)
     # Store file size as processed offset to indicate "fully processed"
     meta.processed_offset = jsonl_path.stat().st_size
 
@@ -371,6 +381,9 @@ def merge_session_meta(existing: dict, tail: SessionMeta) -> SessionMeta:
         "assistant_message_count",
         "error_count",
         "compaction_count",
+        "line_count",
+        "parse_failures",
+        "known_type_count",
     ):
         setattr(tail, counter, getattr(tail, counter) + existing.get(counter, 0))
     tail.has_errors = tail.has_errors or existing.get("has_errors", False)

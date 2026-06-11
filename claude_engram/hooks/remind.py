@@ -2765,6 +2765,18 @@ def main():
                                         lines.append(f"    fix: {fix}")
                         except Exception:
                             pass
+
+                # Schema canary: the miner flags when Claude Code's log format
+                # stops being recognized (mining would degrade silently).
+                try:
+                    status_path = get_engram_storage_dir() / "mining_status.json"
+                    if status_path.exists():
+                        sdata = json_module.loads(status_path.read_text())
+                        warn = sdata.get("schema_warning", "")
+                        if warn:
+                            lines.append(f"WARNING: {warn}")
+                except Exception:
+                    pass
             except Exception:
                 pass  # Mining not available or no sessions — skip silently
 

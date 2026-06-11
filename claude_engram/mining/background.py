@@ -146,6 +146,41 @@ def start_mining_background(
 # ── Background worker entry point ────────────────────────────────────────
 
 
+def _schema_canary(index) -> str:
+    """Detect a collapse in JSONL recognition rate (a Claude Code log-format
+    change would silently degrade everything mining produces). Compares the
+    newest sessions against the historical baseline; returns a warning line,
+    or "" when healthy or there's not enough data to judge."""
+    MIN_LINES = 50  # ignore tiny sessions — their ratios are noise
+    MIN_BASELINE_SESSIONS = 5
+    RECENT_WINDOW = 3
+
+    sessions = [
+        m for m in index.sessions.values() if m.get("line_count", 0) >= MIN_LINES
+    ]
+    if len(sessions) < MIN_BASELINE_SESSIONS + RECENT_WINDOW:
+        return ""
+    sessions.sort(key=lambda m: m.get("last_timestamp", ""))
+    recent = sessions[-RECENT_WINDOW:]
+    baseline = sessions[:-RECENT_WINDOW]
+
+    def rate(group):
+        lines = sum(m.get("line_count", 0) for m in group)
+        known = sum(m.get("known_type_count", 0) for m in group)
+        return (known / lines) if lines else 1.0
+
+    base_rate = rate(baseline)
+    recent_rate = rate(recent)
+    if base_rate >= 0.8 and recent_rate < 0.5 * base_rate:
+        return (
+            f"session-log recognition collapsed: {recent_rate:.0%} of recent "
+            f"log lines recognized vs {base_rate:.0%} baseline — Claude Code "
+            f"may have changed its log format; session mining is degraded "
+            f"(update claude-engram or report an issue)"
+        )
+    return ""
+
+
 def run_mining(project_path: str, mode: str, engram_storage_dir: str):
     """
     Main mining worker. Runs in a background subprocess.
@@ -289,6 +324,12 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             },
             "completed": time.time(),
         }
+        try:
+            warning = _schema_canary(index)
+            if warning:
+                final["schema_warning"] = warning
+        except Exception:
+            pass  # the canary must never break the run it watches
         if phase_errors:
             final["phase_errors"] = phase_errors
         _write_status(final)

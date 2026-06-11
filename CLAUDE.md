@@ -30,6 +30,7 @@ These happen via hooks. You don't call anything:
 | **Pre-edit import check** | PreToolUse Edit/Write | `<engram-precheck>` when a proposed import won't resolve against the code index (closest-name suggestion) |
 | **Blast-radius alert** | PreToolUse Edit/Write | `<engram-blast-radius>` listing modules that import the file being edited |
 | **Outcome feedback loop** | PreToolUse + PostToolUse Bash | Injection kinds correlated with test pass/fail; surfaced via `session_mine(reflect)` |
+| **Schema canary** | SessionStart | Warning when Claude Code's log format stops being recognized (mining would otherwise degrade silently) |
 
 ## Multi-Project Workspaces
 

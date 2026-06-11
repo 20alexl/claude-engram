@@ -71,6 +71,9 @@
 | Default encoder → `BAAI/bge-base-en-v1.5` | Ungated (no HF account or token), ~440MB on first use. Decision-capture semantic F1 measured at fixed thresholds: `all-MiniLM-L6-v2` 37.7%, `embeddinggemma-300m@256` 67.3% (license-gated), `bge-small-en-v1.5` 70.7%, `bge-base-en-v1.5` 72.7%. MiniLM stays one config line away for low-RAM setups. |
 | Pre-edit hook ~2x faster | ~400ms to ~220ms median: stdlib-only `hooks/hot_reader.py`, lazy `tools/__init__`, one memory.json parse per hook, and banner dedup (a mistake no longer appears in two sections). |
 | MCP launch hardening | `install.py` points `.mcp.json` straight at the venv python instead of the `.bat` wrapper (fewer process layers between the host and the server under load). |
+| Sharded session-search embeddings | Monthly `.npy` shards replace the single ever-growing matrix (an 80MB+ full rewrite at every session end); v1 stores migrate automatically; optional `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` pruning. |
+| Append-aware re-mining | A session that grows after indexing (PreCompact then SessionEnd, or resumed days later) now contributes its new tail to search embeddings (per-file watermarks) and is re-extracted for decisions/mistakes. Previously grown sessions were skipped as already-seen. |
+| JSONL schema canary | The miner tracks what fraction of log lines it recognizes; a collapse vs the historical baseline (a Claude Code log-format change) warns at session start instead of degrading silently. |
 | No emojis in any output | — |
 
 ## What's Next

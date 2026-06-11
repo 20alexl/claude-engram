@@ -214,8 +214,8 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │       ├── handoff_history.json   # Per-project capped ring buffer (last 20 handoffs)
 │       ├── code_index.json        # Per-project symbol index (exports, imports, classes, functions)
 │       ├── session_index.json     # Session metadata + offset cursors
-│       ├── session_embeddings.npy # Conversation chunk embeddings for search
-│       ├── session_embeddings_index.json # Chunk-to-session mapping
+│       ├── session_embeddings/  # Monthly .npy shards of chunk embeddings
+│       ├── session_embeddings_index.json # Shards, chunks, per-session watermarks
 │       ├── patterns.json          # Detected patterns (struggles, errors, correlations)
 │       └── extractions/           # Per-session extracted intelligence
 │           └── <session_id>.json  # Decisions, mistakes, approaches, corrections

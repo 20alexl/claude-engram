@@ -57,8 +57,9 @@ def main():
 
     if force and proj_info:
         h = storage / "projects" / proj_info["hash"]
-        (h / "session_embeddings_index.json").unlink(missing_ok=True)
-        (h / "session_embeddings.npy").unlink(missing_ok=True)
+        from claude_engram.mining.search import _wipe_embedding_store
+
+        _wipe_embedding_store(h)  # index + monthly shards + legacy flat files
         print("Cleared search index")
         if extract:
             # Delete extraction files that should be reprocessed:
