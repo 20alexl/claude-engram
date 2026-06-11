@@ -74,6 +74,10 @@
 | Sharded session-search embeddings | Monthly `.npy` shards replace the single ever-growing matrix (an 80MB+ full rewrite at every session end); v1 stores migrate automatically; optional `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` pruning. |
 | Append-aware re-mining | A session that grows after indexing (PreCompact then SessionEnd, or resumed days later) now contributes its new tail to search embeddings (per-file watermarks) and is re-extracted for decisions/mistakes. Previously grown sessions were skipped as already-seen. |
 | JSONL schema canary | The miner tracks what fraction of log lines it recognizes; a collapse vs the historical baseline (a Claude Code log-format change) warns at session start instead of degrading silently. |
+| Hook daemon | The scorer server doubles as a warm hook dispatcher; high-frequency hooks become thin `python -S` clients (one TCP round trip, in-daemon ~15-25ms) with a full in-process fallback. Heaviest hook measured 313ms → 216ms median on Windows; Linux gains more (cheaper process spawn). |
+| Proactive recall before Read | `<engram-read-context>` before Read of an indexed file: code-index orientation (module, key symbols, dependents) + the file's most relevant memories. Once per file per session; subagents skipped. Optional `CLAUDE_ENGRAM_LAST_FILE_PATH` statusline mirror. |
+| Outcome feedback loop CLOSED | Cap 6 graduates from measure-only: per-kind pass-rate lift becomes a bounded (0.8-1.2x) multiplier on the memory-injection relevance gate, computed by the miner, applied by the pre-edit scorer. Kinds without enough samples stay neutral. |
+| Isolated-storage servers | `scorer_port`/`scorer_pid`/`scorer_model` and the decision-template cache honor `CLAUDE_ENGRAM_DIR` — tests and parallel storage roots get their own daemon instead of colliding with the real one. |
 | No emojis in any output | — |
 
 ## What's Next
@@ -83,7 +87,6 @@
 - [ ] **Ollama-powered session summaries** — Use local LLM to generate human-readable session summaries instead of metadata-only.
 - [ ] **Obsidian export** — Export session insights, decisions, and project timelines as Obsidian-compatible markdown with wikilinks.
 - [ ] **Multi-language symbol indexing** — Extend code index beyond Python (tree-sitter for JS/TS/Rust/Go). Currently Python-only (ast).
-- [ ] **Proactive recall before Read** — Inject relevant memories before Read/Grep tool calls, not just before edits. Requires a PreToolUse Read hook (not yet implemented).
 
 ## What's Aspirational
 

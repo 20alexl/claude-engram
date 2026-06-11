@@ -3048,6 +3048,75 @@ def main():
         except Exception:
             pass
 
+    # ==================================================================
+    # pre_read_json - orientation before Read: code-index summary + the
+    # most relevant memories for the file (the roadmap's "proactive recall
+    # before Read"). One injection per file per session; silent otherwise.
+    # ==================================================================
+    elif hook_type == "pre_read_json":
+        import json as json_module
+
+        try:
+            stdin_data = _read_stdin_with_timeout(0.5)
+            if not stdin_data:
+                return
+            data = json_module.loads(stdin_data)
+            file_path = data.get("tool_input", {}).get("file_path", "")
+
+            # Optional statusline integration: mirror the last-read file to a
+            # plain text file (replaces a separate user hook = one less spawn).
+            if file_path:
+                lf = os.environ.get("CLAUDE_ENGRAM_LAST_FILE_PATH", "")
+                if lf:
+                    try:
+                        Path(lf).expanduser().write_text(file_path, encoding="utf-8")
+                    except Exception:
+                        pass
+
+            # Subagents: no injection (preserve their context budget)
+            if data.get("agent_id") or not file_path:
+                return
+
+            # Once per file per session — re-reads shouldn't re-pay the tokens
+            state = load_state()
+            seen = state.get("read_injected", [])
+            norm = file_path.replace("\\", "/").lower()
+            if norm in seen:
+                return
+            seen.append(norm)
+            state["read_injected"] = seen[-50:]
+            save_state(state)
+
+            project_dir = get_project_dir(file_path)
+            lines = []
+            try:
+                from claude_engram.hooks.precheck import read_context
+
+                rc = read_context(file_path, project_dir)
+                if rc:
+                    lines.append(rc)
+            except Exception:
+                pass
+            for mem in get_contextual_memories(project_dir, file_path)[:2]:
+                lines.append(f"- {mem}")
+
+            if lines:
+                result = (
+                    "<engram-read-context>\n" + "\n".join(lines) + "\n</engram-read-context>"
+                )
+                print(
+                    json_module.dumps(
+                        {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "additionalContext": result,
+                            }
+                        }
+                    )
+                )
+        except Exception:
+            pass
+
     else:
         pass  # Unknown hook type - silent
 

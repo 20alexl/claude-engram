@@ -115,6 +115,42 @@ def _short(dotted: str) -> str:
     return ".".join(parts[-2:]) if len(parts) > 2 else dotted
 
 
+def read_context(file_path: str, project_path: str = "") -> str:
+    """One-line code-index orientation for a file about to be Read: what the
+    module is, its key symbols, and how widely it's imported. Silent for
+    files the index doesn't know (non-Python, unindexed, or any failure)."""
+    if not file_path.endswith(".py"):
+        return ""
+    try:
+        from pathlib import Path
+
+        base = project_path or str(Path(file_path).parent)
+        idx = resolve_code_index(base)
+        if idx is None:
+            return ""
+        rec = idx.module_for_file(file_path)
+        if not rec:
+            return ""
+        mod = rec.get("module_path", "")
+        classes = list(rec.get("classes", {}))
+        functions = list(rec.get("functions", {}))
+        symbols = classes[:4] + functions[: max(0, 6 - len(classes[:4]))]
+        parts = [f"`{mod}`"]
+        if symbols:
+            more = len(classes) + len(functions) - len(symbols)
+            parts.append(
+                "defines " + ", ".join(symbols) + (f" +{more} more" if more > 0 else "")
+            )
+        deps = idx.dependents_of(mod)
+        if len(deps) >= BLAST_MIN_DEPENDENTS:
+            parts.append(f"imported by {len(deps)} module(s)")
+        if len(parts) == 1:
+            return ""
+        return "- " + "; ".join(parts)
+    except Exception:
+        return ""
+
+
 def blast_radius(file_path: str, project_path: str = "") -> str:
     """Terse pre-edit blast radius: how many project modules import the one
     being edited. Silent for near-leaf modules (< BLAST_MIN_DEPENDENTS) and on

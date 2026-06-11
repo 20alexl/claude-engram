@@ -299,6 +299,14 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                     phase_errors["memory_embedding"] = str(e)[:200]
             except Exception as e:
                 phase_errors["memory_maintenance"] = str(e)[:200]
+            try:
+                # Close the Cap-6 loop: refresh the bounded per-kind
+                # multipliers the pre-edit scorer reads.
+                from claude_engram.mining.outcomes import write_weights
+
+                write_weights()
+            except Exception as e:
+                phase_errors["injection_weights"] = str(e)[:200]
 
         # Phase 6: Code index (per-project symbol table) -- the substrate for
         # pre-edit import/export verification + blast-radius. Incremental,

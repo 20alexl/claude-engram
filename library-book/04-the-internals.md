@@ -107,18 +107,22 @@ Storage: ~/.claude_engram/
 - `_auto_capture_from_prompt()` uses two-tier scoring: semantic via scorer server (if available) → regex fallback
 - Hook output uses Claude Code's `hookSpecificOutput.additionalContext` format for conversation injection
 
-### Scorer Server (`hooks/scorer_server.py`)
+### Scorer/Hook Daemon (`hooks/scorer_server.py`)
 
-**What it does:** Persistent TCP server that keeps the embedding model loaded in memory. Hooks connect, send a prompt, get a decision score back in ~5-25ms instead of ~500ms cold start.
+**What it does:** Persistent TCP server with two jobs: (1) keeps the embedding model loaded — decision scores and embeddings in ~5-25ms instead of ~500ms+ cold start; (2) runs high-frequency hook events in-process with warm imports, so a hook costs one round trip (~15-25ms in-daemon) instead of a full import chain.
 
-**Why it's separate:** Loading `sentence-transformers` + the model takes ~500ms+ per process. Hooks spawn a new process each time. A persistent server amortizes the load cost across all hook calls in a session.
+**Why it's separate:** Hooks spawn a new process per event. The unavoidable cost is interpreter start (~150ms on Windows, far less on Linux); everything else — imports, model load, index reads — amortizes into the daemon. Measured on the heaviest hook (pre-edit): 313ms → 216ms median on Windows; Linux gains more since process spawn is cheaper there.
 
 **Key internals:**
-- Binds to `127.0.0.1:0` (OS picks port), writes port to `~/.claude_engram/scorer_port`
-- Protocol: JSON lines over TCP (`{"text": "..."}\n` → `{"score": 0.85, "text": "..."}\n`)
+- Binds to `127.0.0.1:0` (OS picks port), writes port to `scorer_port` in engram storage (honors `CLAUDE_ENGRAM_DIR`)
+- Binds BEFORE loading the model: hook events are served from the first millisecond; embedding/scoring requests wait on the background model load
+- Protocol: JSON lines over TCP — `{"text": ...}` (score), `{"embed": ...}` / `{"embed_batch": [...]}` (vectors), `{"hook_event": ..., "stdin": ..., "env": {...}}` (hook dispatch)
+- Hook dispatch is serialized under a lock (remind's per-event globals), ~5-30ms warm
+- Hooks are spawned as `python -S hooks/hook_client.py <event>` — stdlib-only thin client; any failure falls back to running the real handler in-process and fire-and-forgets a daemon restart (30s-TTL marker prevents spawn storms)
+- Lifecycle events (session start/end, stop, compaction) never route through the daemon
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
 - Auto-exits after 30 min idle (configurable via `CLAUDE_ENGRAM_SCORER_TIMEOUT`)
-- Thread-per-connection for concurrent hook requests
+- Thread-per-connection for concurrent requests
 
 ### Handlers (`handlers.py`)
 

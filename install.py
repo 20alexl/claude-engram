@@ -173,11 +173,30 @@ def get_hooks_config():
     else:
         python_exe = str(script_dir / "venv" / "bin" / "python")
 
+    hook_client = str(
+        script_dir / "claude_engram" / "hooks" / "hook_client.py"
+    ).replace("\\", "/")
+    # High-frequency events go through the thin client (python -S + one TCP
+    # round trip to the daemon, ~3-7x faster; full in-process fallback when
+    # the daemon is down). Lifecycle events keep their own processes.
+    daemon_events = {
+        "pre_edit_json",
+        "post_edit_json",
+        "bash_json",
+        "prompt_json",
+        "pre_read_json",
+        "tool_failure_json",
+    }
+
     def _hook(hook_type, timeout=1000, status=None):
+        if hook_type in daemon_events:
+            args = ["-S", hook_client, hook_type]
+        else:
+            args = ["-m", "claude_engram.hooks.remind", hook_type]
         h = {
             "type": "command",
             "command": python_exe,
-            "args": ["-m", "claude_engram.hooks.remind", hook_type],
+            "args": args,
             "timeout": timeout,
         }
         if status:
@@ -196,7 +215,8 @@ def get_hooks_config():
                 {
                     "matcher": "Edit|Write",
                     "hooks": [_hook("pre_edit_json", status="Checking memories...")],
-                }
+                },
+                {"matcher": "Read", "hooks": [_hook("pre_read_json")]},
             ],
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},

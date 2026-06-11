@@ -179,6 +179,21 @@ def score_entry(entry: dict, context: dict) -> float:
     return min(score, 1.0)
 
 
+def _memory_injection_weight() -> float:
+    """Bounded multiplier from the injection-outcome feedback loop
+    (mining/outcomes.py, persisted by the miner to injection_weights.json).
+    Above 1.0 when memory injections precede passing tests more than
+    baseline — inject a little more eagerly; below 1.0, more selectively.
+    1.0 when the file is absent, unreadable, or the loop lacks samples."""
+    try:
+        base = os.environ.get("CLAUDE_ENGRAM_DIR", "")
+        root = Path(base).expanduser() if base else Path.home() / ".claude_engram"
+        raw = json.loads((root / "injection_weights.json").read_text())
+        return min(1.2, max(0.8, float(raw.get("weights", {}).get("memory", 1.0))))
+    except Exception:
+        return 1.0
+
+
 def score_loaded_entries(
     all_entries: list[dict], context: dict, limit: int = 3
 ) -> list[dict]:
@@ -207,6 +222,10 @@ def score_loaded_entries(
     if ctx_file:
         file_relevant = []
         rules = []
+        # The outcome feedback loop scales the relevance gate: a memory kind
+        # that precedes passing tests above baseline lowers the bar slightly,
+        # one that precedes failures raises it. Bounded to 0.42-0.62.
+        gate = 0.5 / _memory_injection_weight()
         for entry, _s in scored:
             category = entry.get("category", "")
             if category == "rule":
@@ -217,7 +236,7 @@ def score_loaded_entries(
             # as a match and generic names like __init__.py need a full path.
             related = entry.get("related_files", [])
             content = entry.get("content", "")
-            if _file_match_score(ctx_file, related, content) >= 0.5:
+            if _file_match_score(ctx_file, related, content) >= gate:
                 file_relevant.append(entry)
 
         # Only show rules when there's something file-specific to go with

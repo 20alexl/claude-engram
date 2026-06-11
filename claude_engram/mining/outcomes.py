@@ -9,8 +9,11 @@ injection kinds that preceded it in the same session, surfacing which channels
 earn their tokens — the thing that keeps proactive injection from decaying into
 skimmed noise.
 
-This is the measurement foundation; on its own it changes no live behaviour.
-Tuning the scorer from this signal is the deliberate, conservative next step.
+``compute_weights()`` closes the loop: per-kind pass-rate lift vs the overall
+pass rate becomes a bounded score multiplier (0.8-1.2), persisted by the miner
+to injection_weights.json. hot_reader applies the "memory" weight to memory
+injection scoring; kinds without enough preceded outcomes stay at 1.0 —
+no signal, no steering.
 
 Single global log keyed by session_id (correlation is session-scoped, and
 sessions are workspace-pooled), so it sidesteps the sub-project-vs-cwd project
@@ -167,6 +170,51 @@ def reflect() -> dict:
             "outcomes": {"pass": 0, "fail": 0},
             "per_kind": {},
         }
+
+
+def compute_weights(r: dict = None) -> dict:
+    """
+    Turn reflect() correlations into bounded score multipliers.
+
+    Per kind: lift = (pass rate of outcomes this kind preceded) / (overall
+    pass rate), clamped to [0.8, 1.2]. A kind needs MIN_SAMPLES preceded
+    outcomes before it steers anything, and the log itself needs MIN_SAMPLES
+    outcomes total — small-sample lift is noise, not signal.
+    """
+    MIN_SAMPLES = 20
+    r = r or reflect()
+    passes = r["outcomes"]["pass"]
+    fails = r["outcomes"]["fail"]
+    total = passes + fails
+    weights: dict = {}
+    if total < MIN_SAMPLES or not passes:
+        return weights
+    base_rate = passes / total
+    for kind, s in r.get("per_kind", {}).items():
+        if kind in _LEGACY_KINDS:
+            continue
+        n = s.get("before_pass", 0) + s.get("before_fail", 0)
+        if n < MIN_SAMPLES:
+            continue
+        lift = (s["before_pass"] / n) / base_rate
+        weights[kind] = round(min(1.2, max(0.8, lift)), 3)
+    return weights
+
+
+def write_weights() -> dict:
+    """Compute and persist weights next to the outcome log, so the hot path
+    pays one tiny JSON read instead of an event-log aggregation. Called by
+    the background miner every run."""
+    import time
+
+    from claude_engram.hooks.paths import get_engram_storage_dir
+
+    weights = compute_weights()
+    path = get_engram_storage_dir() / "injection_weights.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"weights": weights, "updated": time.time()}))
+    tmp.replace(path)
+    return weights
 
 
 def format_reflection(r: dict) -> str:

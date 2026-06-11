@@ -24,7 +24,7 @@ In a multi-project workspace, editing `auth.py` in project A should surface proj
 
 ### 5. Zero required infrastructure
 
-No cloud services, no databases, no background daemons (except the optional scorer server — ~1.1GB RAM with the default model, ~90MB with MiniLM). Ollama is optional too — only the two background insight paths and `scout_search` touch it; the whole proactive system runs without it. Everything persists to flat JSON files in `~/.claude_engram/` (override with `CLAUDE_ENGRAM_DIR`). The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
+No cloud services, no databases, no background daemons (except the optional scorer/hook daemon — ~1.1GB RAM with the default model, ~90MB with MiniLM; it also runs high-frequency hooks warm). Ollama is optional too — only the two background insight paths and `scout_search` touch it; the whole proactive system runs without it. Everything persists to flat JSON files in `~/.claude_engram/` (override with `CLAUDE_ENGRAM_DIR`). The MCP server runs as a stdio process managed by Claude Code. Hooks are plain Python scripts.
 
 ### 6. Proactive code awareness — no LLM, no latency
 

@@ -12,7 +12,8 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - Predictive context: related files + likely errors before edits
 - Pre-edit import/export check: proposed imports verified against the per-project code index (AST, LLM-free) — `<engram-precheck>` banner with closest-name suggestions
 - Blast-radius: editing a shared module lists its importers — `<engram-blast-radius>`
-- Outcome feedback loop: tracks which injection kinds (memory/prediction/precheck/blast) precede passing tests; see `session_mine(reflect)`
+- Read context: before Read of an indexed file, code-index orientation + that file's memories (`<engram-read-context>`, once per file per session)
+- Outcome feedback loop: tracks which injection kinds (memory/prediction/precheck/blast) precede passing tests AND feeds back a bounded (0.8-1.2x) memory-injection multiplier; see `session_mine(reflect)`
 - Tool duration tracking: slow tools surfaced in handoffs
 
 ## Memory Tools

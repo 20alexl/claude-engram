@@ -31,6 +31,7 @@ These happen via hooks. You don't call anything:
 | **Blast-radius alert** | PreToolUse Edit/Write | `<engram-blast-radius>` listing modules that import the file being edited |
 | **Outcome feedback loop** | PreToolUse + PostToolUse Bash | Injection kinds correlated with test pass/fail; surfaced via `session_mine(reflect)` |
 | **Schema canary** | SessionStart | Warning when Claude Code's log format stops being recognized (mining would otherwise degrade silently) |
+| **Read context** | PreToolUse Read | `<engram-read-context>`: code-index orientation + the file's most relevant memories, once per file per session |
 
 ## Multi-Project Workspaces
 
@@ -221,6 +222,8 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 - Local LLM: Ollama with `gemma3:12b` (configurable via `CLAUDE_ENGRAM_MODEL`) — **optional**. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis. Both background ops degrade silently when Ollama is absent. Everything proactive (hooks, code index, precheck, blast-radius, injection scoring) is LLM-free.
 - Storage: `~/.claude_engram/` (manifest.json, projects/\<hash\>/{memory.json, embeddings.npy, session_index.json, extractions/}, checkpoints/). Override the location with `CLAUDE_ENGRAM_DIR`.
 - Semantic scoring: configured encoder (default `BAAI/bge-base-en-v1.5`) via persistent TCP server on localhost (auto-managed)
+- Hook daemon: the same server runs high-frequency hooks in-process (warm imports); hooks are thin `python -S` clients with a full in-process fallback when the daemon is down
+- Outcome feedback: injection kinds that precede passing tests above baseline get a bounded scoring boost (0.8-1.2x), computed by the miner from `session_mine(reflect)` data
 - Batch embeddings: `embed_batch` protocol for 22x faster bulk embedding
 - Session mining: background subprocess, fire-and-forget, no hook timeout impact
 - Keep-alive: Set `CLAUDE_ENGRAM_KEEP_ALIVE=5m` to keep Ollama model loaded

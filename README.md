@@ -10,13 +10,14 @@ Zero manual effort. Works with any MCP-compatible client.
 - Tracks every edit, error, test result, and session event
 - Auto-captures decisions from your prompts ("let's use X", "switch to Y")
 - Injects the 3 most relevant memories before every file edit
+- Orients before file reads: code-index summary (what the module is, who imports it) + that file's past mistakes, once per file per session
 - Warns when you're about to repeat a past mistake
 - Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
 - Survives context compaction — checkpoints before, re-injects after
 - Mines your session history in the background after every session
 - Verifies imports in proposed edits against a per-project code index (AST, no LLM) — `<engram-precheck>` with closest-name suggestions
 - Shows blast radius before editing a shared module — lists its importers (`<engram-blast-radius>`)
-- Measures injection precision — tracks which injected context precedes passing tests (view via `session_mine(reflect)`)
+- Measures injection precision — tracks which injected context precedes passing tests (view via `session_mine(reflect)`) — and feeds it back: a bounded per-kind multiplier (0.8-1.2) tunes how eagerly memories inject
 
 **Session Mining (automatic, background):**
 - Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
@@ -65,8 +66,10 @@ Claude Code
     +-- MCP Server (server.py)              <- Tools for manual operations
     |   memory, session_mine, work, scope, context, ...
     |
-    +-- Scorer Server (scorer_server.py)    <- Persistent encoder process
+    +-- Scorer/Hook Daemon (scorer_server.py) <- Persistent encoder + warm hook dispatch
         TCP localhost, ~1.1GB RAM (default model), batch embeddings
+        High-frequency hooks run as thin clients (one round trip, full
+        in-process fallback when the daemon is down)
 ```
 
 Hooks fire on every tool call (1-2s budget each). Heavy processing happens in a background subprocess after session end. The scorer server stays loaded in memory for fast semantic scoring.
@@ -153,6 +156,8 @@ Internals, the full feature list, gotchas, and API reference live in the **[libr
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
 | `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Override the storage location (also the test-isolation seam) |
 | `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search embedding shards older than N days |
+| `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | If set, the Read hook mirrors the last-read file path to this file (statusline integration) |
+| `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | Set to `1` to print a stderr breadcrumb per hook (daemon vs fallback) |
 
 ## Reindexing
 

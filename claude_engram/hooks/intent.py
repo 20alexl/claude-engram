@@ -2,9 +2,8 @@
 Semantic intent scorer for auto-capturing decisions from user prompts.
 
 Uses the configured embedding model (sentence-transformers) for cosine
-similarity against
-pre-computed decision templates. Falls back to regex scoring if
-sentence-transformers is not installed.
+similarity against pre-computed decision templates. Falls back to regex
+scoring if sentence-transformers is not installed.
 
 Template embeddings are cached to disk at first use (~5ms per encoding
 after warm-up). The model itself is cached by sentence-transformers in
@@ -17,13 +16,22 @@ Performance:
 """
 
 import json
+import os
 import re
 import time
 from pathlib import Path
 from typing import Optional
 
+
+def _resolve_cache_dir() -> Path:
+    """Template cache lives in engram storage (honors CLAUDE_ENGRAM_DIR)."""
+    override = os.environ.get("CLAUDE_ENGRAM_DIR", "")
+    base = Path(override).expanduser() if override else Path.home() / ".claude_engram"
+    return base / "embeddings"
+
+
 # Cache directory for pre-computed embeddings
-_CACHE_DIR = Path.home() / ".claude_engram" / "embeddings"
+_CACHE_DIR = _resolve_cache_dir()
 _TEMPLATE_CACHE = _CACHE_DIR / "decision_templates.json"
 
 # Decision templates — sentences that express clear decisions.

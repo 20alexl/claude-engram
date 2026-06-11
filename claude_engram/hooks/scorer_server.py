@@ -33,10 +33,20 @@ IDLE_TIMEOUT = int(
 # Where to store the port number so hooks can find us. MODEL_FILE records the
 # embedding signature the running server loaded: a client whose configured
 # model differs must not use this server (vectors from two models share no
-# space), so it replaces it instead.
-PORT_FILE = Path.home() / ".claude_engram" / "scorer_port"
-PID_FILE = Path.home() / ".claude_engram" / "scorer_pid"
-MODEL_FILE = Path.home() / ".claude_engram" / "scorer_model"
+# space), so it replaces it instead. Honors CLAUDE_ENGRAM_DIR so isolated
+# storage gets an isolated server (and tests never touch the real one).
+
+
+def _storage_root() -> Path:
+    override = os.environ.get("CLAUDE_ENGRAM_DIR", "")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".claude_engram"
+
+
+PORT_FILE = _storage_root() / "scorer_port"
+PID_FILE = _storage_root() / "scorer_pid"
+MODEL_FILE = _storage_root() / "scorer_model"
 
 
 def _load_model_and_templates():
@@ -92,7 +102,100 @@ def _score_text(text, model, decision_embs, non_decision_embs):
     return best_score, best_text
 
 
-def _handle_client(conn, model, decision_embs, non_decision_embs):
+class _ModelHolder:
+    """The embedding model, loaded lazily in a background thread so the
+    server can bind and serve hook events immediately. Embedding/scoring
+    requests wait on `ready`; hook events never touch it."""
+
+    def __init__(self):
+        self.ready = threading.Event()
+        self.model = None
+        self.decision_embs = None
+        self.non_decision_embs = None
+
+    def load(self):
+        try:
+            (
+                self.model,
+                self.decision_embs,
+                self.non_decision_embs,
+            ) = _load_model_and_templates()
+            print("Model loaded.", file=sys.stderr)
+        except Exception as e:
+            print(f"Model load failed: {e}", file=sys.stderr)
+        finally:
+            self.ready.set()
+
+    def wait(self, timeout: float = 20.0) -> bool:
+        self.ready.wait(timeout)
+        return self.model is not None
+
+
+# Hook events the daemon may run in-process. Lifecycle events (session
+# start/end, stop, compaction) stay in their own processes: they spawn
+# miners and servers and are rare enough that warm imports buy nothing.
+_HOOK_EVENTS = {
+    "pre_edit_json",
+    "post_edit_json",
+    "bash_json",
+    "prompt_json",
+    "pre_read_json",
+    "tool_failure_json",
+}
+
+# remind's stdin cache / session id / CLAUDE_PROJECT_DIR are per-event
+# process state; under the daemon they're module globals, so dispatch is
+# serialized. Handlers are ~5-30ms warm — queueing beats races.
+_HOOK_LOCK = threading.Lock()
+
+
+def _serve_hook_event(request: dict) -> dict:
+    """Run a remind.py hook dispatch in-process. The entire win of the
+    daemon: a cold hook process pays interpreter start + imports before any
+    work; here only the work remains."""
+    hook_type = str(request.get("hook_event", ""))
+    if hook_type not in _HOOK_EVENTS:
+        return {"error": f"unsupported hook_event {hook_type!r}"}
+    payload = request.get("stdin", "") or ""
+    env = request.get("env") if isinstance(request.get("env"), dict) else {}
+
+    import contextlib
+    import io
+
+    with _HOOK_LOCK:
+        from claude_engram.hooks import remind
+
+        old_argv = sys.argv
+        old_proj = os.environ.get("CLAUDE_PROJECT_DIR")
+        buf = io.StringIO()
+        try:
+            cpd = env.get("CLAUDE_PROJECT_DIR", "")
+            if cpd:
+                os.environ["CLAUDE_PROJECT_DIR"] = cpd
+            else:
+                os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            remind._stdin_cache = payload
+            remind._session_id = ""
+            sys.argv = ["remind", hook_type]
+            with contextlib.redirect_stdout(buf):
+                try:
+                    remind.main()
+                except SystemExit:
+                    pass
+        except Exception as e:
+            return {"error": str(e)[:200]}
+        finally:
+            sys.argv = old_argv
+            if old_proj is None:
+                os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            else:
+                os.environ["CLAUDE_PROJECT_DIR"] = old_proj
+            remind._stdin_cache = None
+            remind._session_id = ""
+        return {"output": buf.getvalue()}
+
+
+def _handle_client(conn, holder):
     """Handle a single client connection."""
     try:
         conn.settimeout(5.0)
@@ -107,6 +210,19 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
             return
 
         request = json.loads(data.decode("utf-8").strip())
+
+        if "hook_event" in request:
+            response = json.dumps(_serve_hook_event(request)) + "\n"
+            conn.sendall(response.encode("utf-8"))
+            return
+
+        # Everything below needs the model; wait out a still-loading one.
+        if not holder.wait():
+            conn.sendall(b'{"error": "model unavailable"}\n')
+            return
+        model = holder.model
+        decision_embs = holder.decision_embs
+        non_decision_embs = holder.non_decision_embs
 
         if "embed_batch" in request:
             # Batch embedding: encode all texts in one model call
@@ -141,12 +257,13 @@ def _handle_client(conn, model, decision_embs, non_decision_embs):
 
 
 def serve():
-    """Run the scorer server. Blocks until idle timeout."""
-    # Load model (the expensive part — only done once)
+    """Run the scorer/hook server. Blocks until idle timeout.
+
+    Binds and announces itself BEFORE loading the model: hook events are
+    served from the first millisecond, while embedding/scoring requests wait
+    on the background model load (and degrade to their callers' fallbacks
+    until it finishes)."""
     sig = embed_signature()
-    print(f"Loading embedding model {sig}...", file=sys.stderr)
-    model, decision_embs, non_decision_embs = _load_model_and_templates()
-    print("Model loaded.", file=sys.stderr)
 
     # Bind to any available port on localhost
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -160,6 +277,12 @@ def serve():
     PORT_FILE.write_text(str(port))
     PID_FILE.write_text(str(os.getpid()))
     MODEL_FILE.write_text(sig)
+    # Clear the hook_client nudge marker: we're up, nudges may flow again
+    (_storage_root() / "scorer_starting").unlink(missing_ok=True)
+
+    holder = _ModelHolder()
+    print(f"Loading embedding model {sig} in background...", file=sys.stderr)
+    threading.Thread(target=holder.load, daemon=True).start()
 
     print(
         f"Scorer server listening on 127.0.0.1:{port} (PID {os.getpid()})",
@@ -188,7 +311,7 @@ def serve():
                 # Handle in thread for concurrency
                 t = threading.Thread(
                     target=_handle_client,
-                    args=(conn, model, decision_embs, non_decision_embs),
+                    args=(conn, holder),
                     daemon=True,
                 )
                 t.start()

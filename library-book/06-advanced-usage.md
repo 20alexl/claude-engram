@@ -284,6 +284,8 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Optional Ollama model — `scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis |
 | `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (scorer server, decision capture, memory + session embeddings). Also `embed_model` in `config.json` |
 | `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search embedding shards older than N days (whole months at a time) |
+| `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | Read hook mirrors the last-read file path here (statusline integration; replaces a separate user hook) |
+| `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | `1` prints a stderr breadcrumb per hook: served by daemon vs fallback (and why) |
 | `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for `google/embeddinggemma-300m`). Also `embed_dim` in `config.json` |
 | `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint (optional LLM) |
 | `CLAUDE_ENGRAM_TIMEOUT` | `300` | LLM call timeout (seconds) |
