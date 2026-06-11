@@ -79,3 +79,6 @@ NUL
 # Session-specific files (local to each user, not tracked)
 .learnings/
 session-logs/
+
+# Internal design/scope notes — local only, never published
+design/
