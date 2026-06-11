@@ -403,6 +403,10 @@ class CodeIndex:
         """Modules that import ``module_path`` (the blast radius), newest build."""
         return self._data.get("module_to_dependents", {}).get(module_path, [])
 
+    def root(self) -> str:
+        """The absolute project root this index was built from."""
+        return self._data.get("root", "")
+
     def module_for_file(self, file_path: str) -> Optional[dict]:
         """The module record for an absolute/relative file path, matched against
         the indexed root. None if the file isn't in this index."""

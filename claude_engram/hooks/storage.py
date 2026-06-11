@@ -160,6 +160,8 @@ def get_past_mistakes(project_memory: dict) -> list[dict]:
     sorted_entries = sorted(entries, key=lambda x: x.get("created_at", 0), reverse=True)
 
     for entry in sorted_entries:
+        if entry.get("archived_at"):
+            continue  # acknowledged/hygiene-archived mistakes stay out of banners
         content = entry.get("content", "")
         category = entry.get("category", "")
         entry_id = entry.get("id", "")

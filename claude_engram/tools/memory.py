@@ -2124,6 +2124,139 @@ class MemoryStore:
 
         return report
 
+    def _move_entries_to_archive(self, proj, entries: list) -> int:
+        """Move entries from a hot project into archive.json (no save)."""
+        self._load_archive()
+        norm_path = self._normalize_path(proj.project_path)
+        if norm_path not in self._archive_projects:
+            self._archive_projects[norm_path] = ProjectMemory(
+                project_path=norm_path,
+                project_name=proj.project_name,
+            )
+        archive_proj = self._archive_projects[norm_path]
+        archive_ids = {e.id for e in archive_proj.entries}
+        moved = 0
+        for entry in entries:
+            entry.archived_at = time.time()
+            if entry.id not in archive_ids:
+                archive_proj.entries.append(entry)
+                moved += 1
+        gone = {e.id for e in entries}
+        proj.entries = [e for e in proj.entries if e.id not in gone]
+        self._rebuild_indexes(proj)
+        return moved
+
+    def _recurring_error_sigs(self, project_path: str) -> list:
+        """(normalized_class, template) pairs from the mined patterns.json,
+        walking ancestors — mining pools at the workspace root."""
+        sigs = []
+        try:
+            norm = self._normalize_path(project_path)
+            for _ in range(8):
+                p = self._project_dir(norm) / "patterns.json"
+                if p.exists():
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                    for e in data.get("recurring_errors", []):
+                        pat = e.get("message_pattern", "")
+                        label, _, tmpl = pat.partition(": ")
+                        sigs.append(
+                            (re.sub(r"[^a-z]", "", label.lower()), tmpl)
+                        )
+                    break
+                parent = self._normalize_path(str(Path(norm).parent))
+                if parent == norm:
+                    break
+                norm = parent
+        except Exception:
+            pass
+        return sigs
+
+    def archive_stale_mistakes(
+        self,
+        project_path: str,
+        recent_files: "Optional[set[str]]" = None,
+        dry_run: bool = True,
+        min_age_days: int = 21,
+    ) -> dict:
+        """Archive auto-captured mistakes that never recurred.
+
+        Mistakes are normally archive-protected — every one shows up in
+        pre-edit banners forever. Auto-detected entries are machine-written
+        though, and a one-off typo from weeks ago is pure banner noise.
+        An auto-captured mistake is archived (never deleted) only when ALL:
+        - source == "auto-detected" (manual log_mistake entries and rules
+          are untouched — they were written with intent)
+        - both created and last accessed over ``min_age_days`` ago
+        - its error signature is NOT in the mined recurring_errors
+          (a recurring error is exactly the mistake worth keeping hot)
+        - none of its related_files were edited recently (``recent_files``
+          basenames) — active-area mistakes stay
+        Archived entries remain searchable (archive_search) and restorable
+        (restore).
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return {"archived_count": 0, "entries": [], "dry_run": dry_run}
+
+        from claude_engram.mining.patterns import _normalize_error_msg
+
+        recurring = self._recurring_error_sigs(project_path)
+        recent = {Path(f).name.lower() for f in (recent_files or set())}
+        now = time.time()
+        cutoff = min_age_days * 86400
+
+        def _is_recurring(desc: str) -> bool:
+            label, sep, msg = desc.partition(": ")
+            ncls = re.sub(r"[^a-z]", "", label.lower())
+            tmpl = _normalize_error_msg(msg if sep else desc)
+            for rcls, rtmpl in recurring:
+                if rcls != ncls:
+                    continue
+                k = min(len(tmpl), len(rtmpl))
+                if k >= 15 and tmpl[:k] == rtmpl[:k]:
+                    return True
+            return False
+
+        to_archive = []
+        for e in proj.entries:
+            if e.category != "mistake" or e.archived_at is not None:
+                continue
+            if e.source != "auto-detected":
+                continue
+            if now - e.created_at < cutoff or now - e.last_accessed < cutoff:
+                continue
+            if recent and any(
+                Path(f).name.lower() in recent for f in e.related_files
+            ):
+                continue
+            desc = (
+                e.content[9:]
+                if e.content.startswith("MISTAKE: ")
+                else e.content
+            )
+            desc = desc.split(" - Fix: ", 1)[0]
+            if _is_recurring(desc):
+                continue
+            to_archive.append(e)
+
+        report = {
+            "archived_count": len(to_archive),
+            "entries": [
+                {
+                    "id": e.id,
+                    "age_days": int((now - e.created_at) / 86400),
+                    "preview": e.content[:60],
+                }
+                for e in to_archive
+            ],
+            "dry_run": dry_run,
+        }
+        if not dry_run and to_archive:
+            self._move_entries_to_archive(proj, to_archive)
+            self._save()
+            self._save_archive()
+        return report
+
     def restore_from_archive(
         self,
         project_path: str,

@@ -288,7 +288,9 @@ class HotMemoryReader:
         return self._manifest
 
     def _load_project_entries(self, norm_path: str) -> list[dict]:
-        """Load entries for a single project from its per-project file."""
+        """Load entries for a single project from its per-project file.
+        Archived entries (archived_at set) are invisible to hooks — that is
+        the contract acknowledge_mistake and mistake hygiene rely on."""
         manifest = self._load_manifest()
         projects = manifest.get("projects", {})
         if norm_path not in projects:
@@ -298,7 +300,11 @@ class HotMemoryReader:
         if mem_file.exists():
             try:
                 data = json.loads(mem_file.read_text())
-                return data.get("entries", [])
+                return [
+                    e
+                    for e in data.get("entries", [])
+                    if not e.get("archived_at")
+                ]
             except Exception:
                 pass
         return []
@@ -358,7 +364,7 @@ class HotMemoryReader:
                 if Path(path).name == project_name:
                     all_entries.extend(p.get("entries", []))
                     break
-        return all_entries
+        return [e for e in all_entries if not e.get("archived_at")]
 
     def get_scored_memories(
         self,

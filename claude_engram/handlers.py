@@ -460,11 +460,21 @@ class Handlers:
         file_path: str,
         project_root: str | None,
         include_reverse: bool,
+        symbol: str = "",
     ) -> list[TextContent]:
-        """Handle dependency mapping requests."""
+        """Handle dependency mapping requests (file graph or symbol lookup)."""
+        if symbol:
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(
+                None, lambda: self._symbol_lookup(symbol, project_root, file_path)
+            )
+            return [TextContent(type="text", text=text)]
+
         if not file_path:
             return self._needs_clarification(
-                "No file path provided", "Which file should I analyze dependencies for?"
+                "No file path or symbol provided",
+                "Which file should I analyze dependencies for (file_path), "
+                "or which symbol should I locate (symbol)?",
             )
 
         # Run mapper in thread pool
@@ -477,6 +487,81 @@ class Handlers:
         )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
+
+    def _symbol_lookup(
+        self, symbol: str, project_root: "str | None", file_path: str = ""
+    ) -> str:
+        """Answer "where is X defined?" from the background code index.
+
+        Reads the same index the pre-edit hook uses (no build, no LLM):
+        defining module(s), file, signature, and reverse-import blast radius.
+        """
+        import os
+        from pathlib import Path
+
+        from claude_engram.mining.code_index import resolve_code_index
+
+        base = (
+            project_root
+            or (str(Path(file_path).parent) if file_path else "")
+            or self._last_project_path
+            or os.getcwd()
+        )
+        idx = resolve_code_index(base)
+        if idx is None:
+            return (
+                "No code index for this project yet - it builds during "
+                "background mining (run session_mine(reindex) to force one)."
+            )
+
+        mods = idx.resolve_symbol(symbol)
+        if not mods:
+            import difflib
+
+            close = difflib.get_close_matches(
+                symbol, idx.all_symbols(), n=3, cutoff=0.75
+            )
+            hint = f" Closest: {', '.join(close)}." if close else ""
+            return (
+                f"Symbol '{symbol}' not in the code index "
+                f"({idx.module_count()} modules indexed).{hint}"
+            )
+
+        root = idx.root()
+        lines = [f"Symbol: {symbol}"]
+        for dotted in mods[:5]:
+            rec = idx.by_dotted(dotted) or {}
+            rel = idx.file_for_module(dotted) or ""
+            loc = f"{root}/{rel}" if root and rel else (rel or dotted)
+            kind, sig_lines = "export", []
+            if symbol in rec.get("classes", {}):
+                c = rec["classes"][symbol]
+                bases = ", ".join(c.get("bases", [])) or "object"
+                kind = f"class({bases})"
+                methods = c.get("methods", {})
+                if "__init__" in methods:
+                    sig_lines.append(f"__init__{methods['__init__']}")
+                names = [m for m in methods if m != "__init__"]
+                if names:
+                    shown = ", ".join(names[:10])
+                    more = f" (+{len(names) - 10})" if len(names) > 10 else ""
+                    sig_lines.append(f"methods: {shown}{more}")
+            elif symbol in rec.get("functions", {}):
+                kind = "function"
+                sig_lines.append(f"def {symbol}{rec['functions'][symbol]}")
+            lines.append(f"\n{loc}  [{kind}]  module: {dotted}")
+            for s in sig_lines:
+                lines.append(f"  {s}")
+            importers = idx.dependents_of(dotted)
+            if importers:
+                shown = ", ".join(importers[:8])
+                more = f" (+{len(importers) - 8} more)" if len(importers) > 8 else ""
+                lines.append(f"  imported by {len(importers)}: {shown}{more}")
+            else:
+                lines.append("  imported by: nothing in the index")
+        if len(mods) > 5:
+            lines.append(f"\n...also defined in {len(mods) - 5} more module(s)")
+        return "\n".join(lines)
 
     # -------------------------------------------------------------------------
     # Session Manager
@@ -1558,8 +1643,12 @@ class Handlers:
                     None,
                 )
                 if entry:
-                    entry.archived_at = time.time()
-                    self.memory._save_project(self.memory._normalize_path(project_path))
+                    # Real move into archive.json (not just an in-place flag):
+                    # hook readers only see hot entries, and the entry stays
+                    # restorable via memory(restore).
+                    self.memory._move_entries_to_archive(proj, [entry])
+                    self.memory._save()
+                    self.memory._save_archive()
                     response = MiniClaudeResponse(
                         status="success",
                         confidence="high",

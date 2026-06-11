@@ -473,13 +473,17 @@ TOOL_DEFINITIONS = [
     ),
     Tool(
         name="deps_map",
-        description="Map a file's dependency graph. Parses imports to find what a file depends on (forward deps) and optionally what depends on it (reverse deps). Useful before refactoring to understand blast radius. Returns: imports list, dependency tree, and optionally reverse dependents.",
+        description="Map a file's dependency graph, or look up a symbol. With file_path: parses imports to find what the file depends on (forward deps) and optionally what depends on it (reverse deps) - useful before refactoring to understand blast radius. With symbol: answers 'where is X defined?' from the code index (defining file, signature, importers) without burning a grep + read - use it when you know a class/function name but not its home. Provide file_path or symbol.",
         inputSchema={
             "type": "object",
             "properties": {
                 "file_path": {
                     "type": "string",
                     "description": "Absolute path to the file to analyze",
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Class/function/export name to locate (e.g. 'HotMemoryReader'). Returns defining module, file, signature, and who imports it.",
                 },
                 "include_reverse": {
                     "type": "boolean",
@@ -488,10 +492,10 @@ TOOL_DEFINITIONS = [
                 },
                 "project_root": {
                     "type": "string",
-                    "description": "Project root directory for resolving relative imports",
+                    "description": "Project root directory for resolving relative imports (and locating the code index for symbol lookup)",
                 },
             },
-            "required": ["file_path"],
+            "required": [],
         },
     ),
     Tool(

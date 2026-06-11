@@ -134,6 +134,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 file_path=arguments.get("file_path", ""),
                 project_root=arguments.get("project_root"),
                 include_reverse=arguments.get("include_reverse", False),
+                symbol=arguments.get("symbol", ""),
             )
 
         case "impact_analyze":

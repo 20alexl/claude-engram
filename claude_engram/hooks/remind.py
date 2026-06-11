@@ -945,6 +945,99 @@ def _auto_record_test(passed: bool, error_message: str = "") -> str:
     return "PASSED" if passed else "FAILED"
 
 
+def _record_test_command(project_dir: str, command: str, passed: bool) -> None:
+    """Track test invocations per project so session start can surface the
+    known-good ones. Only called when the bash handlers already classified
+    the run as a test. Throwaway shapes (inline python -c, heredocs,
+    .scratch scripts, multiline contraptions) are skipped — recall is for
+    commands worth running again."""
+    try:
+        cmd = " ".join((command or "").split())
+        if not cmd or len(cmd) > 160:
+            return
+        low = cmd.lower()
+        if (
+            "<<" in cmd
+            or "\n" in (command or "")
+            or ".scratch" in low
+            or re.search(r"python[^|;&]*\s-c\s", low)
+            or re.search(r"[\\/](?:tmp|temp)[\\/]", low)
+        ):
+            return
+        pdir = get_project_memory_dir(project_dir)
+        path = pdir / "test_commands.json"
+        data = {}
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        cmds = data.setdefault("commands", {})
+        rec = cmds.setdefault(
+            cmd,
+            {"pass_count": 0, "fail_count": 0, "last_pass": 0.0, "last_fail": 0.0},
+        )
+        now = time.time()
+        if passed:
+            rec["pass_count"] = int(rec.get("pass_count", 0)) + 1
+            rec["last_pass"] = now
+        else:
+            rec["fail_count"] = int(rec.get("fail_count", 0)) + 1
+            rec["last_fail"] = now
+        # Bound the store: keep the 30 most recently exercised.
+        if len(cmds) > 30:
+            keep = sorted(
+                cmds.items(),
+                key=lambda kv: max(
+                    kv[1].get("last_pass", 0), kv[1].get("last_fail", 0)
+                ),
+                reverse=True,
+            )[:30]
+            data["commands"] = dict(keep)
+        pdir.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        pass
+
+
+def _top_test_commands(project_dir: str, limit: int = 3) -> "list[tuple[str, dict]]":
+    """The project's known-good test commands: currently passing (last pass
+    not older than last fail), ranked by pass count then recency. Walks
+    ancestors so sub-project sessions inherit workspace-tracked commands."""
+    try:
+        check = _normalize_path(project_dir)
+        for _ in range(8):
+            path = get_project_memory_dir(check) / "test_commands.json"
+            if path.exists():
+                cmds = json.loads(path.read_text(encoding="utf-8")).get(
+                    "commands", {}
+                )
+                good = [
+                    (c, r)
+                    for c, r in cmds.items()
+                    if r.get("pass_count", 0) >= 1
+                    and r.get("last_pass", 0) >= r.get("last_fail", 0)
+                ]
+                good.sort(
+                    key=lambda kv: (
+                        kv[1].get("pass_count", 0),
+                        kv[1].get("last_pass", 0),
+                    ),
+                    reverse=True,
+                )
+                if good:
+                    return good[:limit]
+            parent = _normalize_path(str(Path(check).parent))
+            if parent == check:
+                break
+            check = parent
+    except Exception:
+        pass
+    return []
+
+
 # ============================================================================
 # ENFORCEMENT - Make Claude Engram usage mandatory
 # ============================================================================
@@ -1255,6 +1348,7 @@ def reminder_for_bash(
         # AUTO-RECORD the test result (no manual call needed)
         error_snippet = output[:200] if output and not passed else ""
         result = _auto_record_test(passed, error_snippet)
+        _record_test_command(project_dir, command, passed)
 
         # Feed the outcome loop (Cap 6): correlated with this session's
         # injections by session_id in reflect().
@@ -2192,6 +2286,190 @@ def _auto_log_detected_mistake(project_dir: str, command: str, output: str) -> s
 
 
 # ============================================================================
+# Error deja-vu (PostToolUseFailure)
+# ============================================================================
+
+
+_DEJAVU_ERR_LINE = re.compile(r"^(\w+(?:Error|Exception))\s*:\s*(.+)$", re.MULTILINE)
+
+
+def _parse_error_line(error_output: str) -> "tuple[str, str]":
+    """Pull the operative (class, message) out of a failure blob.
+
+    The LAST `SomeError: message` line wins — chained tracebacks end with
+    the error that actually surfaced. Class-less output (Edit conflicts,
+    CLI failures) falls back to its first non-empty line.
+    """
+    err_class, err_msg = "", ""
+    for m in _DEJAVU_ERR_LINE.finditer(error_output):
+        err_class, err_msg = m.group(1), m.group(2)
+    if not err_msg:
+        for ln in error_output.splitlines():
+            if ln.strip():
+                err_msg = ln
+                break
+    return err_class, " ".join(err_msg.split())[:300]
+
+
+def _norm_err_class(label: str) -> str:
+    """'AttributeError' and 'Attribute error' compare equal."""
+    return re.sub(r"[^a-z]", "", label.lower())
+
+
+def _prefix_match(a: str, b: str, min_len: int) -> bool:
+    """Truncation-tolerant equality: stored mistakes clip messages (60-120
+    chars, sometimes mid-identifier), so compare the shared prefix."""
+    k = min(len(a), len(b))
+    return k >= min_len and a[:k] == b[:k]
+
+
+def _quoted_ids(s: str) -> set:
+    """Quoted identifiers in an error message ('Foo', 'bar_attr')."""
+    return set(re.findall(r"['\"]([^'\"]{1,60})['\"]", s))
+
+
+def _word_overlap(a: str, b: str) -> float:
+    """Overlap on the smaller word set — class-less manual mistake
+    descriptions never share an exact prefix with raw tool errors."""
+    wa = set(re.findall(r"[a-z0-9_]+", a.lower()))
+    wb = set(re.findall(r"[a-z0-9_]+", b.lower()))
+    if len(wa) < 5 or len(wb) < 5:
+        return 0.0
+    return len(wa & wb) / min(len(wa), len(wb))
+
+
+def _find_patterns_report(project_dir: str) -> dict:
+    """Locate the mined patterns.json for a project, walking ancestors.
+
+    Mining pools at the workspace root, so a failure inside a sub-project
+    usually finds its report on a parent. Returns {} when absent.
+    """
+    try:
+        storage = get_engram_storage_dir()
+        projects = _get_manifest().get("projects", {})
+        check = _normalize_path(project_dir)
+        for _ in range(8):
+            info = projects.get(check)
+            if info:
+                p = storage / "projects" / info["hash"] / "patterns.json"
+                if p.exists():
+                    return json.loads(p.read_text(encoding="utf-8"))
+            parent = _normalize_path(str(Path(check).parent))
+            if parent == check:
+                break
+            check = parent
+    except Exception:
+        pass
+    return {}
+
+
+def _error_dejavu(project_dir: str, error_output: str) -> str:
+    """Match a fresh failure against past mistakes and surface the fix inline.
+
+    Sources, in value order: mined recurring errors (patterns.json — carries
+    how-to-avoid text extracted from past conversations, plus cross-session
+    counts), then hot memory.json mistakes (manual log_mistake entries and
+    auto-logs the miner hasn't folded in yet). Template matching reuses the
+    miner's signature normalization so "same error, different identifier"
+    still hits — but a mined fix is only surfaced when the fresh error and
+    the stored example share a quoted identifier, so an unrelated class
+    doesn't inherit someone else's fix.
+
+    Returns one line or "". Never raises — this sits on the failure-hook path.
+    """
+    try:
+        from claude_engram.mining.patterns import _normalize_error_msg
+
+        err_class, err_msg = _parse_error_line(error_output)
+        if len(err_msg) < 12:
+            return ""
+        norm_class = _norm_err_class(err_class)
+        tmpl_msg = _normalize_error_msg(err_msg)
+
+        # Tier 1: mined recurring errors — fixes extracted from past
+        # conversations, not canned advice.
+        recurring_hit = None
+        if norm_class:
+            fresh_ids = _quoted_ids(err_msg)
+            for e in _find_patterns_report(project_dir).get(
+                "recurring_errors", []
+            ):
+                if _norm_err_class(e.get("error_type", "")) != norm_class:
+                    continue
+                pat = e.get("message_pattern", "")
+                stored_tmpl = pat.split(": ", 1)[1] if ": " in pat else pat
+                if not _prefix_match(tmpl_msg, stored_tmpl, 15):
+                    continue
+                stored_ids = _quoted_ids(e.get("example", ""))
+                if fresh_ids and stored_ids and not (fresh_ids & stored_ids):
+                    continue  # same shape, different subject — fix won't transfer
+                if e.get("fix"):
+                    n = e.get("session_count", 0)
+                    return (
+                        f"Deja vu: {err_class} hit in {n} past session(s) - "
+                        f"fix: {e['fix']}"
+                    )[:300]
+                if recurring_hit is None:
+                    recurring_hit = e
+
+        # Tier 2: hot mistake store — exact-ish, truncation-tolerant.
+        try:
+            from claude_engram.hooks.hot_reader import HotMemoryReader
+
+            entries = HotMemoryReader().load_entries(project_dir)
+        except Exception:
+            entries = []
+        best = None  # (created_at, line)
+        for m in entries:
+            if m.get("category") != "mistake":
+                continue
+            content = m.get("content", "")
+            desc = content[9:] if content.startswith("MISTAKE: ") else content
+            fix = ""
+            if " - Fix: " in desc:
+                desc, fix = desc.split(" - Fix: ", 1)
+            desc = " ".join(desc.split())
+            label, sep, stored_msg = desc.partition(": ")
+            same_class = (
+                bool(sep) and norm_class and _norm_err_class(label) == norm_class
+            )
+            if same_class:
+                hit = _prefix_match(err_msg, stored_msg, 20)
+            else:
+                hit = _word_overlap(err_msg, desc) >= 0.5
+            if not hit:
+                continue
+            try:
+                ts = float(m.get("created_at") or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            if best is None or ts > best[0]:
+                if not ts:
+                    when = "before"
+                elif time.time() - ts < 86400:
+                    when = "earlier today"
+                else:
+                    when = "on " + time.strftime(
+                        "%Y-%m-%d", time.localtime(ts)
+                    )
+                line = f"Deja vu: you hit this {when}"
+                if fix:
+                    line += f" - fix: {fix}"
+                best = (ts, line[:300])
+        if best:
+            return best[1]
+
+        # Tier 3: recurrence without a recorded fix is still a wake-up call.
+        if recurring_hit is not None:
+            n = recurring_hit.get("session_count", 0)
+            ex = recurring_hit.get("example", "")[:120]
+            return f"Deja vu: {err_class} recurring ({n} sessions): {ex}"[:300]
+    except Exception:
+        pass
+    return ""
+
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 
@@ -2373,6 +2651,13 @@ def main():
                             if file_match:
                                 project_dir = get_project_dir(file_match.group(1))
 
+                        # Error deja-vu: surface a past fix BEFORE auto-log
+                        # writes the fresh entry (it must not match itself).
+                        if error_msg:
+                            dejavu = _error_dejavu(project_dir, error_msg)
+                            if dejavu:
+                                lines.append(dejavu)
+
                         # Auto-log mistake from error output
                         if error_msg:
                             logged = _auto_log_detected_mistake(
@@ -2400,6 +2685,7 @@ def main():
                             ]
                             if any(first_cmd.startswith(c) for c in test_commands):
                                 _auto_record_test(False, error_msg[:200])
+                                _record_test_command(project_dir, command, False)
                                 lines.append("FAIL Test tracked")
 
                     elif tool_name in ("Edit", "Write"):
@@ -2410,6 +2696,9 @@ def main():
                         )
                         if file_path and error_msg:
                             file_name = Path(file_path).name
+                            dejavu = _error_dejavu(project_dir, error_msg)
+                            if dejavu:
+                                lines.append(dejavu)
                             # Auto-log edit failure with file context
                             _auto_log_detected_mistake(
                                 project_dir,
@@ -2765,6 +3054,18 @@ def main():
                                         lines.append(f"    fix: {fix}")
                         except Exception:
                             pass
+
+                # Known-good test commands — what actually passed here before,
+                # so verification doesn't start from a guess.
+                try:
+                    top = _top_test_commands(project_dir)
+                    if top:
+                        lines.append("Known-good test commands:")
+                        for cmd, rec in top:
+                            n = rec.get("pass_count", 0)
+                            lines.append(f"  - {cmd} ({n}x pass)")
+                except Exception:
+                    pass
 
                 # Schema canary: the miner flags when Claude Code's log format
                 # stops being recognized (mining would degrade silently).

@@ -146,6 +146,68 @@ def start_mining_background(
 # ── Background worker entry point ────────────────────────────────────────
 
 
+def _recent_subprojects(index, root: str, limit: int = 5) -> list[str]:
+    """Sub-project roots whose files recent sessions actually edited.
+
+    The root build's file walk prunes nested project-marker dirs, so each
+    active sub-project needs its own (incremental, cheap) build — otherwise
+    the indexes that pre-edit hooks and deps_map symbol lookup read go stale.
+    """
+    from claude_engram.hooks.paths import _normalize_path, resolve_project_for_file
+
+    norm_root = _normalize_path(root)
+
+    def _get(meta, key, default):
+        if isinstance(meta, dict):
+            return meta.get(key, default)
+        return getattr(meta, key, default)
+
+    sessions = sorted(
+        index.sessions.values(),
+        key=lambda m: _get(m, "last_timestamp", ""),
+        reverse=True,
+    )[:10]
+    out: list[str] = []
+    for meta in sessions:
+        for f in _get(meta, "files_edited", [])[:200]:
+            try:
+                sub = _normalize_path(resolve_project_for_file(f, norm_root))
+            except Exception:
+                continue
+            if sub and sub != norm_root and sub not in out:
+                out.append(sub)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def _recent_session_files(index, sessions: int = 15) -> set:
+    """Basenames edited in the most recent sessions — the "active area"
+    signal mistake hygiene uses to keep mistakes near current work hot."""
+    metas = sorted(
+        (m for m in index.sessions.values()),
+        key=lambda m: (
+            m.get("last_timestamp", "")
+            if isinstance(m, dict)
+            else getattr(m, "last_timestamp", "")
+        ),
+        reverse=True,
+    )[:sessions]
+    out: set = set()
+    for meta in metas:
+        files = (
+            meta.get("files_edited", [])
+            if isinstance(meta, dict)
+            else getattr(meta, "files_edited", [])
+        )
+        for f in files:
+            try:
+                out.add(Path(f).name.lower())
+            except Exception:
+                continue
+    return out
+
+
 def _schema_canary(index) -> str:
     """Detect a collapse in JSONL recognition rate (a Claude Code log-format
     change would silently degrade everything mining produces). Compares the
@@ -293,6 +355,22 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                     store.cleanup_memories(project_path, dry_run=False)
                 except Exception as e:
                     phase_errors["memory_cleanup"] = str(e)[:200]
+                # Mistake hygiene: one-off auto-captured mistakes that went
+                # stale (3+ weeks, never recurred, away from current work)
+                # move to the archive so pre-edit banners keep their signal.
+                # Sub-projects hold their own mistake stores — sweep the
+                # recently-active ones too.
+                try:
+                    recent = _recent_session_files(index)
+                    store.archive_stale_mistakes(
+                        project_path, recent_files=recent, dry_run=False
+                    )
+                    for sub in _recent_subprojects(index, project_path):
+                        store.archive_stale_mistakes(
+                            sub, recent_files=recent, dry_run=False
+                        )
+                except Exception as e:
+                    phase_errors["mistake_hygiene"] = str(e)[:200]
                 try:
                     store.embed_all_memories(project_path)
                 except Exception as e:
@@ -318,6 +396,16 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 from claude_engram.hooks.paths import get_project_memory_dir
 
                 build_code_index(project_path, get_project_memory_dir(project_path))
+                # Sub-projects the recent sessions actually edited get their
+                # own refresh: the root build's walk prunes nested
+                # project-marker dirs, so without this the per-sub-project
+                # indexes (read by pre-edit hooks and deps_map symbol lookup)
+                # go stale forever in workspace setups.
+                try:
+                    for sub in _recent_subprojects(index, project_path):
+                        build_code_index(sub, get_project_memory_dir(sub))
+                except Exception as e:
+                    phase_errors["code_index_subprojects"] = str(e)[:200]
             except Exception as e:
                 phase_errors["code_index"] = str(e)[:200]
 
