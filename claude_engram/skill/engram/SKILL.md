@@ -16,7 +16,9 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - Read context: before Read of an indexed file, code-index orientation + that file's memories (`<engram-read-context>`, once per file per session)
 - Error deja-vu: a failure matching a known recurring error gets the past fix injected inline at failure time ("Deja vu: TypeError hit in 3 past session(s) - fix: ...")
 - Known-good test commands: session start lists the project's tracked test commands that currently pass
-- Mistake hygiene: stale auto-captured one-off mistakes (3+ weeks, never recurred, away from current work) auto-archive in the background — restorable via `memory(restore)`
+- Mistake hygiene: stale machine-written one-off mistakes (3+ weeks, never recurred, away from current work) auto-archive in the background — restorable via `memory(restore)`; failing TEST runs are never logged as mistakes (TDD-aware)
+- Lessons bridge (opt-in): dated entries in curated note files sync as protected `lesson` memories with code-index triggers — enable with `lessons_globs` in ~/.claude_engram/config.json
+- Session-start patterns are project-scoped: recurring errors/struggles filter to the sub-projects the last session touched; errors quiet 30 days drop out
 - Outcome feedback loop: tracks which injection kinds (memory/prediction/precheck/blast) precede passing tests AND feeds back a bounded (0.8-1.2x) memory-injection multiplier; see `session_mine(reflect)`
 - Tool duration tracking: slow tools surfaced in handoffs
 
@@ -84,7 +86,8 @@ context(
 | Category | Protected | Auto-captured |
 |---|---|---|
 | rule | Never archived | Manual (via memory add_rule) |
-| mistake | Archivable via acknowledge; stale auto-captured one-offs self-archive | Auto from errors in project files |
+| lesson | Never archived; source file owns lifecycle | Opt-in sync from lessons_globs files |
+| mistake | Archivable via acknowledge; stale machine-written one-offs self-archive; provably-fixed ones archived by migration | Auto from errors in project files + transcript mining |
 | decision | No | Auto from prompts + session mining |
 | discovery | No | Manual |
 

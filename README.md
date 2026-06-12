@@ -14,6 +14,8 @@ Zero manual effort. Works with any MCP-compatible client.
 - Warns when you're about to repeat a past mistake
 - Error deja-vu: when a failure matches a known recurring error, the past fix is injected inline at failure time ("you hit this in 3 sessions — fix was X")
 - Surfaces the project's known-good test commands at session start (tracked from runs that actually passed)
+- Opt-in lessons bridge: dated entries in your curated notes files sync as protected memories that resurface when you edit related code (set `lessons_globs` in `~/.claude_engram/config.json`, e.g. `["docs/lessons/*.md"]` — no default path)
+- TDD-aware error capture: failing test runs are tracked as test results, not logged as mistakes — deliberate RED-phase failures stop polluting the mistake store
 - Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
 - Survives context compaction — checkpoints before, re-injects after
 - Mines your session history in the background after every session — and live during it: debounced ticks at turn end keep search, extractions, and code indexes fresh mid-session
@@ -25,7 +27,7 @@ Zero manual effort. Works with any MCP-compatible client.
 - Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
 - Extracts decisions, mistakes, approaches, and user corrections using structural analysis + semantic scoring (typo-tolerant)
 - Builds a searchable index across all past conversations (20k+ chunks with subagents)
-- Detects recurring struggles, error patterns, and file edit correlations
+- Detects recurring struggles, error patterns, and file edit correlations — attributed to sub-projects (a session in project A never sees project B's errors at startup), recency-decayed (errors quiet for 30 days drop out), and causally attributed (a "struggle" requires errors traced to the file, not just edits in error-containing sessions)
 - Predicts what files and context you'll need before edits
 - Logs which injected context precedes passing tests; `session_mine(reflect)` reports that precision + LLM-synthesized patterns
 - On first install, retroactively mines your entire session history
@@ -176,6 +178,8 @@ python scripts/reindex.py "/path/to/your/workspace" --force --extract   # also r
 ```
 
 Or via MCP: `session_mine(operation="reindex", mode="bootstrap")`
+
+Beyond environment variables, `~/.claude_engram/config.json` accepts: `embed_model`, `embed_dim`, and `lessons_globs` (opt-in lessons bridge — list of globs relative to each project root whose dated markdown entries sync as protected memories).
 
 ## Documentation
 

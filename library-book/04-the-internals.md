@@ -37,6 +37,7 @@ Claude Code
     │   ├── Predictive context (related files, likely errors before edits)
     │   ├── Cross-project learning (aggregate insights across all projects)
     │   ├── Code index (ast-only symbol table per project, incremental by mtime)
+    │   ├── Lessons sync (opt-in: config lessons_globs → protected memories)
     │   └── Outcome log (injection precision: which kinds precede passing tests)
     │
     └── Ollama (local LLM, optional)          ← memory(consolidate), session_mine(reflect)

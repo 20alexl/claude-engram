@@ -36,6 +36,8 @@ These happen via hooks. You don't call anything:
 | **Known-good test commands** | SessionStart | The project's top tracked test commands that currently pass — verification starts from what worked, not a guess |
 | **Mistake hygiene** | Background miner | Stale auto-captured one-off mistakes (3+ weeks, never recurred, away from current work) move to the archive — banners keep their signal; restorable via `memory(restore)` |
 | **Live mining tick** | Stop (per turn, debounced) | Session index, extractions, search embeddings, and the active code indexes refresh DURING the session — `session_mine(search)` sees this session's earlier work, not just past sessions. Interval `CLAUDE_ENGRAM_LIVE_MINE` (default 300s) |
+| **Curated-lessons bridge** | Background miner (opt-in) | Dated entries in lesson files sync as protected `lesson` memories with code-index-joined triggers — a lesson mentioning a module surfaces when editing files that import it. The file stays the source of truth (edits update, removals retire). Off unless `lessons_globs` is set in `~/.claude_engram/config.json` (e.g. `["docs/lessons/*.md"]`) — no default path |
+| **Project-scoped patterns** | SessionStart | Recurring errors/struggles are attributed to sub-projects and filtered by what the last session touched — a vzip session no longer sees CORTEX errors. Errors unseen for 30 days drop out |
 
 ## Multi-Project Workspaces
 
@@ -151,7 +153,8 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 | Category | Purpose | Protected | Auto-captured |
 |---|---|---|---|
 | `rule` | Project rules that always apply | Never archived or decayed | No - manual |
-| `mistake` | Errors to avoid repeating | Manual ones never archive; stale auto-captured one-offs auto-archive (restorable) | Yes - from failed tools |
+| `lesson` | Curated insights synced from lesson files | Never archived or decayed; the source file owns the lifecycle | Opt-in - miner syncs the globs in `lessons_globs` |
+| `mistake` | Errors to avoid repeating | Manual ones never archive; stale machine-written one-offs auto-archive, and provably-fixed ones archive via migration (all restorable) | Yes - from failed tools + transcript mining |
 | `decision` | Choices and reasoning | No | Yes - from user prompts |
 | `discovery` | Facts learned about the codebase | No | No - manual |
 | `context` | Session-specific notes | No | No - manual |

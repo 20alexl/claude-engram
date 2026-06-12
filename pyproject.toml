@@ -1,6 +1,6 @@
 [project]
 name = "claude-engram"
-version = "0.8.3"
+version = "0.8.4"
 description = "Persistent memory and session intelligence for Claude Code: auto-tracks mistakes, decisions, and context via hooks, and mines session history for patterns and recall."
 readme = "README.md"
 requires-python = ">=3.10"
