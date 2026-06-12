@@ -25,8 +25,9 @@ Claude Code
     │   └── scout_search, file_summarize, deps_map, impact_analyze, find_similar_issues, session_mine
     │
     ├── Scorer Server (scorer_server.py)      ← Persistent encoder process
-    │   └── TCP localhost, GPU when available (else ~1.1GB RAM on cpu),
-    │       ~5-25ms per score, batch embedding (256 GPU / 64 CPU)
+    │   └── TCP localhost, cpu-resident (~1.1GB RAM, zero VRAM parked),
+    │       ~5-25ms per score; bulk jobs → transient GPU worker
+    │       (embed_worker.py: load, encode once, exit — full VRAM release)
     │
     ├── Session Mining (mining/)              ← Background intelligence from session logs
     │   ├── JSONL parser, session index, incremental cursors

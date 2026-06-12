@@ -240,6 +240,12 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.3 — 2026-06-11
+
+- **GPU policy split — cpu-resident daemon, transient GPU worker.** The v0.8.2 resident-GPU default parked model weights plus a CUDA context (~1GB VRAM) for the daemon's entire lifetime, and live-mining ticks keep the daemon warm all day — indistinguishable from a VRAM leak in practice. Device policy is now: resident consumers (scorer daemon, in-process fallbacks) always load on cpu; bulk embedding jobs of `CLAUDE_ENGRAM_GPU_BULK_MIN`+ texts (default 512 — bootstrap re-embeds, model-change rebuilds, store sweeps) run in `claude_engram.embed_worker`, a short-lived process that loads on cuda, encodes one job, writes `.npy`, and exits. Process exit fully releases the CUDA context — the GPU is borrowed for seconds, never parked. The worker declines (and the caller falls back to the daemon) when no GPU exists. `CLAUDE_ENGRAM_DEVICE` remains a global override in both directions. Measured: cuda/cpu vectors identical at cos 1.000000, so device changes never rebuild stores; daemon RSS 1.2GB (cuda) → 680MB (cpu), VRAM 0.
+- **In-process fallback model cached.** The daemon-down fallback in `score_decision_semantic` loaded a fresh model per call; now one cached load per process, on cpu.
+- **Single-instance daemon startup.** `serve()` exits immediately when a live, signature-matching server already owns `PORT_FILE`, closing the two-session spawn race that left an orphan daemon holding a loaded model for up to 30 minutes.
+
 ### v0.8.2 — 2026-06-11
 
 - **GPU embeddings, auto-detected.** `load_sentence_transformer()` resolves the device once: `CLAUDE_ENGRAM_DEVICE` override, else `cuda` when a CUDA-enabled torch is present, else cpu — and a broken CUDA runtime degrades to cpu instead of killing the scorer. The device is deliberately not part of the embedding signature (cuda and cpu produce identical vectors), so switching devices never rebuilds stores. `embed_batch` runs batch 256 on GPU / 64 on CPU; the scorer writes a `scorer_device` breadcrumb that `claude_engram_status` reports.
