@@ -110,6 +110,12 @@ DECISION_THRESHOLD = 0.45
 AMBIGUITY_MARGIN = 0.025
 
 
+# Cached in-process fallback model (used only when the scorer daemon is
+# down). Loaded at most once per process, on resolve_device() — cpu unless
+# CLAUDE_ENGRAM_DEVICE says otherwise.
+_FALLBACK_MODEL = None
+
+
 def _try_import_sentence_transformers():
     """Try to import sentence-transformers. Returns None if not installed."""
     try:
@@ -219,7 +225,13 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
 
         from claude_engram.embed_config import load_sentence_transformer
 
-        model = load_sentence_transformer()
+        # One in-process load per process lifetime (cpu by default via
+        # resolve_device): an uncached per-call load made any long-lived
+        # process that hit this fallback re-pay ~500ms+1GB per prompt.
+        global _FALLBACK_MODEL
+        if _FALLBACK_MODEL is None:
+            _FALLBACK_MODEL = load_sentence_transformer()
+        model = _FALLBACK_MODEL
 
         # Split into sentences and score each
         sentences = re.split(r"(?<=[.!])\s+|\n+", text)

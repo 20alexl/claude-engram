@@ -681,16 +681,27 @@ def build_session_embeddings(
             tmp.replace(idx_path)
         return 0
 
-    # Batch embed in chunks of 200 (large batches can timeout)
+    # Big jobs (bootstrap, model-change rebuild, long-session backlogs) go
+    # to the transient GPU worker — seconds instead of minutes, zero VRAM
+    # parked afterward. Everything else slices through the cpu daemon.
     BATCH_SIZE = 200
     new_embeddings = []
     try:
+        from claude_engram.embed_worker import bulk_threshold, embed_texts_bulk
         from claude_engram.hooks.scorer_server import embed_batch_via_server
 
-        for i in range(0, len(new_texts), BATCH_SIZE):
-            batch = new_texts[i : i + BATCH_SIZE]
-            batch_embs = embed_batch_via_server(batch)
-            new_embeddings.extend(batch_embs)
+        bulk = (
+            embed_texts_bulk(new_texts)
+            if len(new_texts) >= bulk_threshold()
+            else None
+        )
+        if bulk is not None:
+            new_embeddings = bulk
+        else:
+            for i in range(0, len(new_texts), BATCH_SIZE):
+                batch = new_texts[i : i + BATCH_SIZE]
+                batch_embs = embed_batch_via_server(batch)
+                new_embeddings.extend(batch_embs)
     except Exception:
         return 0
 

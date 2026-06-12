@@ -280,6 +280,14 @@ def serve():
     until it finishes)."""
     sig = embed_signature()
 
+    # Single-instance check: two sessions racing to spawn used to leave an
+    # orphan daemon (last PORT_FILE writer wins, the loser idles 30 min
+    # holding a loaded model). If a live server with our exact signature
+    # already owns PORT_FILE, this process has nothing to add.
+    if _another_server_alive():
+        print("Matching scorer already running - exiting.", file=sys.stderr)
+        return
+
     # Bind to any available port on localhost
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -357,6 +365,18 @@ def _cleanup():
             f.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def _another_server_alive() -> bool:
+    """A live, connectable server with our exact signature owns PORT_FILE."""
+    try:
+        if not (PORT_FILE.exists() and _server_model_matches()):
+            return False
+        port = int(PORT_FILE.read_text().strip())
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except Exception:
+        return False
 
 
 def _server_model_matches() -> bool:

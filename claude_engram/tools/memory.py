@@ -1347,6 +1347,7 @@ class MemoryStore:
         # Semantic dedup — embeddings catch near-duplicates Jaccard misses
         # (e.g., same error with slightly different wording)
         try:
+            from claude_engram.embed_worker import bulk_threshold, embed_texts_bulk
             from claude_engram.hooks.scorer_server import embed_batch_via_server
 
             dup_ids = {d["entry_id"] for d in report["duplicates_found"]}
@@ -1357,7 +1358,13 @@ class MemoryStore:
             ]
             if len(candidates) >= 2:
                 texts = [e.content for e in candidates]
-                embeddings = embed_batch_via_server(texts)
+                embeddings = (
+                    embed_texts_bulk(texts)
+                    if len(texts) >= bulk_threshold()
+                    else None
+                )
+                if embeddings is None:
+                    embeddings = embed_batch_via_server(texts)
                 valid_embs = [
                     (i, emb) for i, emb in enumerate(embeddings) if emb and len(emb) > 0
                 ]
@@ -2842,12 +2849,17 @@ class MemoryStore:
         if not pending_entries:
             return 0
 
-        # Batch embed via scorer server
+        # Batch embed: transient GPU worker for big jobs, cpu daemon otherwise
         try:
+            from claude_engram.embed_worker import bulk_threshold, embed_texts_bulk
             from claude_engram.hooks.scorer_server import embed_batch_via_server
 
             texts = [e.content[:500] for e in pending_entries]
-            embeddings = embed_batch_via_server(texts)
+            embeddings = (
+                embed_texts_bulk(texts) if len(texts) >= bulk_threshold() else None
+            )
+            if embeddings is None:
+                embeddings = embed_batch_via_server(texts)
 
             count = 0
             for entry, emb in zip(pending_entries, embeddings):

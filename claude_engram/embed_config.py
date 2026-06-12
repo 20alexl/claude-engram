@@ -81,9 +81,23 @@ def embed_signature() -> str:
 
 
 def resolve_device() -> str:
-    """Pick the embedding device: CLAUDE_ENGRAM_DEVICE override, else cuda
-    when a working torch+CUDA is present, else cpu. Imports torch — only
-    call from processes that load the model (scorer, miner), never hooks."""
+    """Device for RESIDENT consumers — the scorer daemon and any in-process
+    fallback load: CLAUDE_ENGRAM_DEVICE override, else cpu. CUDA is reserved
+    for the transient bulk worker (resolve_bulk_device): a long-lived process
+    parks weights + a CUDA context (~1GB) on the GPU indefinitely, which
+    reads as a VRAM leak, and a CUDA context can only be fully released by
+    process exit."""
+    explicit = os.environ.get("CLAUDE_ENGRAM_DEVICE", "").strip().lower()
+    if explicit:
+        return explicit
+    return "cpu"
+
+
+def resolve_bulk_device() -> str:
+    """Device for the TRANSIENT bulk embed worker (claude_engram.embed_worker):
+    CLAUDE_ENGRAM_DEVICE override, else cuda when a working torch+CUDA is
+    present, else cpu. The worker exits after one job, so the GPU is borrowed
+    for seconds and fully returned. Imports torch — never call from hooks."""
     explicit = os.environ.get("CLAUDE_ENGRAM_DEVICE", "").strip().lower()
     if explicit:
         return explicit
@@ -97,18 +111,18 @@ def resolve_device() -> str:
     return "cpu"
 
 
-def load_sentence_transformer():
+def load_sentence_transformer(device: "str | None" = None):
     """Construct the configured SentenceTransformer (truncated if dim set)
-    on the resolved device. A broken CUDA runtime degrades to cpu instead
-    of killing the caller. Raises ImportError when sentence-transformers is
-    not installed."""
+    on ``device`` (default: resolve_device() — cpu unless overridden). A
+    broken CUDA runtime degrades to cpu instead of killing the caller.
+    Raises ImportError when sentence-transformers is not installed."""
     from sentence_transformers import SentenceTransformer
 
     c = get_embed_config()
     kwargs = {}
     if c["dim"]:
         kwargs["truncate_dim"] = c["dim"]
-    device = resolve_device()
+    device = device or resolve_device()
     try:
         return SentenceTransformer(c["model"], device=device, **kwargs)
     except Exception:
