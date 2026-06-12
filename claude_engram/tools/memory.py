@@ -1302,8 +1302,12 @@ class MemoryStore:
             "total_memories": len(proj.entries),
         }
 
-        # Find broken/incomplete memories
+        # Find broken/incomplete memories (lessons excluded everywhere in
+        # cleanup: the file is their source of truth and the sync would
+        # just re-add whatever cleanup touched)
         for entry in proj.entries:
+            if entry.category == "lesson":
+                continue
             reason = self._is_broken_memory(entry.content)
             if reason:
                 report["broken_found"].append(
@@ -1328,7 +1332,7 @@ class MemoryStore:
         removed_ids = {r["entry_id"] for r in report["removed"]}
         seen_content = {}
         for entry in proj.entries:
-            if entry.id in removed_ids:
+            if entry.id in removed_ids or entry.category == "lesson":
                 continue
             dup = self._is_duplicate(
                 entry.content, list(seen_content.values()), threshold=0.85
@@ -1354,7 +1358,9 @@ class MemoryStore:
             candidates = [
                 e
                 for e in proj.entries
-                if e.id not in removed_ids and e.id not in dup_ids
+                if e.id not in removed_ids
+                and e.id not in dup_ids
+                and e.category != "lesson"
             ]
             if len(candidates) >= 2:
                 texts = [e.content for e in candidates]
@@ -1421,8 +1427,10 @@ class MemoryStore:
                     )
 
         # Calculate decay for old memories (only if apply_decay is True)
-        # PROTECTED CATEGORIES: rules and mistakes NEVER decay
-        protected_categories = {"rule", "mistake"}
+        # PROTECTED CATEGORIES: rules, mistakes, and lessons NEVER decay
+        # (lessons are hand-curated files synced by the miner — their
+        # lifecycle belongs to the file, not to access statistics)
+        protected_categories = {"rule", "mistake", "lesson"}
 
         if apply_decay:
             now = time.time()
@@ -2065,8 +2073,9 @@ class MemoryStore:
 
     def _is_archivable(self, entry: MemoryEntry) -> bool:
         """Check if an entry should be moved to archive."""
-        # Rules and mistakes are NEVER archived
-        if entry.category in ("rule", "mistake"):
+        # Rules, mistakes, and lessons are NEVER archived (lessons live in
+        # their source file; mistake hygiene has its own narrow gate)
+        if entry.category in ("rule", "mistake", "lesson"):
             return False
         # High relevance entries stay hot longer
         if entry.relevance >= 7:
@@ -2196,8 +2205,9 @@ class MemoryStore:
         pre-edit banners forever. Auto-detected entries are machine-written
         though, and a one-off typo from weeks ago is pure banner noise.
         An auto-captured mistake is archived (never deleted) only when ALL:
-        - source == "auto-detected" (manual log_mistake entries and rules
-          are untouched — they were written with intent)
+        - machine-written source (auto-detected, session_mining, or none —
+          manual log_mistake entries and rules are untouched: they were
+          written with intent)
         - both created and last accessed over ``min_age_days`` ago
         - its error signature is NOT in the mined recurring_errors
           (a recurring error is exactly the mistake worth keeping hot)
@@ -2230,10 +2240,14 @@ class MemoryStore:
             return False
 
         to_archive = []
+        # Machine-written sources: the failure-hook auto-logger AND the
+        # transcript miner (which stamps session_mining — 90%+ of real
+        # stores). Manual work_tracker entries are never touched.
+        machine = ("", "auto-detected", "session_mining")
         for e in proj.entries:
             if e.category != "mistake" or e.archived_at is not None:
                 continue
-            if e.source != "auto-detected":
+            if (e.source or "") not in machine:
                 continue
             if now - e.created_at < cutoff or now - e.last_accessed < cutoff:
                 continue
@@ -2841,6 +2855,10 @@ class MemoryStore:
             elif isinstance(existing_data, dict):
                 all_ids = list(existing_ids)
                 all_vecs = [existing_data[mid] for mid in existing_ids]
+            # The loader returns a LIVE mmap of embeddings.npy; on Windows
+            # np.save to the same path fails with Errno 22 while any mmap
+            # handle is open. Rows are copied above — drop the handle now.
+            existing_data = None
         else:
             existing_set = set()
 

@@ -36,6 +36,8 @@ class RecurringError:
     sessions: list[str] = field(default_factory=list)  # session IDs
     example: str = ""  # A concrete, un-templated instance — keeps it actionable
     fix: str = ""  # how_to_avoid, when one was recorded
+    projects: list[str] = field(default_factory=list)  # sub-projects it hit
+    last_seen: str = ""  # newest contributing session timestamp (ISO)
 
 
 @dataclass
@@ -76,7 +78,9 @@ def detect_all_patterns(
         return None
 
     report = PatternReport(
-        struggles=detect_struggles(sessions, project_root=project_path),
+        struggles=detect_struggles(
+            sessions, project_root=project_path, engram_storage_dir=engram_storage_dir
+        ),
         recurring_errors=detect_recurring_errors(
             sessions, project_path, engram_storage_dir
         ),
@@ -104,69 +108,121 @@ def detect_all_patterns(
     return report
 
 
+def _error_sessions_by_file(
+    project_root: str, engram_storage_dir: str
+) -> "dict[str, set]":
+    """basename(lower) -> sessions whose extraction MISTAKES reference it
+    (via related_files or a traceback `File "x.py"` in the description).
+    This is causal attribution; "the session had an error somewhere" is not."""
+    out: dict[str, set] = {}
+    try:
+        storage = Path(engram_storage_dir).expanduser()
+        manifest_path = storage / "manifest.json"
+        if not (project_root and manifest_path.exists()):
+            return out
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        proj_info = manifest.get("projects", {}).get(_normalize_path(project_root))
+        if not proj_info:
+            return out
+        ext_dir = storage / "projects" / proj_info["hash"] / "extractions"
+        if not ext_dir.exists():
+            return out
+        for ext_file in ext_dir.glob("*.json"):
+            try:
+                data = json.loads(ext_file.read_text(encoding="utf-8"))
+                sid = data.get("session_id", ext_file.stem)
+                for m in data.get("mistakes", []):
+                    names = {
+                        Path(f).name.lower()
+                        for f in (m.get("related_files") or [])
+                    }
+                    for fm in re.finditer(
+                        r'File ["\']([^"\']+\.py)["\']', m.get("description", "") or ""
+                    ):
+                        names.add(Path(fm.group(1)).name.lower())
+                    for n in names:
+                        out.setdefault(n, set()).add(sid)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
 def detect_struggles(
     sessions: dict[str, dict],
     project_root: str = "",
+    engram_storage_dir: str = "",
 ) -> list[Struggle]:
     """
-    Find files that are repeatedly edited with errors nearby.
+    Find files that are repeatedly edited WITH errors actually tied to them.
 
-    A "struggle" is a file that appears in 3+ sessions with high edit counts
-    or errors in those sessions. If project_root is provided, only includes
-    files that still exist in the project (filters out dead/archived code).
+    Two deliberate properties (both were bugs before):
+    - Keys are FULL paths — service-a/__init__.py and service-b/__init__.py
+      no longer pool into one phantom "workspace/__init__.py".
+    - errors_nearby counts sessions where the file was edited AND an
+      extracted mistake references that file. The old session-level check
+      ("the session had an error somewhere") made every often-edited file
+      look like a struggle: "CLAUDE.md (4 sessions, 4 errors)".
+    Files with zero attributable errors are not struggles, however often
+    they're edited. If project_root is provided, only includes files that
+    still exist (filters dead/archived code).
     """
-    # Count per-file: how many sessions, total edits estimated, error sessions
-    file_sessions: dict[str, list[str]] = {}  # filename -> [session_ids]
-    file_error_sessions: dict[str, int] = {}  # filename -> count of error sessions
-
+    file_sessions: dict[str, set] = {}  # full path -> {session_ids}
     for sid, meta in sessions.items():
-        files = meta.get("files_edited", [])
-        has_errors = meta.get("has_errors", False) or meta.get("error_count", 0) > 0
-
+        files = (
+            meta.get("files_edited", [])
+            if isinstance(meta, dict)
+            else getattr(meta, "files_edited", [])
+        )
         for fp in files:
-            name = Path(fp).name
-            file_sessions.setdefault(name, []).append(sid)
-            if has_errors:
-                file_error_sessions[name] = file_error_sessions.get(name, 0) + 1
+            file_sessions.setdefault(fp, set()).add(sid)
+
+    error_by_name = _error_sessions_by_file(project_root, engram_storage_dir)
+    if not error_by_name:
+        return []  # no attributable errors anywhere -> no struggles to report
 
     # If project_root given, check file existence (skip archived/deleted code)
-    # Exclude common archive/backup directories
     _archive_dirs = {"archive", "old", "backup", "deprecated", "legacy", ".archive"}
-    existing_files: set[str] | None = None
+    existing_files: "set[str] | None" = None
     if project_root:
         root = Path(project_root)
         if root.exists():
             existing_files = set()
             for p in root.rglob("*"):
-                # Skip archive directories
                 if any(part.lower() in _archive_dirs for part in p.parts):
                     continue
                 if p.is_file():
                     existing_files.add(p.name)
 
     struggles = []
-    for name, sids in file_sessions.items():
+    for fpath, sids in file_sessions.items():
         if len(sids) < 2:
             continue
-
-        # Skip files that no longer exist in the project
+        name = Path(fpath).name
         if existing_files is not None and name not in existing_files:
             continue
 
-        error_count = file_error_sessions.get(name, 0)
+        # Only sessions where this file was edited AND an extracted mistake
+        # names it count as error sessions.
+        real_errors = len(error_by_name.get(name.lower(), set()) & sids)
+        if real_errors < 1:
+            continue
 
-        # Score: sessions * error_ratio
-        score = len(sids) * (1 + error_count / len(sids))
+        score = len(sids) * (1 + real_errors / len(sids))
         if score < 3:
             continue
 
         struggles.append(
             Struggle(
-                file_path=name,
+                file_path=fpath,
                 sessions_affected=len(sids),
                 total_edits=len(sids),
-                errors_nearby=error_count,
-                description=f"Edited in {len(sids)} sessions, {error_count} had errors",
+                errors_nearby=real_errors,
+                description=(
+                    f"Edited in {len(sids)} sessions, errors traced to it "
+                    f"in {real_errors}"
+                ),
             )
         )
 
@@ -263,10 +319,51 @@ def detect_recurring_errors(
         except Exception:
             continue
 
+    from datetime import datetime, timedelta, timezone
+
+    from claude_engram.hooks.paths import resolve_project_for_file
+
+    # Per-session project + recency lookups (sessions = the index metas).
+    # Attribution: a session's errors belong to the sub-projects its edits
+    # touched — so a vzip session stops seeing CORTEX errors at startup.
+    def _session_projects(sid: str) -> set:
+        meta = sessions.get(sid) or {}
+        files = (
+            meta.get("files_edited", [])
+            if isinstance(meta, dict)
+            else getattr(meta, "files_edited", [])
+        )
+        out = set()
+        for f in files[:20]:
+            try:
+                out.add(_normalize_path(resolve_project_for_file(f, project_path)))
+            except Exception:
+                continue
+        return out
+
+    def _session_ts(sid: str) -> str:
+        meta = sessions.get(sid) or {}
+        if isinstance(meta, dict):
+            return meta.get("last_timestamp", "")
+        return getattr(meta, "last_timestamp", "")
+
+    cutoff_iso = (
+        datetime.now(timezone.utc) - timedelta(days=30)
+    ).isoformat()
+
     recurring = []
     for sig, sids in error_occurrences.items():
         unique_sessions = list(set(sids))
         if len(unique_sessions) >= 2:
+            last_seen = max((_session_ts(s) for s in unique_sessions), default="")
+            # Recency: an error not seen in 30 days is history, not a
+            # pattern — without this, high-count FIXED errors pin the
+            # banner's top slots forever.
+            if last_seen and last_seen < cutoff_iso:
+                continue
+            projects: set = set()
+            for s in unique_sessions[:10]:
+                projects |= _session_projects(s)
             error_type = sig.split(":", 1)[0]
             recurring.append(
                 RecurringError(
@@ -276,10 +373,13 @@ def detect_recurring_errors(
                     sessions=unique_sessions[:10],
                     example=_clip(error_examples.get(sig, ""), 200),
                     fix=_clip(error_fixes.get(sig, ""), 160),
+                    projects=sorted(projects)[:5],
+                    last_seen=last_seen,
                 )
             )
 
-    recurring.sort(key=lambda e: -e.session_count)
+    # Most sessions first; ties broken by freshest sighting.
+    recurring.sort(key=lambda e: (e.session_count, e.last_seen), reverse=True)
     return recurring[:15]
 
 

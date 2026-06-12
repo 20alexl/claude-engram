@@ -267,7 +267,11 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
 
                 if score > best_score:
                     best_score = score
-                    best_text = sentence[:150]
+                    # Word-boundary cut: mid-identifier truncation made
+                    # stored decisions unreadable when resurfaced later.
+                    best_text = sentence[:300].rsplit(" ", 1)[0] if len(
+                        sentence
+                    ) > 300 else sentence
 
         return (best_score, best_text)
 

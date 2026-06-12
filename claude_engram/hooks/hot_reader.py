@@ -23,7 +23,7 @@ SCORE_WEIGHTS = {
     "relevance": 0.15,
     "access_freq": 0.10,
 }
-CATEGORY_BONUSES = {"rule": 0.3, "mistake": 0.2}
+CATEGORY_BONUSES = {"rule": 0.3, "lesson": 0.25, "mistake": 0.2}
 RECENCY_HALF_LIFE_DAYS = 30
 
 # Filenames that exist in nearly every project/package. A bare basename match

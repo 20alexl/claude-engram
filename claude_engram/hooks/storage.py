@@ -7,6 +7,7 @@ on paths.py for location resolution -- no session state, no import cycle.
 """
 
 import json
+import re
 from pathlib import Path
 
 from .paths import (
@@ -15,6 +16,42 @@ from .paths import (
     get_engram_storage_dir,
     get_memory_file,
 )
+
+
+def _claude_md_words(project_dir: str) -> set:
+    """Significant words of the project's CLAUDE.md (the file Claude Code
+    always loads into context). Empty set when there is none."""
+    words: set = set()
+    try:
+        md = Path(project_dir) / "CLAUDE.md"
+        if md.exists() and md.stat().st_size < 200_000:
+            text = md.read_text(encoding="utf-8", errors="ignore").lower()
+            words = {w for w in re.findall(r"[a-z0-9_>-]+", text) if len(w) > 2}
+    except Exception:
+        pass
+    return words
+
+
+def filter_rules_in_claude_md(rules: list, project_dir: str) -> list:
+    """Drop rules whose content already lives in the project's CLAUDE.md.
+
+    That file is in the model's context on every turn — re-injecting the
+    same sentences from the rule store is pure token waste (the triple
+    CLAUDE.md / engram-rules / MEMORY.md redundancy). A rule is considered
+    covered when >=70% of its significant words appear in CLAUDE.md. Rules
+    are still enforced and listable; only banner display is deduped.
+    """
+    md_words = _claude_md_words(project_dir)
+    if not md_words:
+        return rules
+    kept = []
+    for r in rules:
+        content = (r.get("content", "") if isinstance(r, dict) else str(r)).lower()
+        words = {w for w in re.findall(r"[a-z0-9_>-]+", content) if len(w) > 2}
+        if words and len(words & md_words) / len(words) >= 0.7:
+            continue
+        kept.append(r)
+    return kept
 
 
 def _load_project_entries_from_dir(project_hash_dir: Path) -> list[dict]:

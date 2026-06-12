@@ -368,15 +368,32 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 # recently-active ones too.
                 try:
                     recent = _recent_session_files(index)
-                    store.archive_stale_mistakes(
-                        project_path, recent_files=recent, dry_run=False
-                    )
-                    for sub in _recent_subprojects(index, project_path):
+                    # Sweep EVERY registered project, not just recent ones:
+                    # dormant projects (an old chappie/V7 store) are exactly
+                    # where stale mistakes pile up, and the sweep is a cheap
+                    # json pass per project.
+                    from claude_engram.hooks.paths import _get_manifest
+
+                    for proj_path in (
+                        _get_manifest().get("projects", {}) or {project_path: 1}
+                    ):
                         store.archive_stale_mistakes(
-                            sub, recent_files=recent, dry_run=False
+                            proj_path, recent_files=recent, dry_run=False
                         )
                 except Exception as e:
                     phase_errors["mistake_hygiene"] = str(e)[:200]
+                # Curated-lessons bridge: dated entries in lesson files
+                # sync as protected "lesson" memories with code-index-joined
+                # triggers. STRICTLY opt-in: runs only when config.json
+                # sets lessons_globs; no default path ships with the tool.
+                try:
+                    from claude_engram.mining.lessons import sync_lessons
+
+                    sync_lessons(store, project_path)
+                    for sub in _recent_subprojects(index, project_path):
+                        sync_lessons(store, sub)
+                except Exception as e:
+                    phase_errors["lessons"] = str(e)[:200]
                 try:
                     store.embed_all_memories(project_path)
                 except Exception as e:

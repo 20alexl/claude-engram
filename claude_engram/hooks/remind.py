@@ -434,6 +434,7 @@ from .paths import (  # noqa: E402,F401
 from .storage import (  # noqa: E402,F401
     _load_project_data_from_dir,
     _load_project_entries_from_dir,
+    filter_rules_in_claude_md,
     get_memory_counts,
     get_past_mistakes,
     get_project_rules,
@@ -572,7 +573,7 @@ def _get_session_context_for_handoff(project_dir: str) -> dict:
             if created < session_start:
                 continue
             cat = m.get("category", "")
-            content = m.get("content", "")[:150]
+            content = _cut_words(m.get("content", ""), 200)
             if cat == "decision" and len(context["decisions"]) < 5:
                 context["decisions"].append(content)
             elif cat == "mistake" and len(context["mistakes"]) < 3:
@@ -980,6 +981,40 @@ def _maybe_live_mine(project_dir: str) -> None:
         pass
 
 
+_TEST_RUNNER_PREFIXES = (
+    "pytest",
+    "jest",
+    "mocha",
+    "npm test",
+    "yarn test",
+    "make test",
+    "make check",
+    "cargo test",
+    "go test",
+    "python -m pytest",
+    "python -m unittest",
+)
+
+
+def _is_test_invocation(command: str) -> bool:
+    """Is this bash command a test run? Used to suppress mistake auto-log:
+    a failing test's error is already captured as the test result, and
+    RED-phase TDD failures (deliberate ModuleNotFoundError/assertion fails
+    before implementing) are not mistakes — logging them drowns the
+    banner's signal in noise."""
+    first_cmd = re.split(r"&&|\|\||;|\$\(", (command or "").lower().strip())[
+        0
+    ].strip()
+    if any(first_cmd.startswith(p) for p in _TEST_RUNNER_PREFIXES):
+        return True
+    # venv/...python -m pytest, python tests/bench_x.py and similar shapes
+    if re.search(r"python[\w.\\/]*(\.exe)?\s+(-m\s+)?(pytest|unittest)\b", first_cmd):
+        return True
+    if re.search(r"python[\w.\\/]*(\.exe)?\s+\S*tests?[\\/]", first_cmd):
+        return True
+    return False
+
+
 def _record_test_command(project_dir: str, command: str, passed: bool) -> None:
     """Track test invocations per project so session start can surface the
     known-good ones. Only called when the bash handlers already classified
@@ -1168,8 +1203,12 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("---")
             lines.append("")
 
-        # Show RULES first (always follow these) - with IDs for management
-        rules = get_project_rules(project_memory)
+        # Show RULES first (always follow these) - with IDs for management.
+        # Rules already present in CLAUDE.md are skipped: that file is in
+        # context every turn, so re-injecting them is pure token waste.
+        rules = filter_rules_in_claude_md(
+            get_project_rules(project_memory), project_dir
+        )
         if rules:
             lines.append(f"RULES ({len(rules)}) - always follow:")
             for r in rules[:5]:  # Show top 5 rules
@@ -1437,8 +1476,14 @@ def reminder_for_bash(
             if file_match:
                 error_project = get_project_dir(file_match.group(1))
 
-        # Auto-detect and auto-log common mistakes (not test failures)
-        auto_logged = _auto_log_detected_mistake(error_project, command, output)
+        # Auto-detect and auto-log common mistakes — but NOT from test
+        # invocations: a failing test is already tracked as a test result,
+        # and TDD RED-phase errors are deliberate, not mistakes. Real bugs
+        # that only manifest in tests keep failing and surface via the
+        # transcript miner instead.
+        auto_logged = ""
+        if not (is_full_suite or _is_test_invocation(command)):
+            auto_logged = _auto_log_detected_mistake(error_project, command, output)
 
         if auto_logged:
             lines.append(f"<engram-error-tracked>{auto_logged}</engram-error-tracked>")
@@ -2040,6 +2085,16 @@ def _append_memory_entry(project_dir: str, entry: dict, skip_if=None) -> bool:
     return True
 
 
+def _cut_words(s: str, n: int) -> str:
+    """Truncate at a word boundary with an ellipsis — a decision cut
+    mid-sentence ("i like your order. well probaly do all if i...") is
+    useless when it resurfaces in a banner weeks later."""
+    s = " ".join((s or "").split())
+    if len(s) <= n:
+        return s
+    return s[:n].rsplit(" ", 1)[0] + "…"
+
+
 def _auto_capture_from_prompt(project_dir: str, prompt: str):
     """
     Auto-capture decisions from user prompts.
@@ -2094,7 +2149,7 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
         if best_score < 0.6 or not best_text or len(best_text) < 15:
             return
 
-        content = f"DECISION: (from user) {best_text[:150]}"
+        content = f"DECISION: (from user) {_cut_words(best_text, 300)}"
         entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
 
         new_words = set(best_text.lower().split())
@@ -2693,8 +2748,11 @@ def main():
                             if dejavu:
                                 lines.append(dejavu)
 
-                        # Auto-log mistake from error output
-                        if error_msg:
+                        # Auto-log mistake from error output — except for
+                        # test invocations: the failure is already tracked
+                        # as a test result, and TDD RED-phase errors are
+                        # deliberate, not mistakes.
+                        if error_msg and not _is_test_invocation(command):
                             logged = _auto_log_detected_mistake(
                                 project_dir, command, error_msg
                             )
@@ -2702,26 +2760,10 @@ def main():
                                 lines.append(f"Auto-logged: {logged}")
 
                         # Auto-record failed test
-                        if command:
-                            first_cmd = re.split(r"&&|\|\||;", command.lower().strip())[
-                                0
-                            ].strip()
-                            test_commands = [
-                                "pytest",
-                                "jest",
-                                "mocha",
-                                "npm test",
-                                "yarn test",
-                                "make test",
-                                "cargo test",
-                                "go test",
-                                "python -m pytest",
-                                "python -m unittest",
-                            ]
-                            if any(first_cmd.startswith(c) for c in test_commands):
-                                _auto_record_test(False, error_msg[:200])
-                                _record_test_command(project_dir, command, False)
-                                lines.append("FAIL Test tracked")
+                        if command and _is_test_invocation(command):
+                            _auto_record_test(False, error_msg[:200])
+                            _record_test_command(project_dir, command, False)
+                            lines.append("FAIL Test tracked")
 
                     elif tool_name in ("Edit", "Write"):
                         file_path = (
@@ -2872,8 +2914,12 @@ def main():
                 summary = data.get("compact_summary", "")
 
             # Load rules and mistakes to re-inject after compaction
+            # (CLAUDE.md-covered rules skipped — that file survives
+            # compaction in context anyway)
             project_memory = load_project_memory(project_dir)
-            rules = get_project_rules(project_memory)
+            rules = filter_rules_in_claude_md(
+                get_project_rules(project_memory), project_dir
+            )
             mistakes = get_past_mistakes(project_memory)
 
             lines = []
@@ -2945,9 +2991,11 @@ def main():
             lines = []
             lines.append(f"Claude Engram session started ({source})")
 
-            # Load and show key context
+            # Load and show key context (CLAUDE.md-covered rules skipped)
             project_memory = load_project_memory(project_dir)
-            rules = get_project_rules(project_memory)
+            rules = filter_rules_in_claude_md(
+                get_project_rules(project_memory), project_dir
+            )
             mistakes = get_past_mistakes(project_memory)
 
             if rules:
@@ -3033,13 +3081,20 @@ def main():
                                     f"  ...and {summary['file_count'] - 8} more files"
                                 )
                         errs = summary.get("error_count", 0)
+                        # prompt_count = real typed prompts; the old
+                        # user_message_count includes every tool result
+                        # (that is the "893 prompts" absurdity). Metas from
+                        # before the field show messages, labeled honestly.
+                        prompts = summary.get("prompt_count", 0)
                         msgs = summary.get("user_message_count", 0)
-                        if errs or msgs:
+                        if errs or prompts or msgs:
                             parts = []
-                            if msgs:
-                                parts.append(f"{msgs} prompts")
+                            if prompts:
+                                parts.append(f"{prompts} prompts")
+                            elif msgs:
+                                parts.append(f"{msgs} messages")
                             if errs:
-                                parts.append(f"{errs} errors")
+                                parts.append(f"{errs} tool errors")
                             lines.append(f"  Activity: {', '.join(parts)}")
 
                     # Auto-inject patterns if available
@@ -3047,8 +3102,58 @@ def main():
                     if patterns_path.exists():
                         try:
                             pdata = json_module.loads(patterns_path.read_text())
-                            struggles = pdata.get("struggles", [])[:3]
-                            recurring = pdata.get("recurring_errors", [])[:3]
+
+                            # Predict the session's sub-projects from what
+                            # the LAST session touched: mining pools at the
+                            # workspace root, and without scoping a vzip
+                            # session gets CORTEX errors injected at start.
+                            predicted = set()
+                            try:
+                                for f in (summary or {}).get(
+                                    "files_edited_full", []
+                                ):
+                                    predicted.add(
+                                        _normalize_path(
+                                            resolve_project_for_file(f)
+                                        )
+                                    )
+                            except Exception:
+                                predicted = set()
+                            norm_root = _normalize_path(project_dir)
+
+                            def _in_scope(projs):
+                                # No prediction or no attribution -> show
+                                # (legacy patterns.json has no projects field);
+                                # workspace-root errors are generic -> show.
+                                if not predicted or not projs:
+                                    return True
+                                pset = set(projs)
+                                return bool(pset & predicted) or norm_root in pset
+
+                            def _struggle_scope(s):
+                                try:
+                                    return _in_scope(
+                                        [
+                                            _normalize_path(
+                                                resolve_project_for_file(
+                                                    s.get("file_path", "")
+                                                )
+                                            )
+                                        ]
+                                    )
+                                except Exception:
+                                    return True
+
+                            struggles = [
+                                s
+                                for s in pdata.get("struggles", [])
+                                if _struggle_scope(s)
+                            ][:3]
+                            recurring = [
+                                e
+                                for e in pdata.get("recurring_errors", [])
+                                if _in_scope(e.get("projects") or [])
+                            ][:3]
                             if struggles:
                                 lines.append("Recurring struggles:")
                                 for s in struggles:

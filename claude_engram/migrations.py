@@ -183,6 +183,140 @@ def _redate_downrank_stale_consolidations(storage: Path, manifest: dict) -> None
             tmp.replace(mem_file)
 
 
+def _provably_fixed(content: str, idx) -> bool:
+    """The mistake's error can be shown to be resolved against the CURRENT
+    code index: the missing module now resolves, the missing name is now
+    exported, the missing attribute now exists on that class."""
+    import re as _re
+
+    m = _re.search(r"Module '([^']+)' not found", content)
+    if m and idx is not None:
+        mod = m.group(1)
+        try:
+            if idx.is_module(mod) or idx.is_package_prefix(mod):
+                return True
+        except Exception:
+            pass
+    m = _re.search(r"cannot import '([^']+)' from '([^']+)'", content)
+    if m and idx is not None:
+        name, mod = m.group(1), m.group(2)
+        try:
+            rec = idx.by_dotted(mod) or {}
+            if (
+                name in rec.get("exports", [])
+                or name in rec.get("classes", {})
+                or name in rec.get("functions", {})
+            ):
+                return True
+        except Exception:
+            pass
+    m = _re.search(r"'(\w+)' object has no attribute '(\w+)'", content)
+    if m and idx is not None:
+        cls, attr = m.group(1), m.group(2)
+        try:
+            for dotted in idx.resolve_symbol(cls):
+                rec = idx.by_dotted(dotted) or {}
+                ci = rec.get("classes", {}).get(cls, {})
+                if attr in ci.get("methods", {}) or attr in ci.get("attrs", []):
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _modernize_mistake_store(storage: Path, manifest: dict) -> None:
+    """One-time mistake-store modernization (v0.8.4). Two sweeps, both
+    archive (never delete), both skip manual ``work_tracker`` entries:
+
+    1. Entries carrying only the legacy in-place ``archived_at`` flag
+       (the old acknowledge_mistake) move into archive.json for real.
+    2. Machine-written mistakes (auto-detected / session_mining / no
+       source) that are PROVABLY fixed against the current code index —
+       the module now resolves, the class now has that attribute — are
+       archived. The recurring ones worth keeping recur; the fixed ones
+       were pure banner noise.
+
+    Raw-JSON on purpose: cheap steps run inline in the SessionStart hook,
+    where importing the pydantic store is too slow.
+    """
+    import time as _time
+
+    from claude_engram.mining.code_index import resolve_code_index
+
+    machine = ("", "auto-detected", "session_mining")
+    archive_file = storage / "archive.json"
+    try:
+        archive = (
+            json.loads(archive_file.read_text(encoding="utf-8"))
+            if archive_file.exists()
+            else {"version": 2, "projects": {}}
+        )
+    except Exception:
+        archive = {"version": 2, "projects": {}}
+    archive.setdefault("projects", {})
+    archive_changed = False
+
+    for norm, info in manifest.get("projects", {}).items():
+        pdir = storage / "projects" / info.get("hash", "")
+        mem_file = pdir / "memory.json"
+        if not mem_file.exists():
+            continue
+        try:
+            data = json.loads(mem_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        entries = data.get("entries", [])
+        idx = None
+        try:
+            idx = resolve_code_index(norm, str(storage))
+        except Exception:
+            pass
+
+        keep, moved = [], []
+        now = _time.time()
+        for e in entries:
+            if e.get("category") != "mistake":
+                keep.append(e)
+                continue
+            if e.get("archived_at"):
+                moved.append(e)
+                continue
+            if (e.get("source") or "") not in machine:
+                keep.append(e)
+                continue
+            if _provably_fixed(e.get("content", ""), idx):
+                e["archived_at"] = now
+                moved.append(e)
+                continue
+            keep.append(e)
+
+        if not moved:
+            continue
+        bucket = archive["projects"].setdefault(
+            norm,
+            {
+                "project_path": norm,
+                "project_name": Path(norm).name,
+                "entries": [],
+            },
+        )
+        have = {x.get("id") for x in bucket.get("entries", [])}
+        for e in moved:
+            if e.get("id") not in have:
+                bucket.setdefault("entries", []).append(e)
+        archive_changed = True
+
+        data["entries"] = keep
+        tmp = mem_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(mem_file)
+
+    if archive_changed:
+        tmp = archive_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(archive, indent=2), encoding="utf-8")
+        tmp.replace(archive_file)
+
+
 STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
@@ -191,6 +325,7 @@ STEPS = [
         False,
         _redate_downrank_stale_consolidations,
     ),
+    ("0.8.4:modernize_mistake_store", False, _modernize_mistake_store),
 ]
 
 

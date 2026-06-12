@@ -98,7 +98,13 @@ def _score_text(text, model, decision_embs, non_decision_embs):
             score = min((best_d - 0.3) / 0.5, 1.0)
             if score > best_score:
                 best_score = score
-                best_text = sentence[:150]
+                # Word-boundary cut — mid-sentence truncation made stored
+                # decisions unreadable when resurfaced in banners.
+                best_text = (
+                    sentence[:300].rsplit(" ", 1)[0]
+                    if len(sentence) > 300
+                    else sentence
+                )
 
     return best_score, best_text
 

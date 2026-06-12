@@ -39,7 +39,8 @@ class SessionMeta:
     file_size_bytes: int = 0
     processed_offset: int = 0
     message_count: int = 0
-    user_message_count: int = 0
+    user_message_count: int = 0  # ALL type=user lines (incl. tool results) — watermark semantics, do not change
+    prompt_count: int = 0  # real typed prompts only — the displayable number
     assistant_message_count: int = 0
     first_timestamp: str = ""
     last_timestamp: str = ""
@@ -115,6 +116,23 @@ def build_index_for_session(
             text = extract_user_text(msg)
             if text:
                 meta.last_user_message = text[:500]
+
+            # Real typed prompts, counted separately: in Claude Code JSONLs
+            # every tool RESULT is also a type=user line, so
+            # user_message_count reads absurdly high ("893 prompts") if
+            # displayed as prompts. user_message_count itself must keep its
+            # semantics — the append-aware re-mine watermarks compare it.
+            content = msg.get("message", {}).get("content", "")
+            is_tool_result = isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result"
+                for b in content
+            )
+            if (
+                not is_tool_result
+                and text
+                and not text.lstrip().startswith(("<command-", "<local-command"))
+            ):
+                meta.prompt_count += 1
 
             # Check for tool results with errors
             tool_result = msg.get("toolUseResult", {})
@@ -310,12 +328,16 @@ class SessionIndex:
             "age_str": age_str,
             "branch": latest.get("git_branch", "?"),
             "files_edited": short_files,
+            "files_edited_full": files[:10],  # full paths — project prediction
             "file_count": len(files),
             "error_count": latest.get("error_count", 0),
             "compaction_count": latest.get("compaction_count", 0),
             "last_message": latest.get("last_user_message", "")[:200],
             "message_count": latest.get("message_count", 0),
             "user_message_count": latest.get("user_message_count", 0),
+            # Real typed prompts; metas indexed before the field existed
+            # fall back to 0 and the banner falls back to messages.
+            "prompt_count": latest.get("prompt_count", 0),
             "tools_summary": _summarize_tools(latest.get("tools_used", {})),
             "summary": latest.get("summary", ""),
         }
@@ -378,6 +400,7 @@ def merge_session_meta(existing: dict, tail: SessionMeta) -> SessionMeta:
     for counter in (
         "message_count",
         "user_message_count",
+        "prompt_count",
         "assistant_message_count",
         "error_count",
         "compaction_count",
