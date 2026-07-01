@@ -130,8 +130,16 @@ def write_handoff(
     stale_hours: float = 24.0,
 ) -> dict:
     """
-    Persist ``handoff`` to each target dir: append to the ring buffer and
-    update the ``latest`` pointer subject to the promotion guard.
+    Persist ``handoff`` to each target dir. MANUAL handoffs append to the
+    history ring AND contend for the ``latest`` pointer; AUTO handoffs only
+    contend for the pointer (subject to the promotion guard).
+
+    Why autos stay out of the ring: the Stop hook fires at the END OF EVERY
+    TURN, so appending its per-turn "Session stopped" autos evicted real
+    checkpoints from the 20-slot FIFO within a single working session. The
+    newest auto stays visible anyway — read_history folds each dir's latest
+    pointer back in. Nobody restores to "where I was three stops ago", but
+    they do restore to last week's manual checkpoint.
 
     Trivial auto-handoffs (no files, no decisions, no real next steps) are
     skipped entirely — they are neither appended nor promoted, so they can
@@ -154,18 +162,26 @@ def write_handoff(
             continue
 
         history = _load_history(d)
+        history_changed = False
         # Migration: seed history from any pre-existing single-slot handoff so
         # we never silently drop what was there before this module existed.
+        # Runs for auto writes too: an auto that out-promotes below would
+        # otherwise overwrite the legacy latest before it ever reached the ring.
         if not history:
             seed = _read_json(d / LATEST_FILENAME)
             if seed:
                 history = [seed]
+                history_changed = True
 
-        history.append(handoff)
+        if handoff.get("kind") == "manual":
+            history.append(handoff)
+            history_changed = True
         if len(history) > history_limit:
             history = history[-history_limit:]
-        _atomic_write(d / HISTORY_FILENAME, {"handoffs": history})
-        report["appended"].append(str(d))
+            history_changed = True
+        if history_changed:
+            _atomic_write(d / HISTORY_FILENAME, {"handoffs": history})
+            report["appended"].append(str(d))
 
         existing_latest = _read_json(d / LATEST_FILENAME)
         if _should_promote(handoff, existing_latest, stale_hours=stale_hours):
@@ -193,15 +209,23 @@ def read_latest(
     Newest-manual-first gives both. Per-ring manual promotion still happens at
     write time; this only chooses across the already-resolved scope. Callers
     that want a hard freshness bound pass ``max_age_hours`` (e.g. the
-    SessionStart banner uses 48h).
+    SessionStart banner uses 48h) — the bound applies to AUTOS; a deliberate
+    manual checkpoint gets 14 days (a weekend away must not silently expire
+    the handoff you wrote for yourself while restore-by-index still finds it).
     """
+    MANUAL_MAX_AGE_HOURS = 14 * 24.0
+
     hist = read_history(candidate_dirs)
     if max_age_hours is not None:
-        hist = [
-            h
-            for h in hist
-            if (time.time() - _created_ts(h)) / 3600 <= max_age_hours
-        ]
+        manual_cut = max(float(max_age_hours), MANUAL_MAX_AGE_HOURS)
+
+        def _fresh(h: dict) -> bool:
+            age_h = (time.time() - _created_ts(h)) / 3600
+            if h.get("kind") == "manual":
+                return age_h <= manual_cut
+            return age_h <= max_age_hours
+
+        hist = [h for h in hist if _fresh(h)]
     if not hist:
         return None
     manual = [h for h in hist if h.get("kind") == "manual"]

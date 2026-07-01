@@ -87,8 +87,9 @@ def get_state_file() -> Path:
     Keyed by the Claude Code session_id so two sessions launched from the same
     workspace don't clobber each other's working state. Falls back to the shared
     hook_state.json when no session id is known -- e.g. the MCP server, which
-    Claude Code does not hand a session id."""
-    base = Path.home() / ".claude_engram"
+    Claude Code does not hand a session id. Honors CLAUDE_ENGRAM_DIR (the
+    documented test-isolation seam) like every other storage path."""
+    base = get_engram_storage_dir()
     if _session_id:
         return base / "sessions" / f"{_session_id}.json"
     return base / "hook_state.json"
@@ -98,7 +99,7 @@ def _prune_session_states(max_age_days: float = 7.0):
     """Delete per-session hook-state files older than ``max_age_days``. They
     accumulate one-per-session under ~/.claude_engram/sessions/; each session
     keys its own, so a stale one is never read again — pure clutter."""
-    sessions_dir = Path.home() / ".claude_engram" / "sessions"
+    sessions_dir = get_engram_storage_dir() / "sessions"
     if not sessions_dir.is_dir():
         return
     cutoff = time.time() - max_age_days * 86400
@@ -632,6 +633,60 @@ def get_handoff_data(project_dir: str = "") -> dict:
         return {}
 
 
+def _resolve_session_project(project_dir: str, files: list) -> str:
+    """Dominant sub-project of a session's edited files (majority vote over
+    the most recent ten). Falls back to ``project_dir`` (the cwd) when there
+    are no files — the cwd is the workspace root under Claude Code, which is
+    exactly how per-turn auto handoffs ended up in the wrong ring, so the
+    files win whenever they exist."""
+    counts: dict = {}
+    for f in files[-10:]:
+        try:
+            # Pass the root explicitly — the resolver's cwd default matches
+            # production hooks, but being explicit keeps this correct from
+            # any process (tests, the MCP server, a future daemon route).
+            p = _normalize_path(resolve_project_for_file(f, project_dir))
+            counts[p] = counts.get(p, 0) + 1
+        except Exception:
+            continue
+    if not counts:
+        return project_dir
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _subtree_manual_handoff(project_dir: str) -> dict:
+    """Newest MANUAL handoff across the workspace SUBTREE (descendant project
+    rings). The walk-up resolver only looks at ancestors, so a fresh session
+    opened at the workspace root could only ever see the root ring — while
+    the real handoff sat in a sub-project's ring. Under concurrency this is
+    a labeled breadcrumb, not an auto-restore: the label carries the project
+    and task_id so a session for a different sub-project can ignore it.
+    Manuals get the same 14-day freshness bound as read_latest. Returns {}
+    when no descendant manual exists."""
+    try:
+        from claude_engram import handoff_store as _hs
+
+        storage = get_engram_storage_dir()
+        norm = _normalize_path(project_dir)
+        dirs = []
+        for path, info in _get_manifest().get("projects", {}).items():
+            if path == norm or path.startswith(norm + "/"):
+                dirs.append(storage / "projects" / info["hash"])
+        if not dirs:
+            return {}
+        hist = _hs.read_history(dirs)
+        now = time.time()
+        for h in hist:  # newest first
+            if h.get("kind") != "manual":
+                continue
+            ts = h.get("created", h.get("created_at", 0)) or 0
+            if (now - ts) / 3600 <= 14 * 24:
+                return h
+        return {}
+    except Exception:
+        return {}
+
+
 def _format_restored_context(entry: dict) -> list[str]:
     """Render a restored checkpoint for the session-start banner. Checkpoints and
     handoffs are one ring construct now, so this shows whichever fields the entry
@@ -652,7 +707,20 @@ def _format_restored_context(entry: dict) -> list[str]:
             sub = Path(resolve_project_for_file(files[0])).name
         except Exception:
             sub = ""
-    label = f"{entry.get('kind', 'auto')}, {age:.1f}h ago" + (f", {sub}" if sub else "")
+    if not sub:
+        # Cross-project breadcrumbs may carry no files; the saved project
+        # path still names whose checkpoint this is.
+        sub = Path(entry.get("project_path", "")).name if entry.get(
+            "project_path"
+        ) else ""
+    label = f"{entry.get('kind', 'auto')}, {age:.1f}h ago"
+    if sub:
+        label += f", {sub}"
+    # task_id makes the teaser self-identifying: the model can
+    # checkpoint_restore(task_id=...) THIS entry instead of trusting that
+    # index 0 happens to match what was teased.
+    if entry.get("task_id"):
+        label += f", {entry['task_id']}"
     headline = entry.get("summary") or entry.get("task_description") or "?"
     out = [f"CHECKPOINT [{label}]: {_truncate(headline, 100)}"]
 
@@ -2835,8 +2903,12 @@ def main():
             # latest_checkpoint.json write was dropped, and the ring entry below
             # carries the task/step fields too.
 
+            # Target the ring of the sub-project this session worked in, not
+            # the cwd (same resolution the stop hook uses).
+            handoff_project = _resolve_session_project(project_dir, files_edited)
+
             # Build rich handoff with session context
-            ctx = _get_session_context_for_handoff(project_dir)
+            ctx = _get_session_context_for_handoff(handoff_project)
             summary_parts = [f"Context compacted ({trigger})."]
             if files_edited:
                 summary_parts.append(
@@ -2863,7 +2935,7 @@ def main():
                 "next_steps": ["Continue work from before compaction"],
                 "context_needed": [],
                 "warnings": [],
-                "project_path": project_dir,
+                "project_path": handoff_project,
                 "session_id": _session_id,
                 "files_in_progress": files_edited[:10],
                 "decisions": ctx["decisions"],
@@ -2875,12 +2947,14 @@ def main():
                 "pending_steps": [],
             }
 
-            # Durable store: ring buffer + guarded latest pointer (see stop_json).
+            # Durable store: guarded latest pointer (see stop_json — autos
+            # never enter the history ring; a fresh manual keeps the pointer
+            # and the post-compact restore correctly anchors on it).
             from claude_engram import handoff_store as _hs
 
             _hs.write_handoff(
                 handoff,
-                [_project_hash_dir(project_dir), _global_handoff_dir()],
+                [_project_hash_dir(handoff_project), _global_handoff_dir()],
             )
 
             # Compaction is the one point where mid-session mining pays off: the
@@ -2966,6 +3040,20 @@ def main():
                 data = json_module.loads(stdin_data)
                 source = data.get("source", "startup")
 
+            # Capture the resuming session's OWN edited files BEFORE
+            # mark_session_started wipes the per-session list below. They
+            # are the only concurrency-safe signal for which sub-project
+            # this session is about — the pooled "last session" may belong
+            # to a different concurrent session in a different project.
+            resume_files = []
+            if source == "resume":
+                try:
+                    resume_files = list(
+                        load_state().get("files_edited_this_session", [])
+                    )
+                except Exception:
+                    resume_files = []
+
             # Auto-start claude_engram session
             mark_session_started(project_dir)
 
@@ -3008,8 +3096,24 @@ def main():
                 )
 
             # Restored context: checkpoint + handoff are one ring construct now;
-            # show it once. (Skip on compact — PostCompact handles re-injection.)
-            restored = get_handoff_data(project_dir) if source != "compact" else {}
+            # show it once. WHICH ring to read depends on how the session began:
+            #   resume  -> this session's own files name its sub-project; read
+            #              that ring (walk-up) so its manual handoff wins over
+            #              the workspace root's per-turn autos.
+            #   fresh   -> unknowable which sub-project comes next; prefer the
+            #              newest MANUAL across the workspace subtree (a labeled
+            #              breadcrumb), else the plain walk-up result.
+            #   compact -> PostCompact handles re-injection; skip.
+            restored = {}
+            if source != "compact":
+                if resume_files:
+                    restored = get_handoff_data(
+                        _resolve_session_project(project_dir, resume_files)
+                    )
+                if not restored:
+                    restored = _subtree_manual_handoff(project_dir)
+                if not restored:
+                    restored = get_handoff_data(project_dir)
             if restored:
                 lines.extend(_format_restored_context(restored))
 
@@ -3285,8 +3389,20 @@ def main():
                 state = load_state()
                 files_edited = state.get("files_edited_this_session", [])
 
-                if files_edited or last_message:
-                    ctx = _get_session_context_for_handoff(project_dir)
+                # A subagent's stop must not write the parent project's ring:
+                # its "N files edited" breadcrumb systematically buried the
+                # main session's handoff (insurance — engram registers only
+                # Stop, but a background agent may fire it independently).
+                if (files_edited or last_message) and not data.get("agent_id"):
+                    # The ring this auto belongs to is the sub-project the
+                    # session actually WORKED IN, not the cwd (the workspace
+                    # root under Claude Code) — cwd-targeting is how autos
+                    # piled into the root ring while manuals went to the
+                    # sub-project ring, and the two teasers diverged.
+                    handoff_project = _resolve_session_project(
+                        project_dir, files_edited
+                    )
+                    ctx = _get_session_context_for_handoff(handoff_project)
                     summary_parts = [
                         f"Session stopped. {len(files_edited)} files edited."
                     ]
@@ -3310,22 +3426,22 @@ def main():
                         "next_steps": ["Review what was in progress"],
                         "context_needed": [],
                         "warnings": [],
-                        "project_path": project_dir,
+                        "project_path": handoff_project,
                         "session_id": _session_id,
                         "files_in_progress": files_edited[:10],
                         "decisions": ctx["decisions"],
                         "mistakes": ctx["mistakes"],
                     }
 
-                    # Durable store: append to the ring buffer and update the
-                    # latest pointer behind a promotion guard. A trivial
-                    # auto-handoff (0 files, 0 decisions, no real next steps) is
-                    # dropped so it can't bury a substantive or manual handoff.
+                    # Durable store: MANUAL handoffs own the history ring;
+                    # this auto only contends for the latest pointer (and a
+                    # trivial one — 0 files, 0 decisions — is dropped
+                    # entirely), so it can never bury a manual checkpoint.
                     from claude_engram import handoff_store as _hs
 
                     _hs.write_handoff(
                         handoff,
-                        [_project_hash_dir(project_dir), _global_handoff_dir()],
+                        [_project_hash_dir(handoff_project), _global_handoff_dir()],
                     )
 
                 # Also persist session files for next session context

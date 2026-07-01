@@ -143,8 +143,10 @@ def test_walkup_and_wiring():
             txt.count("Block 1-4 research handoff") == 1,
         )
 
-        # A later substantive auto-handoff is recorded but does not displace the
-        # manual one as latest; it remains reachable via index.
+        # v0.8.5 contract: a later substantive auto contends only for the
+        # latest POINTER (which the fresh manual keeps) — it never enters the
+        # history ring. Per-turn Stop autos used to evict real checkpoints
+        # from the 20-slot FIFO within one session.
         hs.write_handoff(
             {
                 "kind": "auto",
@@ -163,8 +165,44 @@ def test_walkup_and_wiring():
         )
         r1 = cg.get_handoff(project_path=proj, index=1)
         check(
-            "handoff_get index=1 reaches the older (auto) handoff",
-            r1.status == "success" and "engine.py" in r1.reasoning,
+            "substantive auto does NOT occupy a ring index (pointer-only)",
+            not (r1.status == "success" and "engine.py" in r1.reasoning),
+        )
+
+        # A second MANUAL does ring-append: index=1 reaches the older manual.
+        cg.create_handoff(
+            summary="Second manual handoff",
+            next_steps=["continue"],
+            context_needed=[],
+            warnings=[],
+            project_path=proj,
+        )
+        r0 = cg.get_handoff(project_path=proj, index=0)
+        r1 = cg.get_handoff(project_path=proj, index=1)
+        check(
+            "newest manual at index 0",
+            r0.status == "success" and "Second manual handoff" in r0.reasoning,
+        )
+        check(
+            "older manual reachable at index=1",
+            r1.status == "success" and "research handoff" in r1.reasoning,
+        )
+
+        # With no manual in scope, the newest auto is still restorable via the
+        # latest-pointer fold-in (the auto fallback survives the new contract).
+        auto_ring = tmp / "autoOnlyRing"
+        hs.write_handoff(
+            {
+                "kind": "auto",
+                "summary": "auto-only fallback",
+                "files_in_progress": ["z.py"],
+            },
+            [auto_ring],
+        )
+        got = hs.read_latest([auto_ring]) or {}
+        check(
+            "auto-only ring still restorable via pointer",
+            got.get("summary") == "auto-only fallback",
         )
 
         # Nearest project beats the shared global slot (#3).
