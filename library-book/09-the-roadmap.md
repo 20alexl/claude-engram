@@ -122,6 +122,18 @@
 | Rule banner deduped vs CLAUDE.md | Rules whose content is already in the project's CLAUDE.md (in context every turn) are suppressed from session-start and post-compact banners — ends the CLAUDE.md / engram-rules / MEMORY.md triple-injection. Rules remain enforced and listable. |
 | Windows embeddings-save fix | `embed_all_memories` held the live mmap returned by the loader while `np.save` targeted the same embeddings.npy — Errno 22 on Windows, silently freezing memory-embedding updates once a store had both existing vectors and pending work. The mmap handle is dropped after rows are copied. |
 
+## Done / Shipped (v0.8.5)
+
+| Feature | Notes |
+|---------|-------|
+| History ring is deliberate-checkpoints-only | Autos (per-turn Stop, pre-compact snapshots) now contend ONLY for the latest pointer — they never enter the 20-slot ring, so they can't evict manual checkpoints (Stop fires every turn; the ring filled with "Session stopped" within one working session). The newest auto stays restorable via the pointer fold-in; the legacy single-slot seed still migrates on any write. |
+| Teaser resolves the RIGHT ring | The SessionStart CHECKPOINT teaser and `checkpoint_restore` used the same selector but read different rings: autos were written to the cwd (workspace root) ring while manual saves went to the sub-project ring, and the candidate walk only goes up. Now: on **resume**, the teaser resolves the project from THIS session's own edited files (concurrency-safe — never "last session"); on a **fresh** start it surfaces the newest MANUAL across the workspace subtree as a labeled breadcrumb, else falls back to the walk-up. |
+| Stop/pre-compact write to the file-resolved project ring | Auto handoffs land in the ring of the sub-project the session actually worked in (majority vote over recent edited files), not the cwd. |
+| Manual checkpoints exempt from the 48h teaser cutoff | A deliberate handoff now gets 14 days in the teaser (restore always found it; the teaser silently dropped it over a weekend). Autos keep 48h. |
+| Teaser label is self-identifying | `CHECKPOINT [manual, 2.1h ago, grommet, task_1782849358]` — kind + project + task_id, so the model can `checkpoint_restore(task_id=…)` exactly what was teased, and a cross-project breadcrumb is obviously not yours. |
+| Subagent stop guard | A hook stop carrying `agent_id` no longer writes the parent project's ring (insurance — engram registers only Stop, but background agents may fire it). |
+| `get_state_file` honors `CLAUDE_ENGRAM_DIR` | The per-session hook-state path was the one storage path still hardcoded to `~/.claude_engram`, breaking the documented test-isolation seam. |
+
 ## What's Next
 
 - [ ] **Formal test suite** — pytest tests for memory, scoring, archiving, hooks, and sub-project resolution. Partially addressed: `bench_handoff_durability.py`, `bench_path_relevance.py`, `bench_migrations.py`, and others in `tests/` cover key behaviors, but full pytest coverage with fixtures and CI integration is still pending.

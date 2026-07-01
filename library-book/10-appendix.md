@@ -240,6 +240,18 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.5 — 2026-06-30
+
+- **Checkpoint-injection fix.** The SessionStart `CHECKPOINT` teaser could surface a trivial per-turn auto ("Session stopped. 2 files edited.") while the substantive manual handoff sat correctly at ring index 0 — the two selectors were identical but read *different rings*: auto handoffs targeted the cwd (workspace root) ring, manual saves the sub-project ring, and the candidate walk only ascends. Six coordinated changes:
+  1. **The history ring is deliberate-checkpoints-only.** Autos contend only for the latest pointer; they never append (Stop fires every turn — per-turn autos evicted real checkpoints from the 20-slot FIFO within one session). Newest auto stays restorable via the pointer fold-in; legacy single-slot seeding preserved on every write.
+  2. **Teaser resolution by session source.** Resume → resolve the project from THIS session's own edited files (captured before the per-session reset; concurrency-safe, never the pooled "last session"). Fresh → newest MANUAL across the workspace subtree as a labeled breadcrumb, else the plain walk-up.
+  3. **Stop + pre-compact autos write to the file-resolved project ring** (majority vote over recent edits), not the cwd.
+  4. **Manuals exempt from the 48h teaser cutoff** (14 days; autos keep 48h) — a weekend away no longer silently expires the handoff you wrote for yourself.
+  5. **Self-identifying teaser label**: kind + sub-project + task_id (`CHECKPOINT [manual, 2.1h ago, grommet, task_…]`) so the model can restore exactly what was teased.
+  6. **Subagent stop guard**: a Stop carrying `agent_id` doesn't write the parent's ring.
+- **Fix: `get_state_file` honors `CLAUDE_ENGRAM_DIR`** — the last storage path hardcoded to `~/.claude_engram`, which broke the documented test-isolation seam for per-session hook state.
+- `bench_handoff_durability` updated to the new ring contract (autos pointer-only; second manual at index 1; auto-only fallback via pointer).
+
 ### v0.8.4 — 2026-06-11
 
 - **Curated-lessons bridge (opt-in).** Dated entries (`YYYY-MM-DD — insight`) in user-curated note files sync as protected `lesson` memories — never archived, decayed, or deduped (the file owns the lifecycle: edits update, removals retire), +0.25 injection bonus, and code-index-joined triggers: a lesson naming a module gains `related_files` = the files importing it, so it surfaces exactly when that code is touched. Strictly opt-in via `config.json` `lessons_globs` (e.g. `["docs/lessons/*.md"]`); the tool ships no default path and never guesses which markdown is a lessons file.

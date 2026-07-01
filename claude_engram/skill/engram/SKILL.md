@@ -100,7 +100,7 @@ context(
 - Scorer server auto-starts on demand (no silent degradation)
 - Session mining runs in background after SessionEnd
 - Bootstrap: first session on new project auto-mines existing history
-- Checkpoints/handoffs are durable: one ring buffer (last 20); trivial auto-handoffs don't clobber a substantive or manual one; manual always wins; retrieve any entry via `checkpoint_restore(index=N)` or browse with `checkpoint_list`
+- Checkpoints/handoffs are durable: the history ring (last 20) holds DELIBERATE manual checkpoints only — per-turn autos contend just for the latest pointer, so they can never evict your saves; manual always wins the teaser (14-day freshness vs 48h for autos); the SessionStart teaser resolves the resumed session's own sub-project and labels entries `[kind, age, project, task_id]` so you can `checkpoint_restore(task_id=...)` exactly what was teased; retrieve any entry via `checkpoint_restore(index=N)` or browse with `checkpoint_list`
 - Checkpoints are per-project (multi-project workspaces don't clobber each other)
 - Subagents: memory injection and output are skipped (saves context), but file edits are still tracked
 - Ollama is optional: only `memory(consolidate)` and `session_mine(reflect)` insight synthesis use it (both background, both degrade silently); `scout_search` uses it when available. Everything else is LLM-free
