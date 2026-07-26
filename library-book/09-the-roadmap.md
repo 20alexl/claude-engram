@@ -122,6 +122,15 @@
 | Rule banner deduped vs CLAUDE.md | Rules whose content is already in the project's CLAUDE.md (in context every turn) are suppressed from session-start and post-compact banners — ends the CLAUDE.md / engram-rules / MEMORY.md triple-injection. Rules remain enforced and listable. |
 | Windows embeddings-save fix | `embed_all_memories` held the live mmap returned by the loader while `np.save` targeted the same embeddings.npy — Errno 22 on Windows, silently freezing memory-embedding updates once a store had both existing vectors and pending work. The mmap handle is dropped after rows are copied. |
 
+## Done / Shipped (v0.8.6)
+
+| Feature | Notes |
+|---------|-------|
+| MCP tools read the live session's state | Working state is keyed by session id, but the MCP server had no id to key on (hooks get theirs from stdin; the server has none), so it read the shared `hook_state.json` the per-session hooks never write — `session_end()` reported a 15-day-old session with 0 files edited. Claude Code 2.1.154+ exports `CLAUDE_CODE_SESSION_ID` to stdio MCP servers; the server adopts it at startup. Scoped to the server on purpose: the scorer daemon serves many sessions from one process and clears the id per request, so an ambient env fallback there would reintroduce cross-session leakage. A stdin-parsed id always wins over the environment. |
+| Session title from a restored checkpoint | Resuming a **manual** checkpoint sets `hookSpecificOutput.sessionTitle` (Claude Code 2.1.152+), so the `claude agents` row reads as the task (`myproj: Migrating auth to OAuth2`). Autos never title — a per-turn "Session stopped. 2 files edited." is not worth a session's name and must not overwrite one you chose. |
+| `CLAUDE_PROJECT_DIR` as the MCP last resort | `deps_map` symbol lookup and `session_end` fell back to the MCP process's cwd — wherever the server was spawned, not your project. Both now defer to `get_project_dir()`, which prefers `CLAUDE_PROJECT_DIR` (now exported to stdio MCP servers). |
+| `bench_session_identity` | 18 checks: identity precedence, the `session_end` regression against a stale-vs-live store, title selection, and the real SessionStart hook subprocess (valid schema; title set for manual, absent for auto). |
+
 ## Done / Shipped (v0.8.5)
 
 | Feature | Notes |

@@ -240,6 +240,16 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.6 — 2026-07-26
+
+- **Fix: MCP tools read the live session's state, not a stale one.** Working state lives in `sessions/<session_id>.json`. Hooks learn that id from their stdin payload, but the MCP server has no stdin, so it fell through to the shared `hook_state.json` — a file the per-session hooks never write. `session_end()` therefore reported whatever was last left in that file: on the reference store, a session that had started 15 days earlier with 0 files edited. Claude Code 2.1.154+ exports `CLAUDE_CODE_SESSION_ID` to stdio MCP servers, so the server now adopts it at startup and MCP-side reads line up with hook-side writes.
+  - Deliberately scoped to the MCP server rather than folded into `get_state_file()`: the scorer daemon serves many sessions from one long-lived process and clears the id between requests, so an ambient environment fallback there would resurrect exactly the cross-session leak that reset prevents. Only a process that maps 1:1 to a session opts in.
+  - Adoption never overrides an id already parsed from stdin — per-call truth beats a process-level variable that outlives any one payload.
+- **Session title from a restored checkpoint** (Claude Code 2.1.152+). Resuming a **manual** checkpoint sets `hookSpecificOutput.sessionTitle`, so the row in `claude agents` reads `myproj: Migrating auth to OAuth2` instead of a generic title. Autos never title — the same deliberate-beats-automatic rule the teaser follows, so "Session stopped. 2 files edited." can never overwrite a name you chose.
+- **`CLAUDE_PROJECT_DIR` as the MCP last resort.** Two MCP paths (`deps_map` symbol lookup, `session_end`) fell back to the server process's cwd — which is wherever Claude Code happened to spawn it, not your project. Both now defer to `get_project_dir()`, which prefers `CLAUDE_PROJECT_DIR` (now exported to stdio MCP servers).
+- **Docs:** a large `session_mine(reindex, mode="bootstrap")` can exceed Claude Code's 2-minute MCP call limit and auto-continue in the background; re-run the query once it settles rather than re-triggering the rebuild.
+- New `tests/bench_session_identity.py` (18 checks): identity precedence (stdin > env > shared fallback), the `session_end` regression against a stale-vs-live store, title selection, and the real SessionStart hook subprocess asserting a valid schema with the title set for manuals and absent for autos.
+
 ### v0.8.5 — 2026-06-30
 
 - **Checkpoint-injection fix.** The SessionStart `CHECKPOINT` teaser could surface a trivial per-turn auto ("Session stopped. 2 files edited.") while the substantive manual handoff sat correctly at ring index 0 — the two selectors were identical but read *different rings*: auto handoffs targeted the cwd (workspace root) ring, manual saves the sub-project ring, and the candidate walk only ascends. Six coordinated changes:

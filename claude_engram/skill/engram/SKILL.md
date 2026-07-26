@@ -9,7 +9,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - Edit/error/decision tracking, loop warnings, compaction survival
 - Session mining: background indexing after every session PLUS debounced live ticks at turn end — search/extractions/code-index stay fresh mid-session (CLAUDE_ENGRAM_LIVE_MINE, default 300s)
 - Embeddings: resident daemon on cpu (zero VRAM parked); bulk jobs (512+ texts) run in a transient GPU worker that exits after the job (CLAUDE_ENGRAM_DEVICE forces one device; status shows the daemon's device)
-- Smart session start: last session context + recurring patterns
+- Smart session start: last session context + recurring patterns; resuming a manual checkpoint also names the session after it, so the `claude agents` row reads as the task
 - Predictive context: related files + likely errors before edits
 - Pre-edit import/export check: proposed imports verified against the per-project code index (AST, LLM-free) — `<engram-precheck>` banner with closest-name suggestions
 - Blast-radius: editing a shared module lists its importers — `<engram-blast-radius>`
@@ -56,7 +56,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(commitments, project_path="...")` — what you said you'd do THIS session and whether it's done; scans the LIVE transcript (deferred open-loops + recent in-flight). Run before asking the user "what next?" or on resume
 - `session_mine(search, query="...", kind="next-step")` — filter hits by kind: decision / next-step / error / narration
 - `session_mine(search, query="...", since="2026-04-01")` — temporal filtering
-- `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results)
+- `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results). On a large history this can exceed Claude Code's 2-minute MCP call limit and auto-continue in the background — the rebuild still finishes; re-run the query after it settles rather than re-triggering the rebuild
 
 ## Context Protection
 Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are primary; `handoff_*` are deprecated aliases.
