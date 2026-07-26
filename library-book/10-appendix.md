@@ -240,6 +240,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.7 — 2026-07-26
+
+- **Removed: session titling from restored checkpoints** (shipped in 0.8.6). SessionStart fires on resume and post-compact too, so the title stomped names the user set with `/rename`; and in a multi-project workspace the restored checkpoint can belong to a *different* sub-project than the session — an engram session came back titled `sabir: …`. The session name belongs to Claude Code and the user; engram never writes it back. `bench_session_identity` now pins the inverse invariant: `session_start_json` emits no `sessionTitle` for any checkpoint kind (10 checks, was 18).
+
 ### v0.8.6 — 2026-07-26
 
 - **Fix: MCP tools read the live session's state, not a stale one.** Working state lives in `sessions/<session_id>.json`. Hooks learn that id from their stdin payload, but the MCP server has no stdin, so it fell through to the shared `hook_state.json` — a file the per-session hooks never write. `session_end()` therefore reported whatever was last left in that file: on the reference store, a session that had started 15 days earlier with 0 files edited. Claude Code 2.1.154+ exports `CLAUDE_CODE_SESSION_ID` to stdio MCP servers, so the server now adopts it at startup and MCP-side reads line up with hook-side writes.

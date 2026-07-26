@@ -721,36 +721,6 @@ def _subtree_manual_handoff(project_dir: str) -> dict:
         return {}
 
 
-def _session_title_from_checkpoint(entry: dict) -> str:
-    """Session title for a restored checkpoint, or "" to leave the title alone.
-
-    Claude Code 2.1.152+ lets a SessionStart hook set hookSpecificOutput.
-    sessionTitle. Only DELIBERATE (manual) checkpoints earn one -- the same rule
-    the teaser follows: a per-turn auto save carries no task worth naming a
-    session after, and titling every startup would overwrite a title the user
-    picked. Prefixed so an engram-set title is recognizable as such.
-    """
-    if not entry or entry.get("kind") != "manual":
-        return ""
-    headline = (entry.get("task_description") or entry.get("summary") or "").strip()
-    if not headline:
-        return ""
-    # First line only: summaries are often multi-sentence, a title is not.
-    headline = headline.splitlines()[0].strip()
-    if not headline:
-        return ""
-    sub = ""
-    files = entry.get("files_in_progress") or entry.get("files_involved") or []
-    if files:
-        try:
-            sub = Path(resolve_project_for_file(files[0])).name
-        except Exception:
-            sub = ""
-    if not sub and entry.get("project_path"):
-        sub = Path(entry["project_path"]).name
-    return f"{sub}: {_truncate(headline, 60)}" if sub else _truncate(headline, 60)
-
-
 def _format_restored_context(entry: dict) -> list[str]:
     """Render a restored checkpoint for the session-start banner. Checkpoints and
     handoffs are one ring construct now, so this shows whichever fields the entry
@@ -3395,15 +3365,11 @@ def main():
                     "additionalContext": "\n".join(lines),
                 }
             }
-            # Name the session after the checkpoint it resumed (Claude Code
-            # 2.1.152+), so the row in `claude agents` reads as the task instead
-            # of a generic title. Manual checkpoints only: the same
-            # deliberate-beats-automatic rule the teaser uses -- a per-turn auto
-            # ("Session stopped. 2 files edited.") is not worth a session's name,
-            # and titling every startup would stomp names the user chose.
-            title = _session_title_from_checkpoint(restored)
-            if title:
-                hook_output["hookSpecificOutput"]["sessionTitle"] = title
+            # Never set hookSpecificOutput.sessionTitle here (tried in 0.8.6,
+            # removed in 0.8.7). The session name belongs to Claude Code and
+            # the user's /rename; this hook also fires on resume, and in a
+            # workspace the restored checkpoint can belong to a different
+            # sub-project than the session it would rename.
             print(json_module.dumps(hook_output))
         except Exception:
             pass

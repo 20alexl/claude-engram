@@ -1,5 +1,5 @@
 """
-Benchmark: session identity + checkpoint-derived session title.
+Benchmark: session identity + the never-title invariant.
 
 Guards two Claude Code integration seams:
 
@@ -11,9 +11,11 @@ Guards two Claude Code integration seams:
      that a stdin id always beats the environment (the scorer daemon serves many
      sessions from one process and re-reads the id per request).
 
-  2. Session title (CC 2.1.152+). A restored DELIBERATE checkpoint names the
-     session; a per-turn auto never does, so engram cannot stomp a title the
-     user chose with "Session stopped. 2 files edited."
+  2. Never-title (0.8.7). session_start_json must not emit
+     hookSpecificOutput.sessionTitle for ANY checkpoint kind. The 0.8.6
+     titling fired on resume too and overwrote /rename, and in a workspace the
+     restored checkpoint can belong to a different sub-project than the
+     session. The session name is Claude Code's; engram never writes it back.
 
 Run: python tests/bench_session_identity.py
 """
@@ -141,43 +143,6 @@ def test_mcp_reads_live_session_state():
                 os.environ["CLAUDE_CODE_SESSION_ID"] = saved_env
 
 
-def test_session_title_unit():
-    print("Session title selection (deliberate only):")
-    from claude_engram.hooks.remind import _session_title_from_checkpoint as title
-
-    check("no entry -> no title", title({}) == "")
-    check(
-        "auto checkpoint -> no title (never stomps a chosen name)",
-        title({"kind": "auto", "summary": "Session stopped. 2 files edited."}) == "",
-    )
-    check(
-        "manual with no text -> no title",
-        title({"kind": "manual", "summary": "   "}) == "",
-    )
-    t = title(
-        {
-            "kind": "manual",
-            "task_description": "Migrating auth to OAuth2",
-            "project_path": "/w/myproj",
-        }
-    )
-    check("manual -> '<project>: <task>'", t == "myproj: Migrating auth to OAuth2")
-    t2 = title(
-        {
-            "kind": "manual",
-            "summary": "First line only\nsecond line dropped",
-            "project_path": "/w/chappie",
-        }
-    )
-    check("multi-line summary -> first line only", t2 == "chappie: First line only")
-    t3 = title({"kind": "manual", "task_description": "x" * 200, "project_path": "/w/p"})
-    check("long task truncated", len(t3) < 80 and t3.endswith("..."))
-    check(
-        "no project -> bare headline",
-        title({"kind": "manual", "task_description": "Standalone"}) == "Standalone",
-    )
-
-
 SEED_SRC = '''
 import time, sys
 from pathlib import Path
@@ -195,16 +160,21 @@ hs.write_handoff(
 '''
 
 
-def test_session_title_through_hook():
-    print("Session title through the real SessionStart hook:")
+def test_hook_never_titles():
+    print("Never-title invariant through the real SessionStart hook:")
     py = sys.executable
     repo = Path(__file__).resolve().parent.parent
 
-    for kind, desc, expect_title in [
-        ("manual", "Migrating auth to OAuth2", True),
-        ("auto", "Session stopped. 2 files edited.", False),
+    # Manual is the kind that titled in 0.8.6 -- the regression case.
+    for kind, desc in [
+        ("manual", "Migrating auth to OAuth2"),
+        ("auto", "Session stopped. 2 files edited."),
     ]:
-        with tempfile.TemporaryDirectory() as td:
+        # ignore_cleanup_errors: the real hook spawns background mining with
+        # cwd inside td; on Windows that child can outlive the with-block and
+        # hold the directory (WinError 32). Checks decide pass/fail, not
+        # teardown.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
             store, project = Path(td) / "store", Path(td) / "proj"
             store.mkdir(parents=True)
             project.mkdir(parents=True)
@@ -244,17 +214,15 @@ def test_session_title_through_hook():
             )
             got = hso.get("sessionTitle")
             check(
-                f"{kind}: sessionTitle {'set' if expect_title else 'absent'}"
-                + (f" ({got!r})" if got else ""),
-                (got is not None) == expect_title,
+                f"{kind}: no sessionTitle ever" + (f" (got {got!r})" if got else ""),
+                got is None,
             )
 
 
 if __name__ == "__main__":
     test_session_identity()
     test_mcp_reads_live_session_state()
-    test_session_title_unit()
-    test_session_title_through_hook()
+    test_hook_never_titles()
     print("-" * 60)
     print(
         f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}"
