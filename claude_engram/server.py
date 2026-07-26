@@ -16,8 +16,14 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from .handlers import Handlers
+from .hooks.remind import adopt_env_session_id
 from .tool_definitions_v2 import TOOL_DEFINITIONS
 
+
+# Claude Code 2.1.154+ hands stdio MCP servers the session id in the
+# environment. Adopt it before anything reads per-session hook state, or tools
+# like session_end report the shared fallback file the hooks never write.
+adopt_env_session_id()
 
 # Initialize handlers (contains all tool instances)
 handlers = Handlers()

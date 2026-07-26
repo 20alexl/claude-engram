@@ -61,7 +61,7 @@ def _read_stdin_with_timeout(timeout_secs: float = 0.5) -> str:
 def _init_session_id() -> None:
     """Parse session_id from the (cached) hook stdin so per-session state files
     don't collide between concurrent sessions. No-op without stdin (e.g. the MCP
-    server), where state falls back to the shared global file."""
+    server, which calls adopt_env_session_id instead)."""
     global _session_id
     try:
         raw = _read_stdin_with_timeout(0.5)
@@ -71,6 +71,38 @@ def _init_session_id() -> None:
                 _session_id = str(sid)
     except Exception:
         pass
+
+
+def adopt_env_session_id() -> str:
+    """Adopt the session id Claude Code exports to stdio MCP subprocesses.
+
+    Claude Code 2.1.154+ puts CLAUDE_CODE_SESSION_ID in the environment of stdio
+    MCP servers (matching hooks and Bash). The MCP server has no hook stdin to
+    parse, so before this it fell through to the shared hook_state.json -- a file
+    the per-session hooks never write -- and reported a stale session's stats.
+
+    Deliberately NOT folded into get_state_file(): the scorer daemon serves many
+    sessions from one long-lived process and clears _session_id between requests,
+    so an ambient env fallback there would resurrect exactly the cross-session
+    leak that reset exists to prevent. Only the MCP server, whose process maps
+    1:1 to a session, opts in.
+
+    Fills in only when no id is already known: a stdin-derived id is per-call
+    truth, while the environment is process-level and outlives any one payload,
+    so stdin always wins. That also makes this idempotent and order-independent.
+
+    Returns the effective id, or "" when the variable is unset (older Claude
+    Code) -- in which case the shared-file fallback still applies."""
+    global _session_id
+    if _session_id:
+        return _session_id
+    try:
+        sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+        if sid:
+            _session_id = sid
+    except Exception:
+        pass
+    return _session_id
 
 
 # NOTE: habit tracker imports REMOVED - habit tools removed as noisy
@@ -85,10 +117,12 @@ def get_state_file() -> Path:
     """Path to the per-session hook-state file.
 
     Keyed by the Claude Code session_id so two sessions launched from the same
-    workspace don't clobber each other's working state. Falls back to the shared
-    hook_state.json when no session id is known -- e.g. the MCP server, which
-    Claude Code does not hand a session id. Honors CLAUDE_ENGRAM_DIR (the
-    documented test-isolation seam) like every other storage path."""
+    workspace don't clobber each other's working state. Hooks learn the id from
+    stdin (_init_session_id); the MCP server adopts it from the environment
+    (adopt_env_session_id). Falls back to the shared hook_state.json only when
+    no id is available at all -- an older Claude Code, or an out-of-band caller.
+    Honors CLAUDE_ENGRAM_DIR (the documented test-isolation seam) like every
+    other storage path."""
     base = get_engram_storage_dir()
     if _session_id:
         return base / "sessions" / f"{_session_id}.json"
@@ -685,6 +719,36 @@ def _subtree_manual_handoff(project_dir: str) -> dict:
         return {}
     except Exception:
         return {}
+
+
+def _session_title_from_checkpoint(entry: dict) -> str:
+    """Session title for a restored checkpoint, or "" to leave the title alone.
+
+    Claude Code 2.1.152+ lets a SessionStart hook set hookSpecificOutput.
+    sessionTitle. Only DELIBERATE (manual) checkpoints earn one -- the same rule
+    the teaser follows: a per-turn auto save carries no task worth naming a
+    session after, and titling every startup would overwrite a title the user
+    picked. Prefixed so an engram-set title is recognizable as such.
+    """
+    if not entry or entry.get("kind") != "manual":
+        return ""
+    headline = (entry.get("task_description") or entry.get("summary") or "").strip()
+    if not headline:
+        return ""
+    # First line only: summaries are often multi-sentence, a title is not.
+    headline = headline.splitlines()[0].strip()
+    if not headline:
+        return ""
+    sub = ""
+    files = entry.get("files_in_progress") or entry.get("files_involved") or []
+    if files:
+        try:
+            sub = Path(resolve_project_for_file(files[0])).name
+        except Exception:
+            sub = ""
+    if not sub and entry.get("project_path"):
+        sub = Path(entry["project_path"]).name
+    return f"{sub}: {_truncate(headline, 60)}" if sub else _truncate(headline, 60)
 
 
 def _format_restored_context(entry: dict) -> list[str]:
@@ -3331,6 +3395,15 @@ def main():
                     "additionalContext": "\n".join(lines),
                 }
             }
+            # Name the session after the checkpoint it resumed (Claude Code
+            # 2.1.152+), so the row in `claude agents` reads as the task instead
+            # of a generic title. Manual checkpoints only: the same
+            # deliberate-beats-automatic rule the teaser uses -- a per-turn auto
+            # ("Session stopped. 2 files edited.") is not worth a session's name,
+            # and titling every startup would stomp names the user chose.
+            title = _session_title_from_checkpoint(restored)
+            if title:
+                hook_output["hookSpecificOutput"]["sessionTitle"] = title
             print(json_module.dumps(hook_output))
         except Exception:
             pass

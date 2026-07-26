@@ -511,16 +511,19 @@ class Handlers:
         Reads the same index the pre-edit hook uses (no build, no LLM):
         defining module(s), file, signature, and reverse-import blast radius.
         """
-        import os
         from pathlib import Path
 
+        from claude_engram.hooks.paths import get_project_dir
         from claude_engram.mining.code_index import resolve_code_index
 
+        # get_project_dir() prefers CLAUDE_PROJECT_DIR, which Claude Code now
+        # exports to stdio MCP servers too -- a truer last resort than the MCP
+        # process's cwd, which is wherever the server happened to be spawned.
         base = (
             project_root
             or (str(Path(file_path).parent) if file_path else "")
             or self._last_project_path
-            or os.getcwd()
+            or get_project_dir()
         )
         idx = resolve_code_index(base)
         if idx is None:
@@ -710,9 +713,14 @@ class Handlers:
         """
         from pathlib import Path
 
-        # Use last session's project_path if not provided (true zero friction)
+        # Use last session's project_path if not provided (true zero friction).
+        # With no prior tool call in this MCP process there is no "last" path, so
+        # fall back to CLAUDE_PROJECT_DIR (exported to stdio MCP servers) rather
+        # than reporting on nothing.
         if not project_path:
-            project_path = self._last_project_path
+            from claude_engram.hooks.paths import get_project_dir
+
+            project_path = self._last_project_path or get_project_dir()
 
         work_log = WorkLog()
         work_log.what_i_tried.append("Ending session")
