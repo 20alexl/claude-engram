@@ -3,9 +3,11 @@
 Claude Engram Installer
 
 Sets up Claude Engram for use with Claude Code:
-1. Creates virtual environment (if needed)
-2. Installs the claude_engram package
-3. Shows how to enable in your projects
+1. Installs the claude_engram package (editable)
+2. Installs lifecycle hooks into ~/.claude/settings.json (merge, never clobber)
+3. Creates .mcp.json for the MCP server
+4. Installs the /engram skill to ~/.claude/skills/engram/
+5. Runs data migrations for existing stores
 
 Usage:
   cd claude-engram
@@ -17,11 +19,11 @@ Usage:
 Requirements:
   - Python 3.10+
   - Claude Code (CLI, desktop app, or IDE extension)
-  - Ollama (optional — only needed for semantic search and code analysis)
+  - Ollama (optional — only used by scout_search, memory(consolidate), and
+    session_mine(reflect) insight synthesis; everything else is LLM-free)
 """
 
 import json
-import os
 import platform
 import subprocess
 import sys
@@ -129,31 +131,6 @@ def create_launcher_script():
             launcher.write_text(launcher_content)
             launcher.chmod(0o755)
             return str(launcher)
-        except Exception:
-            return None
-
-
-def create_hook_launcher_script():
-    """Create a hook launcher script that handles paths with spaces."""
-    script_dir = Path(__file__).parent.resolve()
-    scripts_dir = script_dir / "scripts"
-    scripts_dir.mkdir(exist_ok=True)
-
-    if is_windows():
-        hook_launcher = scripts_dir / "run_hook.bat"
-        hook_content = '@echo off\nset "SCRIPT_DIR=%%~dp0"\n"%%SCRIPT_DIR%%..\\venv\\Scripts\\python.exe" -m claude_engram.hooks.remind %%*\n'
-        try:
-            hook_launcher.write_text(hook_content.replace("%%", "%"))
-            return str(hook_launcher)
-        except Exception:
-            return None
-    else:
-        hook_launcher = scripts_dir / "run_hook.sh"
-        hook_content = '#!/bin/bash\nSCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n"${SCRIPT_DIR}/../venv/bin/python" -m claude_engram.hooks.remind "$@"\n'
-        try:
-            hook_launcher.write_text(hook_content)
-            hook_launcher.chmod(0o755)
-            return str(hook_launcher)
         except Exception:
             return None
 
@@ -409,28 +386,13 @@ def create_project_mcp_config(target_dir: Path):
         return False, str(e)
 
 
-def copy_claude_md(target_dir: Path):
-    """Copy engram docs as CLAUDE-ENGRAM.md (won't clobber user's CLAUDE.md)."""
-    script_dir = Path(__file__).parent.resolve()
-    source = script_dir / "CLAUDE.md"
-    target = target_dir / "CLAUDE-ENGRAM.md"
-
-    if not source.exists():
-        return False, "CLAUDE.md not found in claude_engram repo"
-
-    if target.exists():
-        return False, "CLAUDE-ENGRAM.md already exists (not overwriting)"
-
-    try:
-        content = source.read_text()
-        target.write_text(content)
-        return True, str(target)
-    except Exception as e:
-        return False, str(e)
-
-
 def setup_project(target_dir: str):
-    """Set up Claude Engram for a specific project."""
+    """Set up Claude Engram for a specific project.
+
+    Only .mcp.json is needed per project. Reference docs ship as the /engram
+    skill (installed once to ~/.claude/skills/engram/), so nothing is copied
+    into the project anymore.
+    """
     target = Path(target_dir).resolve()
 
     if not target.exists():
@@ -445,13 +407,6 @@ def setup_project(target_dir: str):
     else:
         print_error(f"Failed to create .mcp.json: {result}")
         return False, result
-
-    # Copy CLAUDE.md
-    success, result = copy_claude_md(target)
-    if success:
-        print_success(f"Created {result}")
-    else:
-        print_warning(result)
 
     return True, None
 
@@ -481,18 +436,16 @@ def main():
         print("\n  Then run this script again.")
         return 1
 
-    # Step 2: Check Ollama
-    print_step(2, total_steps, "Checking Ollama...")
+    # Step 2: Check Ollama (optional dependency — never gates the install)
+    print_step(2, total_steps, "Checking Ollama (optional)...")
     if check_ollama():
         print_success("Ollama is running")
     else:
-        print_error("Ollama is not running")
-        print("  Please start Ollama and pull the model:")
-        print("    ollama serve")
-        print("    ollama pull gemma3:12b")
-        response = input("\n  Continue anyway? (y/n): ")
-        if response.lower() != "y":
-            return 1
+        print_warning(
+            "Ollama not detected — fine. Only scout_search, memory(consolidate), "
+            "and session_mine(reflect) synthesis use it; they degrade silently."
+        )
+        print("  To enable those later:  ollama serve && ollama pull gemma3:12b")
 
     # Step 3: Install package
     print_step(3, total_steps, "Installing claude_engram package...")
@@ -505,7 +458,7 @@ def main():
         else:
             print_error(f"Failed to install package: {error}")
             print("\n  Try manually:")
-            print(f"    pip install -e \"{script_dir / 'claude_engram'}\"")
+            print(f'    pip install -e "{script_dir}"')
             return 1
 
     # Step 4: Create memory directory
@@ -513,19 +466,13 @@ def main():
     memory_dir = create_memory_dir()
     print_success(f"Memory directory: {memory_dir}")
 
-    # Step 4b: Create launcher scripts
-    print("  Creating launcher scripts...")
+    # Step 4b: Create the server launcher (fallback for .mcp.json when no venv)
+    print("  Creating server launcher script...")
     launcher = create_launcher_script()
     if launcher:
         print_success(f"Server launcher: {launcher}")
     else:
         print_warning("Could not create server launcher script")
-
-    hook_launcher = create_hook_launcher_script()
-    if hook_launcher:
-        print_success(f"Hook launcher: {hook_launcher}")
-    else:
-        print_warning("Could not create hook launcher script")
 
     # Step 5: Install hooks to ~/.claude/settings.json
     print_step(5, total_steps, "Installing enforcement hooks...")
@@ -619,7 +566,7 @@ def main():
 
     print("\nOption 2: Run setup command")
     print("  python install.py --setup /path/to/your/project")
-    print("  This creates .mcp.json and copies engram docs as CLAUDE-ENGRAM.md.")
+    print("  This creates .mcp.json in the project root.")
 
     print("\nOption 3: Create .mcp.json manually")
     print("  Create a file named .mcp.json in your project root with:")
@@ -688,9 +635,9 @@ def main_with_args():
         success, error = setup_project(target_dir)
         if success:
             print("\nSetup complete!")
-            print("1. Open the project in VSCode")
-            print("2. Start Claude Code")
-            print("3. Approve the claude-engram MCP server when prompted")
+            print("1. Open the project in Claude Code (CLI, desktop, or IDE)")
+            print("2. Approve the claude-engram MCP server when prompted")
+            print("3. Hooks and the /engram skill are global — nothing else to do")
             return 0
         else:
             return 1

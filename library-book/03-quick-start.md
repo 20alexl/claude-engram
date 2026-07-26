@@ -69,16 +69,17 @@ python -m claude_engram.hooks.remind prompt_json < /dev/null
 python install.py --setup /path/to/your/project
 
 # Option 2: Manual
-# Copy .mcp.json and CLAUDE.md to your project root
+# Copy .mcp.json to your project root — the only per-project file.
+# (Hooks and the /engram skill are global; nothing else gets copied in.)
 ```
 
 ## Common Setup Issues
 
 | Issue | Fix |
 |-------|-----|
-| `ModuleNotFoundError: claude_engram` | Activate the venv: `source claude_engram/venv/bin/activate` |
+| `ModuleNotFoundError: claude_engram` | Activate the venv: `source claude-engram/venv/bin/activate` |
 | MCP server not showing in Claude Code | Restart Claude Code. Check `.mcp.json` exists in project root. |
-| Ollama connection refused | Start Ollama: `ollama serve` |
+| Ollama connection refused | Optional — only `scout_search` / `consolidate` / `reflect` use it. To enable: `ollama serve` |
 | Hooks not firing | Run `python install.py` to reinstall hooks to `~/.claude/settings.json` |
 | `sentence-transformers` not found | Install with: `pip install -e ".[semantic]"` (optional, regex fallback works) |
 

@@ -1,103 +1,61 @@
 # Claude Engram
 
-Persistent memory and session intelligence for AI coding assistants. Hooks into Claude Code's lifecycle to auto-track mistakes, decisions, and context — then mines your full session history to surface patterns, predict what you'll need, and search across everything you've ever discussed.
+Persistent memory and session intelligence for Claude Code. Hooks into the session lifecycle to auto-track mistakes, decisions, and context — then mines your full session history so past work resurfaces exactly when it's relevant.
 
 Zero manual effort. Works with any MCP-compatible client.
 
 ## What It Does
 
-**Automatic (hooks — zero invocation):**
-- Tracks every edit, error, test result, and session event
-- Auto-captures decisions from your prompts ("let's use X", "switch to Y")
-- Injects the 3 most relevant memories before every file edit
-- Orients before file reads: code-index summary (what the module is, who imports it) + that file's past mistakes, once per file per session
-- Warns when you're about to repeat a past mistake
-- Error deja-vu: when a failure matches a known recurring error, the past fix is injected inline at failure time ("you hit this in 3 sessions — fix was X")
-- Surfaces the project's known-good test commands at session start (tracked from runs that actually passed)
-- Opt-in lessons bridge: dated entries in your curated notes files sync as protected memories that resurface when you edit related code (set `lessons_globs` in `~/.claude_engram/config.json`, e.g. `["docs/lessons/*.md"]` — no default path)
-- TDD-aware error capture: failing test runs are tracked as test results, not logged as mistakes — deliberate RED-phase failures stop polluting the mistake store
-- Detects edit loops (same file 3+ times without progress) — tracked in per-session hook state, so two concurrent sessions never cross-contaminate
-- Survives context compaction — checkpoints before, re-injects after
-- Mines your session history in the background after every session — and live during it: debounced ticks at turn end keep search, extractions, and code indexes fresh mid-session
-- Verifies imports in proposed edits against a per-project code index (AST, no LLM) — `<engram-precheck>` with closest-name suggestions
-- Shows blast radius before editing a shared module — lists its importers (`<engram-blast-radius>`)
-- Measures injection precision — tracks which injected context precedes passing tests (view via `session_mine(reflect)`) — and feeds it back: a bounded per-kind multiplier (0.8-1.2) tunes how eagerly memories inject
+Everything below is automatic (hooks) unless marked as a tool:
 
-**Session Mining (automatic, background):**
-- Parses Claude Code's full conversation logs (JSONL) after every session — including subagent conversations (Explore, Plan, code-reviewer, etc.)
-- Extracts decisions, mistakes, approaches, and user corrections using structural analysis + semantic scoring (typo-tolerant)
-- Builds a searchable index across all past conversations (20k+ chunks with subagents)
-- Detects recurring struggles, error patterns, and file edit correlations — attributed to sub-projects (a session in project A never sees project B's errors at startup), recency-decayed (errors quiet for 30 days drop out), and causally attributed (a "struggle" requires errors traced to the file, not just edits in error-containing sessions)
-- Predicts what files and context you'll need before edits
-- Logs which injected context precedes passing tests; `session_mine(reflect)` reports that precision + LLM-synthesized patterns
-- On first install, retroactively mines your entire session history
+- Tracks every edit, error, test result, and session event; captures decisions straight from your prompts ("let's use X")
+- Injects the 3 most relevant memories before each file edit; warns before you repeat a past mistake
+- Error deja-vu: a failure matching a known recurring error gets the past fix injected at failure time
+- Verifies imports and shows blast radius before edits, and orients before reads — all from a per-project code index (AST, no LLM)
+- Lists the project's known-good test commands at session start
+- Survives compaction: checkpoint before, re-inject after; deliberate checkpoints live in a durable per-project ring
+- Mines your full history in the background (and live, mid-session): decisions, mistakes, recurring struggles — searchable across everything you've ever discussed, scoped to the right sub-project
+- Stays honest: failing TDD runs aren't logged as mistakes, edit loops get flagged, subagents are tracked without wasting their context
+- **Tools** (on demand): `memory`, `session_mine`, `work`, `context` checkpoints, `deps_map`, `impact_analyze`, `scout_search` — all annotated read-only/idempotent where true. `/engram` loads the full reference.
 
-**On-demand (MCP tools):**
-- `memory` — store, search, archive, and manage memories
-- `session_mine` — search past conversations (taggable by kind: decision / next-step / error), find decisions, replay file history, detect patterns, and surface what you said you'd do this session (`commitments`)
-- `work` — log decisions and mistakes with reasoning
-- Plus: scope guard, context checkpoints (`checkpoint_save/restore/list`; `handoff_*` are deprecated aliases), convention tracking, impact analysis, symbol lookup (`deps_map(symbol="X")` — defining file, signature, importers from the code index)
+## How to Use It Effectively
 
-All MCP tools carry annotations (read-only / idempotent hints + a title), so clients and permission systems know which are safe to call without a prompt.
+From the author — mostly it just works in the background. The few things worth doing on purpose:
 
-## A Note From the Author
+- **Pull `/engram`** when you want Claude to actively reach for the tools (background tracking happens either way).
+- Half-remember something from weeks ago? Ask Claude to **mine the sessions** for it — it searches everything, not just what's in context.
+- Something it should never forget → save it as a **rule**. Per-project rules stay local; rules at your workspace root cascade to every project under it.
+- Before compacting, it auto-checkpoints — but a **manual checkpoint** with what you're doing and what's left resumes far cleaner. Deliberate saves always beat automatic ones.
+- On return, ask **what you said you'd do this session** (`session_mine(commitments)`) — a quick, best-effort reorient from the live transcript.
 
-How I actually use it, since I built it:
-
-Mostly it just works in the background — you don't have to think about it. The few things worth doing on purpose:
-
-- **Pull `/engram`** when you want Claude to actively reach for the tools — the command loads the reference so Claude knows what's there and uses it. (Background tracking happens either way; this is for the on-demand stuff.)
-- When you half-remember something from a while back ("what did we decide about X?"), ask Claude to mine the sessions for it — it searches *everything* you've ever discussed, not just what's in context.
-- If there's something it should never forget, save it as a **rule**. Rules are scoped: a **per-project** rule applies to that project; a **global** one (saved at your workspace root) cascades down to every project under it. Broad conventions → global, project-specific → per-project.
-- Before compacting, it auto-saves a checkpoint — but I make one with what I'm doing + what's left and ask it to pull that back up after. Resumes a lot cleaner.
-- When you come back, ask what you said you'd do this session — it skims the live conversation for open loops vs. what's done. It's a best-effort read (not a perfect list), but a quick way to reorient.
-
-The less you poke at it, the better it works.
-
-This is a work in progress — if something's off or you hit a bug, please open an issue.
+The less you poke at it, the better it works. Work in progress — issues welcome.
 
 ## How It Works
 
 ```
 Claude Code
     |
-    +-- Hooks (remind.py)                    <- Intercepts every tool call
-    |   SessionStart / Edit / Bash / Error / Compact / Stop
-    |
-    +-- Session Mining (mining/)             <- Background intelligence
-    |   JSONL parser -> Extractors -> Search index -> Pattern detection
-    |
-    +-- MCP Server (server.py)              <- Tools for manual operations
-    |   memory, session_mine, work, scope, context, ...
-    |
-    +-- Scorer/Hook Daemon (scorer_server.py) <- Persistent encoder + warm hook dispatch
-        TCP localhost, cpu-resident (~1.1GB RAM, zero VRAM parked); bulk
-        embedding jobs run in a transient GPU worker (embed_worker.py)
-        that loads, encodes, exits - full VRAM release
-        High-frequency hooks run as thin clients (one round trip, full
-        in-process fallback when the daemon is down)
+    +-- Hooks (remind.py)          <- intercept every tool call (1-2s budget)
+    +-- Session mining (mining/)   <- background + live-tick intelligence
+    +-- MCP server (server.py)     <- on-demand tools
+    +-- Scorer daemon              <- warm encoder + hook dispatch, cpu-resident;
+                                      bulk embeddings in a transient GPU worker
 ```
-
-Hooks fire on every tool call (1-2s budget each). Heavy processing happens in a background subprocess after session end. The scorer server stays loaded in memory for fast semantic scoring.
 
 ## Benchmarks
 
 **Retrieval (recall@k):** LongMemEval 0.966 R@5 / 0.982 R@10 (500 questions), ConvoMem 0.960 (250 items), LoCoMo 0.649 R@10 (~2k questions); ~43ms/query, 112ms cross-session over 7,310 chunks.
 
-**Product behavior:** eight integration suites green — decision capture (97.8% precision), error auto-capture (100% recall), compaction survival (6/6), multi-project isolation (11/11), edit-loop detection (12/12), session mining (27/27), Obsidian-vault compat (25/25).
+**Product behavior:** integration suites green — decision capture (97.8% precision), error auto-capture (100% recall), compaction survival (6/6), multi-project isolation (11/11), edit-loop detection (12/12), session mining (64/64), Obsidian-vault compat (25/25).
 
-Full tables and the `tests/bench_*.py` reproduction commands are in the **[library-book](./library-book/)**.
+Full tables and reproduction commands: **[library-book](./library-book/)**.
 
 ## Compatibility
 
 | Platform | What Works | Auto-Capture |
 |---|---|---|
 | **Claude Code** (CLI, desktop, VS Code, JetBrains) | Everything | Full — hooks + session mining |
-| **Cursor** | MCP tools (memory, search, etc.) | No hooks |
-| **Windsurf** | MCP tools | No hooks |
-| **Continue.dev** | MCP tools | No hooks |
-| **Zed** | MCP tools | No hooks |
-| **Any MCP client** | MCP tools | No hooks |
+| **Cursor / Windsurf / Continue.dev / Zed / any MCP client** | MCP tools | No hooks |
 | **Obsidian vaults** | Full (with CLAUDE.md at root) | Full with Claude Code |
 
 ## Install
@@ -111,7 +69,7 @@ source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -e .                # Core
 pip install -e ".[semantic]"    # + embedding model for vector search and semantic scoring
 
-python install.py               # Configure hooks, MCP server, and /engram skill
+python install.py               # Hooks, MCP server, /engram skill, migrations
 ```
 
 ### Per-Project Setup
@@ -120,9 +78,7 @@ python install.py               # Configure hooks, MCP server, and /engram skill
 python install.py --setup /path/to/your/project
 ```
 
-Or copy `.mcp.json` to your project root.
-
-**Note:** The `CLAUDE.md` in this repo is engram-specific documentation — it's not required for engram to work. Hooks fire automatically and the `/engram` skill provides a quick reference on demand. If you already have a `CLAUDE.md` for your project, keep it as-is and don't copy ours over it. If you want engram docs alongside your project rules, rename it to `CLAUDE-ENGRAM.md` (or similar) so it doesn't clobber your existing file — Claude will see it when relevant.
+Or copy `.mcp.json` to your project root. That's the only per-project file — hooks and the `/engram` skill are global. (The `CLAUDE.md` in this repo documents engram for people working *on* engram; your projects don't need it.)
 
 ### Updating
 
@@ -133,59 +89,49 @@ pip install -e ".[semantic]"    # Reinstall if dependencies changed
 python install.py               # Re-run to update hooks and /engram skill
 ```
 
-Hooks and MCP tools pick up code changes immediately (editable install). Reconnect the MCP server in Claude Code (`/mcp`) to reload the server process.
-
-Data migrations run automatically: a cheap inline check fires on the next SessionStart, and a full migration runs in the background. `install.py` also runs migrations synchronously (step 9). Migrations are forward-only, idempotent, and downgrade-safe — no data is lost.
+Hooks pick up code changes immediately (editable install); reconnect the MCP server (`/mcp`) to reload it. Data migrations run automatically and are forward-only, idempotent, and downgrade-safe.
 
 ### Mid-Project Adoption
 
-Already deep in a project? Install normally. On first session, engram auto-detects your existing Claude Code session history and mines it in the background — extracting decisions, mistakes, and patterns from all past conversations. No manual effort.
-
-## Key Features
-
-**Memory** — hybrid search (keyword + vector + rerank, no ChromaDB); path-aware scored injection (top 3 by file/tags/recency/importance, with age shown); tiered hot/cold storage (rules and manual mistakes never archive; stale auto-captured one-off mistakes self-archive to keep banners high-signal); per-sub-project scoping with cascading workspace rules.
-
-**Session mining** — structural extraction (conversation flow, not template matching) over conversation *and* tool content; cross-session semantic/keyword/hybrid search, typed by kind (decision / next-step / error) and filterable; `session_mine(commitments)` reads the *live* transcript for open loops the post-session index can't see; pattern detection, predictive context, cross-project learning; retroactive bootstrap on first install.
-
-**Lifecycle** — auto-captured decisions + mistakes; survives compaction (per-project checkpoints in a durable ring); edit-loop detection; subagent-aware; automatic, idempotent, downgrade-safe migrations on upgrade.
-
-Internals, the full feature list, gotchas, and API reference live in the **[library-book](./library-book/)**.
+Install normally. On first session, engram detects your existing Claude Code history and mines it in the background — decisions, mistakes, and patterns from every past conversation.
 
 ## Configuration
 
+All optional. Deep detail on each lives in the [library-book](./library-book/).
+
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model — optional. Used only by `scout_search`, `memory(consolidate)`, and `session_mine(reflect)` insight synthesis |
-| `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (~440MB on first use, ~1.1GB scorer RAM). Decision-capture semantic F1 measured 37.7% (`all-MiniLM-L6-v2`) vs 72.7% (default). Set `all-MiniLM-L6-v2` for a ~90MB lightweight setup. `google/embeddinggemma-300m` scores 67.3% but is license-gated (HF account + token + `sentence-transformers>=5`). Also settable via `embed_model` in `~/.claude_engram/config.json` |
-| `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for embeddinggemma). Embedding stores are signature-stamped: changing the model rebuilds them automatically, never mixes vector spaces |
-| `CLAUDE_ENGRAM_DEVICE` | smart | Embedding device policy. Unset: the resident daemon and in-process fallbacks stay on `cpu` (nothing parks VRAM); big embedding jobs run in a **transient GPU worker** that loads, encodes, and exits — full VRAM release, when a CUDA torch is installed (`pip install torch --index-url https://download.pytorch.org/whl/cu128`). Set `cuda` or `cpu` to force everything onto one device. Vectors are device-identical — switching never rebuilds stores |
-| `CLAUDE_ENGRAM_GPU_BULK_MIN` | `512` | Job size (texts) at which bulk embedding routes to the transient GPU worker instead of the resident daemon |
-| `CLAUDE_ENGRAM_LIVE_MINE` | `300` | Live mining tick interval in seconds — at most one incremental mine per interval, triggered at turn end, keeps search/extractions/code-index fresh during long sessions. `0`/`off` disables (mining then happens only at SessionEnd) |
+| `CLAUDE_ENGRAM_MODEL` | `gemma3:12b` | Ollama model — only `scout_search`, `memory(consolidate)`, `session_mine(reflect)` use it |
+| `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | Embedding model (~1.1GB scorer RAM). `all-MiniLM-L6-v2` for a ~90MB setup at lower accuracy |
+| `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim. Stores are signature-stamped — model changes rebuild them automatically |
+| `CLAUDE_ENGRAM_DEVICE` | smart | Unset: daemon stays on cpu, bulk jobs use a transient GPU worker (full VRAM release). `cuda`/`cpu` forces one device |
+| `CLAUDE_ENGRAM_GPU_BULK_MIN` | `512` | Job size (texts) that routes to the GPU worker |
+| `CLAUDE_ENGRAM_LIVE_MINE` | `300` | Live mining tick interval (seconds); `0` disables |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `14` | Days until inactive memories archive |
-| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Embedding server idle timeout (seconds) |
-| `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Override the storage location (also the test-isolation seam) |
-| `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search embedding shards older than N days |
-| `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | If set, the Read hook mirrors the last-read file path to this file (statusline integration) |
-| `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | Set to `1` to print a stderr breadcrumb per hook (daemon vs fallback) |
+| `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer daemon idle timeout (seconds) |
+| `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Storage location (also the test-isolation seam) |
+| `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search shards older than N days |
+| `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | Mirror last-read file path to this file (statusline integration) |
+| `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | `1` prints a stderr breadcrumb per hook |
+
+`~/.claude_engram/config.json` additionally accepts `embed_model`, `embed_dim`, and `lessons_globs` (opt-in lessons bridge: globs of curated markdown whose dated entries sync as protected memories).
 
 ## Reindexing
 
-If search quality is poor or you want to rebuild after an update:
+If search quality degrades or after a big update:
 
 ```bash
 python scripts/reindex.py "/path/to/your/workspace" --force            # rebuild search index
-python scripts/reindex.py "/path/to/your/workspace" --force --extract   # also re-extract decisions/mistakes
+python scripts/reindex.py "/path/to/your/workspace" --force --extract  # also re-extract decisions/mistakes
 ```
 
 Or via MCP: `session_mine(operation="reindex", mode="bootstrap")`
 
-Beyond environment variables, `~/.claude_engram/config.json` accepts: `embed_model`, `embed_dim`, and `lessons_globs` (opt-in lessons bridge — list of globs relative to each project root whose dated markdown entries sync as protected memories).
-
 ## Documentation
 
-**[Library Book](./library-book/)** — design philosophy, internals, full usage guide, API reference, gotchas, and changelog.
+**[Library Book](./library-book/)** — design, internals, full usage guide, API reference, gotchas, changelog.
 
-**`/engram`** — slash command with quick tool reference (installed by `install.py`).
+**`/engram`** — quick tool reference (installed by `install.py`).
 
 ## License
 
