@@ -240,6 +240,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.11 — 2026-07-26
+
+- **The hot tier could not shrink: two constants collided.** The miner mints auto-captured decisions with a hardcoded `relevance=7` (`extractors.py`, `work_tracker.py`), and `_is_archivable` exempted anything with `relevance >= 7`. Every auto-captured decision was therefore born permanently exempt from age-archiving. On the reference store that left **231 decisions untouched for over two weeks and still un-archivable**, with relevance taking exactly two values across all 444 (417 at 7, 27 at 6) — a constant, not a judgment.
+  - The exemption is now `ARCHIVE_EXEMPT_RELEVANCE = 8`, a named constant documented as *"must stay above every default"*: manual `remember` is 5, auto-decisions are 7, rules are 9 and exempt by category anyway. It now means "someone marked this important" instead of "it exists". Injection scoring is untouched — relevance still carries its 15% weight, so what gets injected does not change.
+  - This is the real cause of unbounded hot growth, not a missing consolidator. `cleanup` was correct to report zero: it removes near-duplicates (0.85 similarity — the same memory stored twice), which is a different job.
+  - New `tests/bench_archive_exemption.py` (12 checks). Beyond the regression itself it pins the *property*: it parses the real mint sites with `ast` and fails if any age-eligible hardcoded relevance ever reaches the exemption again. Written with `ast` rather than regex because the two kwargs appear in either order, and a "nearest preceding `category=`" heuristic mis-attributed a call that passed `relevance` first.
+
 ### v0.8.10 — 2026-07-26
 
 - **One name per concept on the ring record.** Every checkpoint written to the ring carried both vocabularies — the checkpoint one (`pending_steps`, `files_involved`, `handoff_warnings`, `handoff_context_needed`, `key_decisions`, `timestamp`) and the handoff one (`next_steps`, `files_in_progress`, `warnings`, `context_needed`, `decisions`, `created`). Audited before changing anything: across the 129 stored records carrying both, all six pairs were identical in **every single record**. The checkpoint twin is no longer written.

@@ -27,6 +27,17 @@ from collections import defaultdict
 from pydantic import BaseModel, Field
 
 
+# Relevance at or above this never ages out of the hot tier, however long it
+# sits untouched. It must stay ABOVE every default, or the exemption stops
+# meaning "someone marked this important" and starts meaning "it exists":
+# manual remember defaults to 5, and the miner mints auto-captured decisions at
+# a hardcoded 7. While this was 7, every auto-captured decision was born
+# permanently exempt — 231 of them on the reference store had gone untouched
+# for over two weeks and still could not be archived. Rules use 9 and are
+# exempt by category anyway.
+ARCHIVE_EXEMPT_RELEVANCE = 8
+
+
 class MemoryEntry(BaseModel):
     """A single memory entry with smart features."""
 
@@ -2077,8 +2088,8 @@ class MemoryStore:
         # their source file; mistake hygiene has its own narrow gate)
         if entry.category in ("rule", "mistake", "lesson"):
             return False
-        # High relevance entries stay hot longer
-        if entry.relevance >= 7:
+        # High relevance entries stay hot longer.
+        if entry.relevance >= ARCHIVE_EXEMPT_RELEVANCE:
             return False
         age_days = (time.time() - entry.last_accessed) / 86400
         return age_days > self.archive_after_days

@@ -167,7 +167,7 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 - **Hot tier** (`memory.json`) - Rules, mistakes, recent memories. Loaded by hooks on every tool call.
 - **Cold tier** (`archive.json`) - Old inactive memories. Searchable, restorable, never loaded on hot path.
 - Memories auto-archive after 14 days without access (configurable: `CLAUDE_ENGRAM_ARCHIVE_DAYS`).
-- Rules never archive. Mistakes: manual ones never; auto-captured one-offs that went stale (3+ weeks, never recurred, away from current work) are archived by the background miner. High-relevance (7+) memories stay hot longer.
+- Rules never archive. Mistakes: manual ones never; auto-captured one-offs that went stale (3+ weeks, never recurred, away from current work) are archived by the background miner. Relevance **8+** exempts a memory from age-archiving entirely — deliberately above every default (manual `remember` is 5; the miner mints auto-captured decisions at 7). It was 7+, which exactly equalled the auto-capture default, so every auto-captured decision was born permanently exempt and the hot tier could not shrink.
 - `cleanup` archives before deleting. Nothing is lost without review.
 - `cleanup` and `consolidate` solve different problems: cleanup drops NEAR-DUPLICATES (Jaccard and cosine at 0.85 — effectively the same memory stored twice), which is why it can report "0 duplicates" over hundreds of related decisions. `consolidate` merges a whole tag group into one LLM-written digest and archives the members. It needs 10+ entries in a group and never touches rules or mistakes (summarizing a specific actionable error into a vague blob destroys it).
 
