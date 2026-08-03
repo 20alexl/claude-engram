@@ -30,12 +30,13 @@ class SearchResult(BaseModel):
     snippet: Optional[str] = None
 
 
-class MiniClaudeResponse(BaseModel):
+class EngramResponse(BaseModel):
     """
     The structured response every claude_engram tool returns.
 
-    This is the core of the "junior agent" pattern - rich communication
-    that tells Claude not just WHAT was found, but HOW and WHY.
+    Carries not just WHAT was found but HOW and WHY: what was tried, what
+    worked, what failed, and what to do next — so a result can be judged
+    rather than taken on faith.
     """
 
     # Core result
@@ -79,13 +80,16 @@ class MiniClaudeResponse(BaseModel):
         )
 
         if is_test_failure:
+            # Bound once: is_test_failure already proved this is a dict, but the
+            # narrowing does not carry across statements.
+            data = self.data if isinstance(self.data, dict) else {}
             lines.append("=" * 60)
             lines.append("TEST FAILURES DETECTED")
             lines.append("=" * 60)
             lines.append("")
 
             # Show failure count
-            failures = self.data.get("failures", [])
+            failures = data.get("failures", [])
             if failures:
                 lines.append(f"**Failed tests ({len(failures)}):**")
                 for failure in failures[:10]:  # Show first 10
@@ -93,7 +97,7 @@ class MiniClaudeResponse(BaseModel):
                 lines.append("")
 
             # Show full output prominently
-            full_output = self.data.get("full_output", "")
+            full_output = data.get("full_output", "")
             if full_output:
                 lines.append("**Test Output:**")
                 lines.append("```")
@@ -105,7 +109,7 @@ class MiniClaudeResponse(BaseModel):
                 lines.append("")
 
             # Show exit code
-            exit_code = self.data.get("exit_code", "unknown")
+            exit_code = data.get("exit_code", "unknown")
             lines.append(f"**Exit code:** {exit_code}")
             lines.append("")
 

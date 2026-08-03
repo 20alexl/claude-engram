@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 class Convention(BaseModel):
@@ -100,13 +100,13 @@ class ConventionTracker:
         examples: Optional[list[str]] = None,
         reason: Optional[str] = None,
         importance: int = 5,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """Add a convention to a project."""
         work_log = WorkLog()
         work_log.what_i_tried.append(f"Adding {category} convention")
 
         if not rule:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="needs_clarification",
                 confidence="high",
                 reasoning="No rule provided",
@@ -131,7 +131,7 @@ class ConventionTracker:
                 or existing.rule.lower() in rule.lower()
             ):
                 work_log.what_failed.append("Similar rule already exists")
-                return MiniClaudeResponse(
+                return EngramResponse(
                     status="partial",
                     confidence="medium",
                     reasoning=f"Similar convention already exists: '{existing.rule}'",
@@ -153,7 +153,7 @@ class ConventionTracker:
         self._save()
         work_log.what_worked.append("Convention stored")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Remembered: {rule}",
@@ -169,13 +169,13 @@ class ConventionTracker:
         self,
         project_path: str,
         category: Optional[str] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """Get all conventions for a project."""
         work_log = WorkLog()
         work_log.what_i_tried.append("Retrieving conventions")
 
         if project_path not in self._projects:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="No conventions stored for this project yet",
@@ -209,7 +209,7 @@ class ConventionTracker:
                 entry["reason"] = conv.reason
             formatted.append(entry)
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Found {len(formatted)} conventions for {proj.project_name}",
@@ -224,7 +224,7 @@ class ConventionTracker:
         self,
         project_path: str,
         code_or_filename: str,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Check if code/filename follows project conventions.
 
@@ -235,7 +235,7 @@ class ConventionTracker:
         work_log.what_i_tried.append("Checking against conventions")
 
         if project_path not in self._projects:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="low",
                 reasoning="No conventions stored - nothing to check against",
@@ -309,7 +309,7 @@ class ConventionTracker:
         work_log.what_worked.append(f"Checked {len(proj.conventions)} conventions")
 
         if warnings:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="partial",
                 confidence="medium",
                 reasoning=f"Found {len(warnings)} potential convention violations",
@@ -321,7 +321,7 @@ class ConventionTracker:
                 data={"violations": warnings},
             )
         else:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="medium",
                 reasoning="No obvious convention violations detected",
@@ -332,12 +332,12 @@ class ConventionTracker:
         self,
         project_path: str,
         rule_substring: str,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """Remove a convention by matching rule text."""
         work_log = WorkLog()
 
         if project_path not in self._projects:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning="No conventions for this project",
@@ -356,14 +356,14 @@ class ConventionTracker:
         if removed > 0:
             self._save()
             work_log.what_worked.append(f"Removed {removed} conventions")
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"Removed {removed} conventions matching '{rule_substring}'",
                 work_log=work_log,
             )
         else:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="partial",
                 confidence="high",
                 reasoning=f"No conventions found matching '{rule_substring}'",

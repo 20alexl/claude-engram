@@ -16,7 +16,7 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ..llm import LLMClient
 
-from ..schema import MiniClaudeResponse, SearchResult, WorkLog
+from ..schema import EngramResponse, SearchResult, WorkLog
 
 
 # File extensions we care about for code search
@@ -96,7 +96,7 @@ class SearchEngine:
         directory: str,
         max_results: int = 10,
         use_llm: bool = True,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Search for code matching a query.
 
@@ -110,7 +110,7 @@ class SearchEngine:
 
         # Validate directory
         if not os.path.isdir(directory):
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Directory does not exist: {directory}",
@@ -124,7 +124,7 @@ class SearchEngine:
         work_log.files_examined = len(files)
 
         if not files:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning="No code files found in directory",
@@ -185,7 +185,7 @@ class SearchEngine:
 
         work_log.time_taken_ms = int((time.time() - start_time) * 1000)
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success" if findings else "partial",
             work_log=work_log,
             confidence=confidence,
@@ -199,9 +199,9 @@ class SearchEngine:
     def _get_searchable_files(self, directory: str) -> list[Path]:
         """Get all code files in directory, respecting skip patterns."""
         files = []
-        directory = Path(directory)
+        root_dir = Path(directory)
 
-        for root, dirs, filenames in os.walk(directory):
+        for root, dirs, filenames in os.walk(root_dir):
             # Filter out directories we should skip
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
 

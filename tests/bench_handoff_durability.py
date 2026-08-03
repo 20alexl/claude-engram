@@ -21,6 +21,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_engram import handoff_store as hs
 
+
+def _must(value, what="value"):
+    """Nullable helper returned something, or the bench fails saying so."""
+    assert value is not None, f"{what} unexpectedly None"
+    return value
+
+
 _fails = []
 
 
@@ -72,7 +79,7 @@ def test_store_logic():
         )
         check(
             "manual handoff promoted to latest",
-            hs.read_latest([proj, glob])["kind"] == "manual",
+            _must(hs.read_latest([proj, glob]))["kind"] == "manual",
         )
 
         # The core #2 regression: trivial auto after a manual must NOT clobber it.
@@ -86,7 +93,7 @@ def test_store_logic():
         )
         check(
             "manual survives a later trivial auto (no clobber)",
-            hs.read_latest([proj, glob])["kind"] == "manual",
+            _must(hs.read_latest([proj, glob]))["kind"] == "manual",
         )
 
         hist = hs.read_history([proj, glob])
@@ -94,7 +101,7 @@ def test_store_logic():
         check("history newest-first", hist[0]["summary"].startswith("Block 1-4"))
         check(
             "older handoff retrievable by index",
-            hs.get_by_index([proj, glob], 1)["summary"] == "Edited 3 files",
+            _must(hs.get_by_index([proj, glob], 1))["summary"] == "Edited 3 files",
         )
 
         capdir = Path(td) / "cap"
@@ -211,7 +218,7 @@ def test_walkup_and_wiring():
         hs.write_handoff({"kind": "manual", "summary": "PROJ2-OWN"}, [proj2])
         check(
             "nearest project beats global",
-            hs.read_latest([proj2, tmp / "checkpoints"])["summary"] == "PROJ2-OWN",
+            _must(hs.read_latest([proj2, tmp / "checkpoints"]))["summary"] == "PROJ2-OWN",
         )
 
 

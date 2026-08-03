@@ -11,7 +11,7 @@ import json
 from typing import Optional
 from pathlib import Path
 
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 def _is_inside_string_literal(line: str, match_start: int) -> bool:
@@ -108,7 +108,7 @@ class Thinker:
         self,
         file_paths: list[str],
         min_severity: Optional[str] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Audit multiple files at once.
 
@@ -137,7 +137,7 @@ class Thinker:
         expanded_paths = [p for p in expanded_paths if Path(p).is_file()]
 
         if not expanded_paths:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning="No valid files found to audit",
@@ -229,7 +229,7 @@ class Thinker:
                 f"{Path(f['file']).name}: {f['critical']} critical, {f['warning']} warnings"
             )
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status=status,
             confidence="high",
             reasoning=reasoning,
@@ -261,7 +261,7 @@ class Thinker:
         file_extensions: Optional[list[str]] = None,
         exclude_paths: Optional[list[str]] = None,
         exclude_strings: bool = True,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Search codebase for code similar to a found issue pattern.
 
@@ -282,7 +282,7 @@ class Thinker:
         work_log.what_i_tried.append(f"Searching for pattern: {issue_pattern}")
 
         if not Path(project_path).exists():
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Project path does not exist: {project_path}",
@@ -379,7 +379,7 @@ class Thinker:
             status = "success"
             reasoning = f"Pattern not found in {files_searched} files searched"
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status=status,
             confidence="high",
             reasoning=reasoning,

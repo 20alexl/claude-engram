@@ -337,18 +337,26 @@ def _extract_mistakes_structural(flow: list[FlowMessage]) -> list[Mistake]:
             continue
         seen.add(key)
 
-        # Look ahead for the fix (next assistant message)
+        # Look ahead for the fix. Scan the next few assistant messages rather
+        # than taking the first one's opening sentence: right after an error the
+        # assistant is usually still narrating ("Let me check the correct
+        # path:"), and the actual resolution lands a message or two later, after
+        # the tool call. Narration stored as a fix is worse than no fix — it is
+        # injected later as if it were guidance.
         fix = ""
         related_files = []
         for j in range(i + 1, min(i + 4, len(flow))):
-            if flow[j].msg_type == "assistant":
-                # Check if assistant acknowledges and fixes
-                for text in flow[j].assistant_texts:
-                    if len(text) > 20:
-                        # Concise fix description from first sentence
-                        fix = _first_sentence(text, max_len=150)
-                        break
+            if flow[j].msg_type != "assistant":
+                continue
+            if not related_files:
                 related_files = flow[j].file_edits
+            for text in flow[j].assistant_texts:
+                if len(text) > 20:
+                    candidate = _first_sentence(text, max_len=150)
+                    if candidate and not _is_narration(candidate):
+                        fix = candidate
+                        break
+            if fix:
                 break
 
         mistakes.append(
@@ -644,6 +652,45 @@ def _extract_approaches_structural(flow: list[FlowMessage]) -> list[Approach]:
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────
+
+
+# Openers that announce an intention instead of stating a resolution. A "fix"
+# mined from one of these gets replayed at the next matching error as if it were
+# advice — the stored fix for a real recurring FileNotFoundError was literally
+# "Let me check the correct path:".
+_NARRATION_OPENERS = (
+    "let me",
+    "let's",
+    "lets ",
+    "i'll",
+    "i will",
+    "i need to",
+    "i'm going to",
+    "im going to",
+    "now let",
+    "first,",
+    "next,",
+    "looking at",
+    "checking",
+    "let me check",
+    "ok,",
+    "okay,",
+    "right,",
+    "hmm",
+    "the issue is clear",
+)
+
+
+def _is_narration(text: str) -> bool:
+    """True when a sentence announces what the assistant is about to do rather
+    than what resolved the error. Trailing ':' is the strongest tell — it is a
+    lead-in to a tool call, never a conclusion."""
+    t = text.strip().lower()
+    if not t:
+        return True
+    if t.endswith(":"):
+        return True
+    return any(t.startswith(p) for p in _NARRATION_OPENERS)
 
 
 def _first_sentence(text: str, max_len: int = 150) -> str:

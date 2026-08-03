@@ -1,11 +1,13 @@
 """
-Claude Engram - A junior agent for Claude Code.
+Claude Engram - persistent memory and session intelligence for Claude Code.
 
-Claude Engram acts as a persistent, intelligent assistant that can:
-- Search and understand codebases (Scout)
-- Remember context and priorities (Memory)
-- Analyze code with local LLM
-- And more tools to come...
+Hooks capture what happens as you work (edits, errors, decisions, test runs);
+MCP tools cover what needs judgment (saving discoveries, rules, checkpoints).
+The pieces:
+- Memory: scored, tiered storage of rules, mistakes, decisions, discoveries
+- Checkpoints: durable task state that survives compaction and session ends
+- Mining: session transcripts turned into recurring patterns and recall
+- Code index: import/symbol graph behind precheck and blast-radius warnings
 """
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version

@@ -26,6 +26,7 @@ Storage: ~/.claude_engram/injection_outcomes.json
 
 import json
 from pathlib import Path
+from typing import Optional
 
 MAX_EVENTS = 1000
 
@@ -172,7 +173,7 @@ def reflect() -> dict:
         }
 
 
-def compute_weights(r: dict = None) -> dict:
+def compute_weights(r: Optional[dict] = None) -> dict:
     """
     Turn reflect() correlations into bounded score multipliers.
 

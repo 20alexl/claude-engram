@@ -253,7 +253,7 @@ claude_engram/
 │   ├── __init__.py          # Package version
 │   ├── server.py            # MCP server entry point (thin router)
 │   ├── handlers.py          # All MCP handler logic (~2000 lines)
-│   ├── schema.py            # MiniClaudeResponse Pydantic model
+│   ├── schema.py            # EngramResponse Pydantic model
 │   ├── llm.py               # Ollama client with queueing
 │   ├── tool_definitions_v2.py  # MCP tool schemas (combined tools)
 │   ├── handoff_store.py     # Shared handoff ring-buffer read/write (v0.5.0)

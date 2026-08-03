@@ -10,6 +10,8 @@ Analyzes session index + extractions to detect:
 import json
 import re
 from collections import Counter
+
+from .extractors import _is_narration
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
@@ -314,7 +316,11 @@ def detect_recurring_errors(
                 if len(full) > len(error_examples.get(sig, "")):
                     error_examples[sig] = full
                 fix = (mistake.get("how_to_avoid") or mistake.get("fix") or "").strip()
-                if fix and not error_fixes.get(sig):
+                # Also filtered here, not just at extraction: stored mistakes
+                # written before the extractor learned to reject narration are
+                # still on disk, and a banner "fix: Let me check the correct
+                # path:" is worse than showing no fix at all.
+                if fix and not _is_narration(fix) and not error_fixes.get(sig):
                     error_fixes[sig] = fix
         except Exception:
             continue

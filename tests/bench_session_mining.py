@@ -561,11 +561,13 @@ def test_incremental_append_merges() -> list[tuple[str, bool, str]]:
         tail = build_index_for_session(bigger, start_offset=offset)
         tail_count = tail.message_count
         existing = idx.get_by_jsonl_file(bigger.name)
+        assert existing is not None, "first-pass meta missing"
         merged = merge_session_meta(existing, tail)
         idx.update_session(merged)
         idx.save()
 
         entry = idx.get_by_jsonl_file(bigger.name)
+        assert entry is not None, "merged meta missing"
         results.append(
             (
                 f"Merged count {entry['message_count']} = full {full_count} + tail {tail_count}",

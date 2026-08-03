@@ -74,6 +74,7 @@ idx_dir = Path(tempfile.mkdtemp(prefix="br_idx_"))
     "from .mid import Mid\nimport pkg.base\n", encoding="utf-8"
 )
 idx = build_code_index(str(root), idx_dir)
+assert idx is not None, "build_code_index returned None"
 check(
     "base imported by mid+top", idx.dependents_of("pkg.base") == ["pkg.mid", "pkg.top"]
 )
@@ -114,6 +115,7 @@ data = json.loads(idx_file.read_text(encoding="utf-8"))
 del data["module_to_dependents"]
 idx_file.write_text(json.dumps(data), encoding="utf-8")
 idx2 = build_code_index(str(root), idx_dir)
+assert idx2 is not None, "build_code_index returned None on reload"
 check(
     "reverse map rebuilt on reload",
     idx2.dependents_of("pkg.base") == ["pkg.mid", "pkg.top"],

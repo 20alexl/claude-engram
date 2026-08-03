@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 class DependencyMapper:
@@ -30,7 +30,7 @@ class DependencyMapper:
         file_path: str,
         project_root: Optional[str] = None,
         include_reverse: bool = False,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Map dependencies for a single file.
 
@@ -44,7 +44,7 @@ class DependencyMapper:
 
         path = Path(file_path)
         if not path.exists():
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"File does not exist: {file_path}",
@@ -55,7 +55,7 @@ class DependencyMapper:
             content = path.read_text(errors="ignore")
             work_log.files_examined = 1
         except Exception as e:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Could not read file: {e}",
@@ -90,7 +90,7 @@ class DependencyMapper:
                 f"found {len(reverse_deps.get('files', []))} reverse deps"
             )
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high" if imports else "medium",
             reasoning=f"Found {len(imports)} imports for {path.name}",

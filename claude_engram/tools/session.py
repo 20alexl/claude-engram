@@ -10,7 +10,7 @@ session_end: Summarize what was done (future)
 
 from typing import Optional
 from pathlib import Path
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 from .memory import MemoryStore
 from .conventions import ConventionTracker
 
@@ -32,7 +32,7 @@ class SessionManager:
         self.memory = memory
         self.conventions = conventions
 
-    def start_session(self, project_path: str) -> MiniClaudeResponse:
+    def start_session(self, project_path: str) -> EngramResponse:
         """
         Load all context for starting work on a project.
 
@@ -46,7 +46,7 @@ class SessionManager:
         work_log.what_i_tried.append("loading session context")
 
         if not project_path:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="needs_clarification",
                 confidence="high",
                 reasoning="No project path provided",
@@ -174,7 +174,7 @@ class SessionManager:
             file_names = [str(Path(f).name) for f in last_session_files[:3]]
             warnings.insert(0, f"Last session files: {', '.join(file_names)}")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=self._build_reasoning(memories, conventions_data),

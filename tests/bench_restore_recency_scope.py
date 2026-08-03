@@ -12,6 +12,13 @@ from pathlib import Path
 from claude_engram import handoff_store as hs
 
 
+def _must(value, what="value"):
+    """Nullable helper returned something, or the bench fails saying so."""
+    assert value is not None, f"{what} unexpectedly None"
+    return value
+
+
+
 def _write(d, history, latest):
     d.mkdir(parents=True, exist_ok=True)
     (d / hs.HISTORY_FILENAME).write_text(json.dumps({"handoffs": history}))
@@ -35,12 +42,13 @@ def run():
         dirs = [near, far]
 
         latest = hs.read_latest(dirs)
+        assert latest is not None, "read_latest returned None"
         assert latest["summary"] == "HONEST RESET", (
             "newest manual must beat BOTH an older manual and a newer auto; "
             f"got {latest['summary']!r}"
         )
         assert hs.read_ordered(dirs)[0]["summary"] == "HONEST RESET", "index 0 must match restore"
-        assert hs.get_by_index(dirs, 0)["summary"] == "HONEST RESET"
+        assert _must(hs.get_by_index(dirs, 0))["summary"] == "HONEST RESET"
 
         summaries = [h["summary"] for h in hs.read_ordered(dirs)]
         assert "ready for pretrain v3" in summaries, "older manual stays reachable"
@@ -53,6 +61,7 @@ def run():
         autos = root / "autos"
         _write(autos, [mid, noise], noise)
         a = hs.read_latest([autos])
+        assert a is not None, "read_latest returned None"
         assert a["summary"] == "Session stopped. 2 files edited", (
             f"no manual in scope -> newest overall; got {a['summary']!r}"
         )

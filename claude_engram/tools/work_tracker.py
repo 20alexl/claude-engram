@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 from .memory import MemoryStore
 
 
@@ -130,7 +130,7 @@ class WorkTracker:
             )
         )
 
-    def get_relevant_context(self, file_path: str) -> MiniClaudeResponse:
+    def get_relevant_context(self, file_path: str) -> EngramResponse:
         """
         Get context relevant to a specific file.
 
@@ -193,7 +193,7 @@ class WorkTracker:
         else:
             reasoning = f"No history for {Path(file_path).name} yet - this is a fresh file in your workflow"
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="medium" if (relevant or past_context) else "low",
             reasoning=reasoning,
@@ -206,14 +206,14 @@ class WorkTracker:
             suggestions=suggestions,
         )
 
-    def persist_session_to_memory(self) -> MiniClaudeResponse:
+    def persist_session_to_memory(self) -> EngramResponse:
         """
         Save session work as memories for future sessions.
 
         Called at session end or manually to persist what was learned.
         """
         if not self._current_project:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning="No active project to save session for",
@@ -250,7 +250,7 @@ class WorkTracker:
 
         work_log.what_worked.append(f"created {memories_created} memories")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Saved {memories_created} session memories for next time",

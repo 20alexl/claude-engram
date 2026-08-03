@@ -178,6 +178,7 @@ def test_combined_scorer():
     """Test the combined two-tier scorer (semantic + regex fallback)."""
     print("\n=== Combined Scorer (Semantic + Regex) ===\n")
 
+    score_decision_semantic = None
     try:
         from claude_engram.hooks.intent import score_decision_semantic
 
@@ -195,7 +196,7 @@ def test_combined_scorer():
     for prompt, is_decision, desc in DECISION_PROMPTS:
         # Tier 1: Semantic
         best_score = 0.0
-        if has_semantic:
+        if has_semantic and score_decision_semantic is not None:
             sem_score, _ = score_decision_semantic(prompt)
             best_score = sem_score
 

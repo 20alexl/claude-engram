@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
 
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 @dataclass
@@ -65,7 +65,7 @@ class ImpactAnalyzer:
         file_path: str,
         project_root: str,
         proposed_changes: Optional[str] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Analyze potential impact of changing a file.
 
@@ -483,10 +483,10 @@ class ImpactAnalyzer:
 
     def _build_response(
         self, report: ImpactReport, work_log: WorkLog
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """Build the response from an impact report."""
         # Format exports/usages as readable strings. The shared response
-        # renderer (MiniClaudeResponse.to_formatted_string) only pretty-prints
+        # renderer (EngramResponse.to_formatted_string) only pretty-prints
         # memory-shaped dicts ({id, content, relevance}); any other dict falls
         # back to str(dict), which leaked raw Python dicts into the output.
         # Plain strings render cleanly, one per line.
@@ -525,7 +525,7 @@ class ImpactAnalyzer:
                 f"Risk level is {report.risk_level.upper()} - consider the impact carefully"
             )
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Impact analysis complete. Risk level: {report.risk_level}",
@@ -563,9 +563,9 @@ class ImpactAnalyzer:
 
         return suggestions
 
-    def _error_response(self, message: str, work_log: WorkLog) -> MiniClaudeResponse:
+    def _error_response(self, message: str, work_log: WorkLog) -> EngramResponse:
         """Return an error response."""
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="failed",
             confidence="high",
             reasoning=message,

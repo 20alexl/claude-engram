@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from claude_engram.mining.code_index import build_code_index
+from claude_engram.mining.code_index import build_code_index, CodeIndex
 from claude_engram.hooks.precheck import (
     check_imports,
     format_precheck,
@@ -48,7 +48,11 @@ idx_dir = Path(tempfile.mkdtemp(prefix="pc_idx_"))
     "def build(): pass\n",
     encoding="utf-8",
 )
-idx = build_code_index(str(root), idx_dir)
+_built = build_code_index(str(root), idx_dir)
+assert _built is not None, "build_code_index returned None"
+# Declared non-Optional: the helpers below close over it, and a closure
+# re-widens a narrowed local.
+idx: CodeIndex = _built
 
 
 def n(text):

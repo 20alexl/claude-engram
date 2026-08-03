@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 @dataclass
@@ -77,7 +77,7 @@ class ContextGuard:
         handoff_summary: Optional[str] = None,
         handoff_context_needed: Optional[list[str]] = None,
         handoff_warnings: Optional[list[str]] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Save a checkpoint of current task state.
 
@@ -149,6 +149,7 @@ class ContextGuard:
         checkpoint_data["context_needed"] = checkpoint.handoff_context_needed
         checkpoint_data["warnings"] = checkpoint.handoff_warnings
         checkpoint_data["decisions"] = checkpoint.key_decisions
+        filed_to = ""
         try:
             from claude_engram import handoff_store as _hs
             from claude_engram.hooks.remind import (
@@ -156,12 +157,18 @@ class ContextGuard:
                 _global_handoff_dir,
             )
 
+            _proj_dir = _project_hash_dir(project_path) if project_path else None
             _hs.write_handoff(
                 checkpoint_data,
-                [
-                    _project_hash_dir(project_path) if project_path else None,
-                    _global_handoff_dir(),
-                ],
+                [_proj_dir, _global_handoff_dir()],
+            )
+            # Which ring actually holds this. An unregistered project has no ring
+            # of its own and lands only in the global one — worth saying, since
+            # that is not where a project-scoped restore looks first.
+            filed_to = (
+                Path(project_path).name
+                if (project_path and _proj_dir)
+                else "global checkpoints"
             )
         except Exception:
             pass
@@ -183,16 +190,19 @@ class ContextGuard:
 
         work_log.what_worked.append(f"checkpoint saved: {task_id}")
 
-        progress_pct = (
-            len(completed_steps) / (len(completed_steps) + len(pending_steps)) * 100
-            if (completed_steps or pending_steps)
-            else 0
-        )
-
         has_handoff = bool(
             handoff_summary or handoff_context_needed or handoff_warnings
         )
-        reasoning = f"Checkpoint saved. Task is {progress_pct:.0f}% complete. {len(pending_steps)} steps remaining."
+        # Raw counts, not a percentage. Each save re-derives its step lists, so a
+        # "% complete" moved DOWN across a productive night (56 -> 42%) as the
+        # remaining work came into focus — a progress number that falls while you
+        # progress is worse than no number.
+        reasoning = (
+            f"Checkpoint saved: {len(completed_steps)} steps done, "
+            f"{len(pending_steps)} remaining."
+        )
+        if filed_to:
+            reasoning += f" Filed under {filed_to}."
         if has_handoff:
             reasoning += " Includes handoff info for next session."
 
@@ -200,7 +210,7 @@ class ContextGuard:
         if not has_handoff:
             suggestions.append("Add handoff_summary for clearer session transitions")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=reasoning,
@@ -208,7 +218,7 @@ class ContextGuard:
             data={
                 "task_id": task_id,
                 "checkpoint_file": str(checkpoint_file),
-                "progress_percent": round(progress_pct, 1),
+                "filed_to": filed_to,
                 "completed": len(completed_steps),
                 "pending": len(pending_steps),
                 "has_handoff": has_handoff,
@@ -221,7 +231,7 @@ class ContextGuard:
         task_id: Optional[str] = None,
         project_path: Optional[str] = None,
         index: int = 0,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Restore task state from a checkpoint.
 
@@ -252,7 +262,7 @@ class ContextGuard:
         # An explicit index addresses the ring only — never fall back to the
         # single-slot legacy file (that would silently return the wrong entry).
         if data is None and index and index > 0:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="not_found",
                 confidence="high",
                 reasoning=f"No checkpoint at index {index} — use checkpoint_list to see how many exist",
@@ -290,7 +300,7 @@ class ContextGuard:
                 checkpoint_file = self.storage_dir / "latest_checkpoint.json"
 
             if not checkpoint_file.exists():
-                return MiniClaudeResponse(
+                return EngramResponse(
                     status="not_found",
                     confidence="high",
                     reasoning="No checkpoint found to restore",
@@ -316,6 +326,26 @@ class ContextGuard:
                 f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant"
             )
 
+        # Provenance. A restore resolves across the project's own ring, its
+        # descendants and its ancestors, so the winning entry can belong to a
+        # different sub-project than the one asked from. Say which store it came
+        # from: a confident payload with no origin let a cross-project or stale
+        # restore pass for "yours".
+        _entry_project = data.get("project_path") or ""
+        _from = Path(_entry_project).name if _entry_project else ""
+        if _entry_project and project_path:
+            try:
+                from claude_engram.hooks.remind import _normalize_path
+
+                if _normalize_path(_entry_project) != _normalize_path(project_path):
+                    warnings.append(
+                        f"Restored from {_from or _entry_project} — you asked from "
+                        f"{Path(project_path).name}. The newest deliberate checkpoint "
+                        f"in scope wins; checkpoint_list shows the rest."
+                    )
+            except Exception:
+                pass
+
         # Build a summary for easy re-orientation. Use .get throughout: a unified
         # ring entry may be handoff-shaped (no task/step fields) or checkpoint-shaped.
         _completed = data.get("completed_steps", [])
@@ -328,6 +358,8 @@ class ContextGuard:
         )
         headline = data.get("task_description") or data.get("summary", "Unknown")
         summary_lines = [f"**{'Task' if _has_task_state else 'Handoff'}:** {headline}"]
+        if _from:
+            summary_lines.append(f"**From:** {_from} · {age_hours:.1f}h ago")
         if data.get("current_step"):
             summary_lines.append(f"**Current step:** {data['current_step']}")
         if _completed or _pending:
@@ -391,7 +423,7 @@ class ContextGuard:
                 f"Remaining steps: {', '.join(_pending_sug[:3])}{'...' if len(_pending_sug) > 3 else ''}"
             )
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning="\n".join(summary_lines),
@@ -406,7 +438,7 @@ class ContextGuard:
         task: str,
         verification_steps: list[str],
         evidence: Optional[list[str]] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Unified completion verification: claim + verify in one step.
 
@@ -530,7 +562,7 @@ class ContextGuard:
         if evidence_failed > 0:
             warnings.append(f"{evidence_failed} evidence files not found!")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status=status,
             confidence="high" if steps_manual == 0 else "medium",
             reasoning="\n".join(lines),
@@ -544,7 +576,7 @@ class ContextGuard:
                 "all_passed": all_passed,
                 "needs_manual": steps_manual > 0,
             },
-            warnings=warnings if warnings else None,
+            warnings=warnings or [],
         )
 
     def _verify_step(self, step: str) -> dict:
@@ -674,7 +706,7 @@ class ContextGuard:
         context_needed: list[str],
         warnings: Optional[list[str]] = None,
         project_path: Optional[str] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Create a structured handoff document for the next session.
 
@@ -708,7 +740,10 @@ class ContextGuard:
 
             _hs.write_handoff(
                 handoff,
-                [_project_hash_dir(project_path), _global_handoff_dir()],
+                [
+                    _project_hash_dir(project_path) if project_path else None,
+                    _global_handoff_dir(),
+                ],
             )
         except Exception:
             # Last-resort fallback: keep the legacy global slot working.
@@ -723,7 +758,7 @@ class ContextGuard:
 
         work_log.what_worked.append("handoff document created")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Handoff created with {len(next_steps)} next steps",
@@ -738,7 +773,7 @@ class ContextGuard:
             ],
         )
 
-    def get_handoff(self, project_path: str = "", index: int = 0) -> MiniClaudeResponse:
+    def get_handoff(self, project_path: str = "", index: int = 0) -> EngramResponse:
         """
         Retrieve a handoff document from the durable store.
 
@@ -763,7 +798,7 @@ class ContextGuard:
             handoff = None
 
         if not handoff:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="not_found",
                 confidence="high",
                 reasoning=(
@@ -799,7 +834,7 @@ class ContextGuard:
         data = {k: handoff[k] for k in display_keys if handoff.get(k)}
         summary = handoff.get("summary", "No summary")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"[{kind}, {age_hours:.0f}h ago] {summary}",
@@ -815,7 +850,7 @@ class ContextGuard:
             ],
         )
 
-    def list_handoffs(self, project_path: str = "") -> MiniClaudeResponse:
+    def list_handoffs(self, project_path: str = "") -> EngramResponse:
         """List the handoff history (index 0 = latest, then newest-first) with
         age, kind, and a summary snippet, so an older handoff can be retrieved
         via handoff_get index=N. Indices here match handoff_get exactly. Fixes
@@ -832,7 +867,7 @@ class ContextGuard:
             hist = []
 
         if not hist:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="not_found",
                 confidence="high",
                 reasoning="No handoffs recorded yet",
@@ -846,7 +881,7 @@ class ContextGuard:
             summary = (h.get("summary", "") or "")[:80]
             items.append(f"[{i}] ({kind}, {age_h:.0f}h) {summary}")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"{len(hist)} checkpoint(s) in history (checkpoint_restore index=N to retrieve):",

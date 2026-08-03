@@ -15,6 +15,9 @@ across a multi-project workspace:
     6. A registered project resolves to its OWN ring and EXCLUDES the global
        catch-all (so a merged list/index no longer surfaces other projects).
     7. An unregistered project still falls back to the global dir.
+    8. A query also sees DESCENDANT rings but never a sibling's — without
+       this, a restore at the workspace root silently returned an hours-stale
+       root entry while the real checkpoint sat in a sub-project ring.
 
 Run: python tests/bench_handoff_project_scope.py
 """
@@ -110,7 +113,7 @@ def test_project_scoped_handoff_md():
         )
         check(
             "response markdown_file points at the project copy",
-            r.data.get("markdown_file") == str(a_md),
+            (r.data or {}).get("markdown_file") == str(a_md),
         )
 
 
@@ -137,7 +140,7 @@ def test_unregistered_project_degrades_to_global():
         )
         check(
             "markdown_file falls back to global",
-            r.data.get("markdown_file") == str(global_md),
+            (r.data or {}).get("markdown_file") == str(global_md),
         )
 
 
@@ -165,6 +168,81 @@ def test_candidate_dirs_scoping():
         check("unregistered project falls back to global only", dirs2 == [glob])
 
 
+def test_descendant_rings_in_scope():
+    """A query must see rings BENEATH it, not just its own and its ancestors'.
+
+    The regression: a restore at the workspace root could only read the root
+    ring, so when the session's real final checkpoint was saved under
+    workspace/chappie/V11 the call returned an hours-stale root entry AND
+    reported success. Siblings must stay out — that is what made the global
+    catch-all unusable as an always-on candidate.
+    """
+    print("Descendant ring scoping (the silent-stale-restore regression):")
+    from claude_engram.hooks import paths
+    from claude_engram import handoff_store as hs
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        reg = {
+            "E:/ws": "root0000",
+            "E:/ws/app": "app11111",
+            "E:/ws/app/api": "api22222",
+            "E:/ws/other": "othr3333",
+        }
+        paths.get_engram_storage_dir = lambda: tmp
+        paths._get_manifest = lambda: {
+            "projects": {
+                paths._normalize_path(p): {"hash": h} for p, h in reg.items()
+            }
+        }
+        d = {p: tmp / "projects" / h for p, h in reg.items()}
+        for path in d.values():
+            path.mkdir(parents=True, exist_ok=True)
+
+        root_dirs = paths._handoff_candidate_dirs("E:/ws")
+        check("root query includes its own ring", d["E:/ws"] in root_dirs)
+        check("root query includes a nested descendant", d["E:/ws/app/api"] in root_dirs)
+        check("root query includes a direct descendant", d["E:/ws/app"] in root_dirs)
+
+        api_dirs = paths._handoff_candidate_dirs("E:/ws/app/api")
+        check("leaf query excludes its sibling-branch", d["E:/ws/other"] not in api_dirs)
+        check("leaf query still cascades to ancestors", d["E:/ws"] in api_dirs)
+
+        # End-to-end: the stale-restore scenario itself.
+        now = 1_700_000_000.0
+        hs.write_handoff(
+            {
+                "kind": "manual",
+                "summary": "stale root checkpoint",
+                "task_description": "stale root checkpoint",
+                "created": now - 7200,  # 2h older
+                "project_path": "E:/ws",
+            },
+            [d["E:/ws"]],
+        )
+        hs.write_handoff(
+            {
+                "kind": "manual",
+                "summary": "the real final checkpoint",
+                "task_description": "the real final checkpoint",
+                "created": now,
+                "project_path": "E:/ws/app/api",
+            },
+            [d["E:/ws/app/api"]],
+        )
+        latest = hs.read_latest(paths._handoff_candidate_dirs("E:/ws"))
+        check(
+            "root restore returns the newest checkpoint, not the stale root one",
+            latest is not None
+            and latest.get("summary") == "the real final checkpoint",
+        )
+        other = hs.read_latest(paths._handoff_candidate_dirs("E:/ws/other"))
+        check(
+            "a sibling project never sees the descendant's checkpoint",
+            other is None or other.get("summary") != "the real final checkpoint",
+        )
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("HANDOFF.md Project-Scoping Benchmark")
@@ -172,6 +250,7 @@ if __name__ == "__main__":
     test_project_scoped_handoff_md()
     test_unregistered_project_degrades_to_global()
     test_candidate_dirs_scoping()
+    test_descendant_rings_in_scope()
     print("-" * 60)
     print(
         f"RESULTS: {'ALL PASS' if not _fails else str(len(_fails)) + ' FAILED: ' + str(_fails)}"

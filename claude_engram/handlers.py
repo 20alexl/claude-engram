@@ -5,7 +5,7 @@ This module contains all the handler functions that process tool calls.
 Each handler:
 1. Validates inputs
 2. Delegates work to the appropriate tool class
-3. Returns a MiniClaudeResponse
+3. Returns a EngramResponse
 
 Keeping handlers separate from server.py keeps the routing layer thin
 and makes it easier to add new tools.
@@ -13,10 +13,12 @@ and makes it easier to add new tools.
 
 import asyncio
 import time
+from typing import Any
+
 from mcp.types import TextContent
 
 from .llm import LLMClient
-from .schema import MiniClaudeResponse, WorkLog
+from .schema import EngramResponse, WorkLog
 from .tools import (
     SearchEngine,
     MemoryStore,
@@ -81,71 +83,78 @@ class Handlers:
         stats = self.memory.get_stats()
         queue_stats = self.llm.get_queue_stats()
 
-        if health["healthy"]:
-            suggestions = []
+        suggestions = []
 
-            # Add queue info if there's been queueing
-            queue_info = []
-            if queue_stats["total_requests"] > 0:
-                queue_info.append(f"LLM requests: {queue_stats['total_requests']}")
-                if queue_stats["queued_requests"] > 0:
-                    queue_info.append(
-                        f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)"
-                    )
-
-            from .embed_config import embed_signature
-
-            # The scorer writes its actual device (cuda/cpu) at model load;
-            # reading the breadcrumb avoids importing torch into this process.
-            device = ""
-            try:
-                from .hooks.scorer_server import DEVICE_FILE
-
-                if DEVICE_FILE.exists():
-                    device = DEVICE_FILE.read_text().strip()
-            except Exception:
-                pass
-            embed_line = f"Embedding model: {embed_signature()}"
-            if device:
-                embed_line += f" on {device}"
-
-            response = MiniClaudeResponse(
-                status="success",
-                confidence="high",
-                reasoning="Claude Engram is ready. Did you call session_start yet?",
-                work_log=WorkLog(
-                    what_worked=[
-                        embed_line,
-                        f"Ollama (optional): '{self.llm.model}'",
-                        f"Memory tracking {stats['projects_tracked']} projects",
-                    ]
-                    + queue_info
-                ),
-                data={
-                    "embed_model": embed_signature(),
-                    "embed_device": device or "unknown",
-                    "ollama_model": self.llm.model,
-                    "memory_stats": stats,
-                    "queue_stats": queue_stats,
-                },
-                suggestions=suggestions,
-                warnings=[
-                    "Remember: session_start loads memories + conventions in one call"
-                ],
-            )
+        # LLM queue counters. These track OLLAMA calls only, so 0 after a heavy
+        # session is normal (nothing here calls the LLM) — say so rather than
+        # let a zero read as a lost counter.
+        queue_info = []
+        if queue_stats["total_requests"] > 0:
+            queue_info.append(f"LLM requests: {queue_stats['total_requests']}")
+            if queue_stats["queued_requests"] > 0:
+                queue_info.append(
+                    f"Queued (parallel): {queue_stats['queued_requests']} (avg wait: {queue_stats['avg_queue_wait_ms']}ms)"
+                )
         else:
-            response = MiniClaudeResponse(
-                status="failed",
-                confidence="high",
-                reasoning=health.get("error", "Unknown error"),
-                work_log=WorkLog(
-                    what_failed=[health.get("error", "Health check failed")]
-                ),
-                suggestions=[health.get("suggestion", "Check Ollama installation")],
-                warnings=[
-                    "Claude Engram cannot function without a working Ollama connection"
-                ],
+            queue_info.append("LLM requests: 0 (no synthesis op ran this session)")
+
+        from .embed_config import embed_signature
+
+        # The scorer writes its actual device (cuda/cpu) at model load;
+        # reading the breadcrumb avoids importing torch into this process.
+        device = ""
+        try:
+            from .hooks.scorer_server import DEVICE_FILE
+
+            if DEVICE_FILE.exists():
+                device = DEVICE_FILE.read_text().strip()
+        except Exception:
+            pass
+        embed_line = f"Embedding model: {embed_signature()}"
+        if device:
+            embed_line += f" on {device}"
+
+        if health["healthy"]:
+            ollama_line = f"Ollama (optional): '{self.llm.model}'"
+        else:
+            # Ollama down is NOT engram down. Storage, checkpoints, hooks,
+            # injection scoring, code index, precheck and blast-radius are all
+            # LLM-free; only scout_search, memory(consolidate) and the
+            # session_mine(reflect) synthesis degrade. Reporting a blanket
+            # FAILED here was false, and it contradicted every doc that calls
+            # Ollama optional -- a health check that cries wolf gets ignored on
+            # the day it is right.
+            ollama_line = (
+                f"Ollama (optional): DOWN - {health.get('error', 'unreachable')}. "
+                "Only scout_search, memory(consolidate) and session_mine(reflect) "
+                "synthesis are affected; everything else is LLM-free."
             )
+            suggestions.append(
+                health.get("suggestion", "Start Ollama to re-enable LLM synthesis")
+            )
+
+        response = EngramResponse(
+            status="success",
+            confidence="high",
+            reasoning="Claude Engram is ready.",
+            work_log=WorkLog(
+                what_worked=[
+                    embed_line,
+                    ollama_line,
+                    f"Memory tracking {stats['projects_tracked']} projects",
+                ]
+                + queue_info
+            ),
+            data={
+                "embed_model": embed_signature(),
+                "embed_device": device or "unknown",
+                "ollama_model": self.llm.model,
+                "ollama_healthy": bool(health["healthy"]),
+                "memory_stats": stats,
+                "queue_stats": queue_stats,
+            },
+            suggestions=suggestions,
+        )
 
         return [TextContent(type="text", text=response.to_formatted_string())]
 
@@ -212,7 +221,7 @@ class Handlers:
             self._store_memory(content, category, project_path, relevance)
             work_log.what_worked.append("Memory stored")
 
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"Remembered: {content[:100]}{'...' if len(content) > 100 else ''}",
@@ -221,7 +230,7 @@ class Handlers:
             )
         except Exception as e:
             work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Failed to store memory: {e}",
@@ -264,7 +273,7 @@ class Handlers:
             memories = self.memory.recall(project_path=project_path)
             work_log.what_worked.append("Memories retrieved")
 
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="Here's what I remember",
@@ -273,7 +282,7 @@ class Handlers:
             )
         except Exception as e:
             work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Failed to recall memories: {e}",
@@ -300,7 +309,7 @@ class Handlers:
             self.memory.forget_project(project_path)
             work_log.what_worked.append("Project memories cleared")
 
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"Forgot all memories for: {project_path}",
@@ -308,7 +317,7 @@ class Handlers:
             )
         except Exception as e:
             work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Failed to forget: {e}",
@@ -353,7 +362,7 @@ class Handlers:
             mode = "preview" if dry_run else "completed"
             reasoning = f"Memory cleanup {mode}: {summary}"
 
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=reasoning,
@@ -362,7 +371,7 @@ class Handlers:
             )
         except Exception as e:
             work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Failed to clean up memories: {e}",
@@ -416,7 +425,7 @@ class Handlers:
 
             work_log.what_worked.append(f"Found {len(results)} relevant memories")
 
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"Found {len(results)} memories matching criteria",
@@ -438,7 +447,7 @@ class Handlers:
             )
         except Exception as e:
             work_log.what_failed.append(str(e))
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Failed to search memories: {e}",
@@ -828,7 +837,7 @@ class Handlers:
         lines.append("Next session: Run session_start to restore context.")
         lines.append("=" * 50)
 
-        response = MiniClaudeResponse(
+        response = EngramResponse(
             status="success",
             confidence="high",
             reasoning="Session ended and saved",
@@ -960,7 +969,7 @@ class Handlers:
         except Exception:
             pass
 
-        response = MiniClaudeResponse(
+        response = EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Logged mistake: {description[:100]}",
@@ -986,7 +995,7 @@ class Handlers:
 
         # Track in session
 
-        response = MiniClaudeResponse(
+        response = EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Logged decision: {decision[:100]}",
@@ -1022,7 +1031,7 @@ class Handlers:
 
         all_warnings = []
         all_suggestions = []
-        combined_data = {"file": file_path}
+        combined_data: dict[str, Any] = {"file": file_path}
         overall_status = "success"
 
         # 1. Work tracker - past mistakes and context
@@ -1075,7 +1084,7 @@ class Handlers:
         else:
             reasoning = f"Safe to edit {Path(file_path).name}"
 
-        response = MiniClaudeResponse(
+        response = EngramResponse(
             status=overall_status,
             confidence="high",
             reasoning=reasoning,
@@ -1426,7 +1435,7 @@ class Handlers:
                 reason=args.get("reason"),
                 relevance=args.get("relevance", 9),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success" if added else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
@@ -1441,7 +1450,7 @@ class Handlers:
             lines = [f"Rules for {project_path}:", ""]
             for r in rules:
                 lines.append(f"  [{r.id}] {r.content}")
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
@@ -1456,7 +1465,7 @@ class Handlers:
                 relevance=args.get("relevance"),
                 category=args.get("category"),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success" if success else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
@@ -1467,7 +1476,7 @@ class Handlers:
                 project_path=project_path,
                 memory_id=args.get("memory_id", ""),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success" if success else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
@@ -1481,7 +1490,7 @@ class Handlers:
                 memory_ids=memory_ids if memory_ids else None,
                 category=category,
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=msg,
@@ -1493,7 +1502,7 @@ class Handlers:
                 memory_id=args.get("memory_id", ""),
                 reason=args.get("reason"),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success" if success else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
@@ -1520,7 +1529,7 @@ class Handlers:
                     e.content[:57] + "..." if len(e.content) > 60 else e.content
                 )
                 lines.append(f"  [{e.id}] ({age_str}) [{e.category}] {content_display}")
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
@@ -1532,7 +1541,7 @@ class Handlers:
                 project_path=project_path,
                 dry_run=args.get("dry_run", True),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"{'Would archive' if result.get('dry_run') else 'Archived'} {result['archived_count']} memories",
@@ -1544,7 +1553,7 @@ class Handlers:
                 project_path=project_path,
                 memory_id=args.get("memory_id", ""),
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success" if success else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
@@ -1568,7 +1577,7 @@ class Handlers:
                 lines.append(
                     f"  [{e.id}] ({age_days}d archived) [{e.category}] {content_display}"
                 )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
@@ -1580,7 +1589,7 @@ class Handlers:
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "archive_status":
             stats = self.memory.get_archive_stats(project_path)
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"Hot: {stats['hot_total']} memories | Archive: {stats['archive_total']} memories",
@@ -1606,7 +1615,7 @@ class Handlers:
             ]
             for entry, score in results:
                 lines.append(f"[{entry.id}] ({score:.3f}) {entry.content[:80]}")
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
@@ -1615,13 +1624,22 @@ class Handlers:
         elif operation == "embed_all":
             force = args.get("force", False)
             count = self.memory.embed_all_memories(project_path, force=force)
-            response = MiniClaudeResponse(
+            pending = 0 if count else self.memory.pending_embedding_count(project_path)
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=(
                     f"{'Rebuilt' if force else 'Embedded'} {count} memories"
                     if count
-                    else "All memories already embedded (or scorer server not running)"
+                    # count==0 has two very different causes; collapsing them
+                    # made a no-op indistinguishable from a dead scorer.
+                    else (
+                        "Nothing to embed - all memories already have vectors"
+                        if not pending
+                        else f"EMBEDDED NOTHING - {pending} memories still lack "
+                        "vectors. The scorer server is unreachable; semantic "
+                        "search stays on the regex fallback until it is back."
+                    )
                 ),
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
@@ -1642,7 +1660,7 @@ class Handlers:
             lines.append(
                 "Use memory(acknowledge_mistake, memory_id='...') to archive a learned mistake"
             )
-            response = MiniClaudeResponse(
+            response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
@@ -1672,7 +1690,7 @@ class Handlers:
                     self.memory._move_entries_to_archive(proj, [entry])
                     self.memory._save()
                     self.memory._save_archive()
-                    response = MiniClaudeResponse(
+                    response = EngramResponse(
                         status="success",
                         confidence="high",
                         reasoning=f"Mistake [{mid}] acknowledged and archived. It won't appear in pre-edit warnings.",
@@ -1846,12 +1864,12 @@ class Handlers:
             )
         elif operation == "handoff_get":
             return await self.context_handoff_get(
-                project_path=args.get("project_path"),
+                project_path=args.get("project_path") or "",
                 index=int(args.get("index") or 0),
             )
         elif operation == "handoff_list":
             return await self.context_handoff_list(
-                project_path=args.get("project_path")
+                project_path=args.get("project_path") or ""
             )
         else:
             return self._needs_clarification(
@@ -2298,7 +2316,7 @@ class Handlers:
 
     def _needs_clarification(self, reasoning: str, question: str) -> list[TextContent]:
         """Return a standard clarification response."""
-        response = MiniClaudeResponse(
+        response = EngramResponse(
             status="needs_clarification",
             confidence="high",
             reasoning=reasoning,

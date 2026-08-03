@@ -67,6 +67,7 @@ idx_dir = Path(tempfile.mkdtemp(prefix="ci_idx_"))
 print("\n--- 1. Build + scoping ---")
 idx = build_code_index(str(root), idx_dir)
 check("build returns index", idx is not None)
+assert idx is not None, "build_code_index returned None"
 mods = idx.modules
 check("pkg/mod.py indexed", "pkg/mod.py" in mods)
 check("boundary-stop excludes nested sub-project", "sub/inner.py" not in mods)
@@ -100,7 +101,9 @@ check("symbol_count > 0", idx.symbol_count() > 0)
 
 print("\n--- 4. Signature edge cases ---")
 tree = ast.parse("def f(a, b, /, c, *args, d, e=2, **kw) -> int: pass")
-sig = _format_signature(tree.body[0].args, tree.body[0].returns)
+fn = tree.body[0]
+assert isinstance(fn, ast.FunctionDef), "expected a function def"
+sig = _format_signature(fn.args, fn.returns)
 check("posonly/vararg/kwonly/kwarg", sig == "(a, b, /, c, *args, d, e=2, **kw) -> int")
 
 print("\n--- 5. Degrade to silence ---")
@@ -109,9 +112,11 @@ check("syntax error returns None", extract_module("def (:\n", "bad.py") is None)
 print("\n--- 6. Incremental + deletion ---")
 rec_before = dict(mods["pkg/mod.py"])
 idx2 = build_code_index(str(root), idx_dir)
+assert idx2 is not None, "rebuild returned None"
 check("rebuild stable (mtime incremental)", idx2.modules["pkg/mod.py"] == rec_before)
 (root / "pkg" / "mod.py").unlink()
 idx3 = build_code_index(str(root), idx_dir)
+assert idx3 is not None, "rebuild after delete returned None"
 check("deleted module dropped", "pkg/mod.py" not in idx3.modules)
 check("reverse map cleared after delete", idx3.resolve_symbol("Processor") == [])
 

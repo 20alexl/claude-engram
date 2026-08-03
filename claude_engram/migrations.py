@@ -20,6 +20,7 @@ migration and would be wasteful.
 """
 
 from __future__ import annotations
+from typing import Any
 
 import argparse
 import json
@@ -414,7 +415,7 @@ def spawn_background(storage_dir=None) -> bool:
     if _locked():
         return False
     try:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,

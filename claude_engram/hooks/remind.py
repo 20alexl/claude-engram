@@ -3235,9 +3235,14 @@ def main():
                                 parts.append(f"{errs} tool errors")
                             lines.append(f"  Activity: {', '.join(parts)}")
 
-                    # Auto-inject patterns if available
-                    patterns_path = _hash_dir / "patterns.json"
-                    if patterns_path.exists():
+                    # Auto-inject patterns if available. _hash_dir is None for an
+                    # unregistered project — without this guard the join raised
+                    # TypeError into the enclosing except, so pattern injection
+                    # silently never ran there.
+                    patterns_path = (
+                        (_hash_dir / "patterns.json") if _hash_dir else None
+                    )
+                    if patterns_path is not None and patterns_path.exists():
                         try:
                             pdata = json_module.loads(patterns_path.read_text())
 
@@ -3503,6 +3508,7 @@ def main():
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             reason = "other"
+            data = None
             if stdin_data:
                 data = json_module.loads(stdin_data)
                 reason = data.get("end_reason", data.get("reason", "other"))
@@ -3552,6 +3558,11 @@ def main():
             stdin_data = _read_stdin_with_timeout(0.5)
             file_path = ""
             agent_id = ""
+            # Bound up front: `data` is read again further down (the pre-edit
+            # import check). On an empty stdin it stayed UNBOUND, so that read
+            # raised NameError into the enclosing except and the precheck
+            # silently never ran.
+            data = None
             if stdin_data:
                 data = json_module.loads(stdin_data)
                 file_path = data.get("tool_input", {}).get("file_path", "")

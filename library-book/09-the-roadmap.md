@@ -122,6 +122,17 @@
 | Rule banner deduped vs CLAUDE.md | Rules whose content is already in the project's CLAUDE.md (in context every turn) are suppressed from session-start and post-compact banners — ends the CLAUDE.md / engram-rules / MEMORY.md triple-injection. Rules remain enforced and listable. |
 | Windows embeddings-save fix | `embed_all_memories` held the live mmap returned by the loader while `np.save` targeted the same embeddings.npy — Errno 22 on Windows, silently freezing memory-embedding updates once a store had both existing vectors and pending work. The mmap handle is dropped after rows are copied. |
 
+## Done / Shipped (v0.8.8)
+
+| Feature | Notes |
+|---------|-------|
+| Restore no longer returns stale state from the wrong ring | Candidate-dir resolution walked up but never down, so a workspace-root restore read only the root ring — returning an hours-stale entry with a success status while the real checkpoint sat in a sub-project ring. Descendant rings are now in scope; siblings still are not. |
+| Restore/save disclose their store | `**From:** <project> · <age>h`, a warning when the entry's project differs from the queried one, and the ring a save filed under. |
+| Status is per-capability | Ollama down is not engram down: it degrades three synthesis ops and nothing else. The blanket FAILED is gone. |
+| `embed_all` tells its zero cases apart | "nothing to do" vs "scorer unreachable" were the same string. |
+| Mined fixes reject narration | `fix: "Let me check the correct path:"` — filtered at extraction and at read, so legacy records need no migration. |
+| Type-check clean | 98 package errors → 0, including a real `any`-vs-`Any` annotation bug and two silent-feature-loss defects (a `None` path join and an unbound `data`). |
+
 ## Done / Shipped (v0.8.7)
 
 | Feature | Notes |

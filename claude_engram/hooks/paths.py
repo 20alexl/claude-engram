@@ -179,33 +179,57 @@ def _project_hash_dir(project_dir: str) -> "Path | None":
 
 
 def _handoff_candidate_dirs(project_dir: str = "") -> list:
-    """Ordered dirs to search for a handoff: nearest project first, then any
-    ancestor project registered in the manifest. The global checkpoints dir is
-    used ONLY as a fallback — appended just when no project-specific dir was
+    """Ordered dirs to search for a handoff: the project's own ring, then its
+    DESCENDANT project rings, then ancestor rings. The global checkpoints dir
+    is used ONLY as a fallback — appended just when no project-specific dir was
     found.
 
-    Every handoff for a registered project is written to BOTH its own ring and
-    the global ring, so the global ring is a cross-project superset. Appending
-    it unconditionally made *merged* reads (handoff_history / checkpoint_list /
-    get_by_index) surface OTHER projects' handoffs under a project-scoped
-    query. Scoping to the project's own ring (plus ancestor projects, which
-    legitimately cascade) keeps list/index project-clean; read_latest is
-    unaffected since the project's own entry already wins. Unregistered
-    projects (no own ring) still resolve via the global fallback."""
+    Descendants are in scope because a workspace root is a real place to ask
+    from. Without them, a restore at ``E:/workspace`` could only read the root
+    ring while the session's actual final checkpoint sat in
+    ``E:/workspace/chappie/V11`` — and, because the root ring is rarely empty,
+    the call returned a HOURS-STALE entry and reported success. Silently
+    restoring stale state is the exact failure a checkpoint system exists to
+    prevent, so a query now sees everything at or beneath it. (The SessionStart
+    banner already resolved the subtree this way via _subtree_manual_handoff;
+    the MCP restore/list path did not.)
+
+    Ordering does not decide selection — read_history sorts merged entries by
+    recency and read_latest prefers the newest *manual* — so a nearer ring
+    never wins on position alone, only on being newer.
+
+    Descendants are still a strict subset of the tree you asked about: a
+    sibling project can never appear. That is what the global ring (a
+    cross-project superset written alongside every project ring) would have
+    dragged in, which is why it stays a fallback rather than an always-on
+    candidate. Unregistered projects (no own ring) resolve through it."""
     storage = get_engram_storage_dir()
     projects = _get_manifest().get("projects", {})
     dirs: list = []
     seen_hashes = set()
+
+    def _add(info: dict) -> None:
+        if info and info["hash"] not in seen_hashes:
+            dirs.append(storage / "projects" / info["hash"])
+            seen_hashes.add(info["hash"])
+
     if project_dir:
         try:
             p = Path(_normalize_path(project_dir))
         except Exception:
             p = None
+        if p is not None:
+            norm = _normalize_path(str(p))
+            _add(projects.get(norm))
+            # Descendants, nearest first: a shallower sub-project is the more
+            # likely home of a checkpoint saved against a parent scope.
+            for path, info in sorted(
+                projects.items(), key=lambda kv: kv[0].count("/")
+            ):
+                if path.startswith(norm.rstrip("/") + "/"):
+                    _add(info)
         while p is not None:
-            info = projects.get(_normalize_path(str(p)))
-            if info and info["hash"] not in seen_hashes:
-                dirs.append(storage / "projects" / info["hash"])
-                seen_hashes.add(info["hash"])
+            _add(projects.get(_normalize_path(str(p))))
             parent = p.parent
             if parent == p:
                 break

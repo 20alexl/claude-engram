@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 class FileSummarizer:
@@ -26,7 +26,7 @@ class FileSummarizer:
     def summarize(
         self,
         file_path: str,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Summarize a file's purpose and contents.
         """
@@ -36,7 +36,7 @@ class FileSummarizer:
         # Validate file exists
         path = Path(file_path)
         if not path.exists():
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"File does not exist: {file_path}",
@@ -44,7 +44,7 @@ class FileSummarizer:
             )
 
         if not path.is_file():
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Path is not a file: {file_path}",
@@ -55,7 +55,7 @@ class FileSummarizer:
             content = path.read_text(errors="ignore")
             work_log.files_examined = 1
         except Exception as e:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning=f"Could not read file: {e}",
@@ -67,7 +67,7 @@ class FileSummarizer:
         work_log.what_worked.append(f"extracted {len(facts)} facts")
 
         summary = self._quick_summary(content, path, facts)
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="medium",
             reasoning=summary,

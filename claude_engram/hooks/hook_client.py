@@ -13,6 +13,7 @@ Invoked by path, not as a module (``-S`` leaves site-packages off sys.path);
 the repo root is derived from __file__ for the fallback import.
 """
 
+from typing import Any
 import json
 import os
 import socket
@@ -137,7 +138,7 @@ def _nudge_daemon() -> None:
     try:
         import subprocess
 
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,

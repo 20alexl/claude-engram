@@ -14,8 +14,8 @@ The solution: Check code BEFORE writing it. Flag:
 
 import re
 from dataclasses import dataclass
-from typing import Optional
-from ..schema import MiniClaudeResponse, WorkLog
+from typing import Any, Optional
+from ..schema import EngramResponse, WorkLog
 
 
 # Names that are too vague/generic
@@ -123,7 +123,7 @@ class CodeQualityChecker:
         code: str,
         language: str = "python",
         context: Optional[str] = None,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Check code for quality issues.
 
@@ -133,7 +133,7 @@ class CodeQualityChecker:
             context: Optional context about what the code does
 
         Returns:
-            MiniClaudeResponse with issues found
+            EngramResponse with issues found
         """
         work_log = WorkLog()
         work_log.what_i_tried.append("checking code quality")
@@ -172,7 +172,7 @@ class CodeQualityChecker:
         # Format issues for display
         formatted_issues = []
         for issue in issues:
-            formatted = {
+            formatted: dict[str, Any] = {
                 "severity": issue.severity,
                 "category": issue.category,
                 "message": issue.message,
@@ -192,7 +192,7 @@ class CodeQualityChecker:
                 msg += f" → {issue.suggestion}"
             warning_messages.append(msg)
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status=status,
             confidence=confidence,
             reasoning=reasoning,

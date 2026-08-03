@@ -13,6 +13,7 @@ Protocol: JSON lines over TCP
   Response: {"score": 0.85, "text": "let's use redis"}\n
 """
 
+from typing import Any
 import json
 import os
 import re
@@ -170,7 +171,8 @@ def _serve_hook_event(request: dict) -> dict:
     if hook_type not in _HOOK_EVENTS:
         return {"error": f"unsupported hook_event {hook_type!r}"}
     payload = request.get("stdin", "") or ""
-    env = request.get("env") if isinstance(request.get("env"), dict) else {}
+    _env = request.get("env")
+    env: dict = _env if isinstance(_env, dict) else {}
 
     import contextlib
     import io
@@ -455,7 +457,7 @@ def start_server_background():
     import platform
 
     try:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,

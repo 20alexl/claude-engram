@@ -805,6 +805,7 @@ def main():
 
     # Combined scorer
     r3 = p3 = f1_c = None
+    score_decision_semantic = None
     try:
         from claude_engram.hooks.intent import score_decision_semantic
 
@@ -815,7 +816,7 @@ def main():
     def combined_scorer(text):
         best = 0.0
         best_text = ""
-        if has_semantic:
+        if has_semantic and score_decision_semantic is not None:
             s, t = score_decision_semantic(text)
             if s > best:
                 best, best_text = s, t

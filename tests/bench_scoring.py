@@ -263,15 +263,15 @@ def test_parent_inheritance():
 
 def test_token_efficiency():
     """Measure tokens per response for common operations."""
-    from claude_engram.schema import MiniClaudeResponse, WorkLog
+    from claude_engram.schema import EngramResponse, WorkLog
 
     print("\n=== Token Efficiency Benchmark ===\n")
 
     cases = [
-        ("Simple success", MiniClaudeResponse(status="success", reasoning="Done")),
+        ("Simple success", EngramResponse(status="success", reasoning="Done")),
         (
             "Memory search (3)",
-            MiniClaudeResponse(
+            EngramResponse(
                 status="success",
                 reasoning="Found 3",
                 data={
@@ -300,7 +300,7 @@ def test_token_efficiency():
         ),
         (
             "Archive status",
-            MiniClaudeResponse(
+            EngramResponse(
                 status="success",
                 reasoning="Hot: 12 | Archive: 5",
                 data={"hot": 12, "archive": 5, "categories": {"rule": 3, "mistake": 4}},
@@ -308,7 +308,7 @@ def test_token_efficiency():
         ),
         (
             "Error",
-            MiniClaudeResponse(
+            EngramResponse(
                 status="failed",
                 reasoning="Project not found",
                 work_log=WorkLog(what_failed=["lookup"]),

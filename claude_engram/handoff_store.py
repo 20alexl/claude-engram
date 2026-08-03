@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 HISTORY_FILENAME = "handoff_history.json"
 LATEST_FILENAME = "latest_handoff.json"
@@ -124,7 +124,7 @@ def _should_promote(
 
 def write_handoff(
     handoff: dict,
-    target_dirs: list[Optional[Path]],
+    target_dirs: Sequence[Optional[Path]],
     *,
     history_limit: int = DEFAULT_HISTORY_LIMIT,
     stale_hours: float = 24.0,
@@ -192,7 +192,7 @@ def write_handoff(
 
 
 def read_latest(
-    candidate_dirs: list[Optional[Path]], *, max_age_hours: Optional[float] = None
+    candidate_dirs: Sequence[Optional[Path]], *, max_age_hours: Optional[float] = None
 ) -> Optional[dict]:
     """
     Return the most recent DELIBERATE handoff across all candidate dirs: the
@@ -233,7 +233,7 @@ def read_latest(
 
 
 def read_history(
-    candidate_dirs: list[Optional[Path]], *, limit: int = DEFAULT_HISTORY_LIMIT
+    candidate_dirs: Sequence[Optional[Path]], *, limit: int = DEFAULT_HISTORY_LIMIT
 ) -> list:
     """
     Merged handoff history across candidate dirs, newest first, deduplicated
@@ -263,7 +263,7 @@ def read_history(
 
 
 def read_ordered(
-    candidate_dirs: list[Optional[Path]], *, limit: int = DEFAULT_HISTORY_LIMIT
+    candidate_dirs: Sequence[Optional[Path]], *, limit: int = DEFAULT_HISTORY_LIMIT
 ) -> list:
     """History ordered for retrieval and listing: the deliberate ``latest``
     (see ``read_latest``) first, so index 0 == what ``checkpoint_restore``
@@ -285,7 +285,7 @@ def read_ordered(
 
 
 def get_by_index(
-    candidate_dirs: list[Optional[Path]],
+    candidate_dirs: Sequence[Optional[Path]],
     index: int,
     *,
     limit: int = DEFAULT_HISTORY_LIMIT,

@@ -22,7 +22,7 @@ import re
 import time
 import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from collections import defaultdict
 from pydantic import BaseModel, Field
 
@@ -2497,7 +2497,7 @@ class MemoryStore:
             temp.write_text(json.dumps(emb_dict))
             temp.replace(pdir / "embeddings.json")
 
-    def _load_project_embeddings(self, norm_path: str) -> tuple[list[str], any]:
+    def _load_project_embeddings(self, norm_path: str) -> tuple[list[str], Any]:
         """
         Load embeddings for a project. Returns (ids, matrix_or_dict).
         matrix_or_dict is np.ndarray if numpy available, else dict[str, list[float]].
@@ -2823,6 +2823,26 @@ class MemoryStore:
         return [
             (entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map
         ]
+
+    def pending_embedding_count(self, project_path: str) -> int:
+        """How many memories currently lack a vector.
+
+        Lets a caller tell "nothing to embed" apart from "embedding produced
+        nothing" — the two very different causes of embed_all_memories() == 0.
+        """
+        proj = self.get_project(project_path)
+        if not proj:
+            return 0
+        try:
+            existing_ids, existing_data = self._load_project_embeddings(
+                self._normalize_path(project_path)
+            )
+            # Drop the live mmap handle immediately (Windows np.save/Errno 22).
+            existing_data = None
+            existing_set = set(existing_ids)
+        except Exception:
+            existing_set = set()
+        return sum(1 for e in proj.entries if e.id not in existing_set)
 
     def embed_all_memories(self, project_path: str, force: bool = False) -> int:
         """

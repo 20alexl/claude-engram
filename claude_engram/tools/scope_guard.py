@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
-from ..schema import MiniClaudeResponse, WorkLog
+from ..schema import EngramResponse, WorkLog
 
 
 @dataclass
@@ -74,7 +74,7 @@ class ScopeGuard:
         in_scope_patterns: Optional[list[str]] = None,
         out_of_scope_files: Optional[list[str]] = None,
         reason: str = "",
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Declare the scope for the current task.
 
@@ -105,7 +105,7 @@ class ScopeGuard:
 
         work_log.what_worked.append("scope declared")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Scope declared for: {task_description}",
@@ -122,7 +122,7 @@ class ScopeGuard:
             ],
         )
 
-    def check_file(self, file_path: str) -> MiniClaudeResponse:
+    def check_file(self, file_path: str) -> EngramResponse:
         """
         Check if editing a file is within scope.
 
@@ -132,7 +132,7 @@ class ScopeGuard:
         work_log.what_i_tried.append(f"checking if {file_path} is in scope")
 
         if not self._current_scope:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="low",
                 reasoning="No scope declared - consider declaring scope first",
@@ -146,7 +146,7 @@ class ScopeGuard:
 
         if in_scope:
             work_log.what_worked.append("file is in scope")
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning=f"'{Path(file_path).name}' is within scope: {reason}",
@@ -159,7 +159,7 @@ class ScopeGuard:
 
             work_log.what_worked.append("detected out of scope edit")
 
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="warning",
                 confidence="high",
                 reasoning=f"'{Path(file_path).name}' is OUTSIDE declared scope!",
@@ -187,7 +187,7 @@ class ScopeGuard:
         self,
         files_to_add: list[str],
         reason: str,
-    ) -> MiniClaudeResponse:
+    ) -> EngramResponse:
         """
         Expand the current scope to include more files.
 
@@ -197,7 +197,7 @@ class ScopeGuard:
         work_log.what_i_tried.append("expanding scope")
 
         if not self._current_scope:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="failed",
                 confidence="high",
                 reasoning="No scope to expand - call scope_declare first",
@@ -209,7 +209,7 @@ class ScopeGuard:
 
         work_log.what_worked.append(f"added {len(files_to_add)} files to scope")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Scope expanded: added {len(files_to_add)} files",
@@ -222,13 +222,13 @@ class ScopeGuard:
             warnings=[f"Scope expanded: {reason}"],
         )
 
-    def get_status(self) -> MiniClaudeResponse:
+    def get_status(self) -> EngramResponse:
         """Get current scope status and any violations."""
         work_log = WorkLog()
         work_log.what_i_tried.append("getting scope status")
 
         if not self._current_scope:
-            return MiniClaudeResponse(
+            return EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="No scope currently declared",
@@ -247,7 +247,7 @@ class ScopeGuard:
 
         work_log.what_worked.append("status retrieved")
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="warning" if violations else "success",
             confidence="high",
             reasoning=f"Scope: {self._current_scope.task_description}",
@@ -263,7 +263,7 @@ class ScopeGuard:
             warnings=warnings,
         )
 
-    def clear_scope(self) -> MiniClaudeResponse:
+    def clear_scope(self) -> EngramResponse:
         """Clear the current scope (task complete)."""
         work_log = WorkLog()
         work_log.what_i_tried.append("clearing scope")
@@ -274,7 +274,7 @@ class ScopeGuard:
         self._out_of_scope_attempts = []
         self._persist_state()  # Clear persisted state
 
-        return MiniClaudeResponse(
+        return EngramResponse(
             status="success",
             confidence="high",
             reasoning=f"Scope cleared{' for: ' + old_task if old_task else ''}",

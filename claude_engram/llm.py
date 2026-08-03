@@ -37,11 +37,11 @@ class LLMClient:
 
     def __init__(
         self,
-        base_url: str = None,
-        model: str = None,
-        timeout: float = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout: Optional[float] = None,
         max_retries: int = 3,
-        keep_alive: Union[int, str] = None,
+        keep_alive: Optional[Union[int, str]] = None,
     ):
         # Allow environment variables to override defaults
         self.base_url = base_url or os.environ.get(

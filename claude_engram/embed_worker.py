@@ -21,6 +21,7 @@ worker beats slicing through the daemon (env CLAUDE_ENGRAM_GPU_BULK_MIN,
 default 512).
 """
 
+from typing import Any
 import json
 import os
 import shutil
@@ -59,7 +60,7 @@ def embed_texts_bulk(texts: list) -> "list | None":
         with open(in_path, "w", encoding="utf-8") as f:
             json.dump({"texts": [str(t) for t in texts]}, f)
 
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,

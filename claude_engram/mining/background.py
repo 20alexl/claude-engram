@@ -8,6 +8,7 @@ Follows the same pattern as scorer_server.py: subprocess.Popen with
 CREATE_NO_WINDOW on Windows, start_new_session on Unix.
 """
 
+from typing import Any
 import json
 import os
 import platform
@@ -116,7 +117,7 @@ def start_mining_background(
         return False
 
     try:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
             "stderr": subprocess.DEVNULL,
