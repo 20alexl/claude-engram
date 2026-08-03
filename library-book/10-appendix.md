@@ -240,6 +240,12 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.9 — 2026-07-26
+
+- **`memory(consolidate)` and `memory(clusters)` were unreachable.** Both were fully implemented (LLM tag-group consolidation with a 10-entry floor, rules and mistakes exempt; cluster listing) and both were named in the tool's own "Use: …" error string as valid operations — but neither appeared in the MCP schema `enum`, and neither had a dispatch branch. So they could not be called at all, while the error you got for trying said they were valid. Now wired, schema'd, and documented.
+  - This is why a store could reach hundreds of hot decisions while `cleanup` honestly reported nothing to merge: cleanup removes **near-duplicates** (Jaccard and cosine at 0.85 — the same memory stored twice), which is a different job from compressing a topic. On the reference store, `consolidate` immediately found 4 groups worth merging, one of them 402 memories.
+  - Both responses pass a compact `data` payload. `to_formatted_string` renders a list-of-dicts as memory entries (`id`/`content`/`tags`), so handing it the raw report printed `[] () {'tag': …}` per group — the same double-render trap `hybrid_search` documents.
+
 ### v0.8.8 — 2026-07-26
 
 - **Fix: a project-scoped restore could silently return stale state.** `_handoff_candidate_dirs` resolved a project's own ring plus its ANCESTORS, never its descendants — so a `checkpoint_restore` at a workspace root could only read the root ring while the session's real final checkpoint sat in a sub-project ring. Because the root ring is rarely empty, the call returned an hours-old entry **and reported success**. Observed live: a root-scoped restore returned an 11.8h checkpoint while the actual 9.7h one sat in the sub-project's ring. A query now sees every ring at or beneath the path it asked about. Siblings still can't leak in (that is what kept the cross-project global ring a fallback rather than an always-on candidate), and ordering doesn't decide the winner — the newest deliberate checkpoint does.

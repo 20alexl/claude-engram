@@ -31,7 +31,9 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `memory(recent, project_path="...")` — newest memories
 - `memory(list_mistakes, project_path="...")` — view tracked mistakes with IDs and file associations
 - `memory(acknowledge_mistake, memory_id="...", project_path="...")` — archive a learned mistake (stops pre-edit warnings)
-- `memory(cleanup, dry_run=true, project_path="...")` — find dupes/stale (clustering happens here, internally)
+- `memory(cleanup, dry_run=true, project_path="...")` — remove NEAR-duplicates (the same memory stored twice, 0.85 similarity), decay, archive
+- `memory(consolidate, dry_run=true, tag="decision", project_path="...")` — merge a whole tag group into one LLM-written digest and archive the members. Different job from cleanup: that drops copies, this compresses a topic. Needs 10+ in a group; rules and mistakes are never touched
+- `memory(clusters, project_path="...")` — list clusters and their sizes (`cluster_id` expands one)
 - `memory(archive, project_path="...")` — move old memories to cold storage
 - `memory(modify, memory_id="...", content="...", project_path="...")` — edit a memory
 - `memory(delete, memory_id="...", project_path="...")` — remove a memory

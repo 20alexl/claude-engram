@@ -93,7 +93,10 @@ memory(operation="promote", memory_id="abc123", reason="Important", project_path
 memory(operation="batch_delete", category="context", project_path="/path")
 
 # Cleanup & Archive
-memory(operation="cleanup", dry_run=True, project_path="/path")      # Preview: dedupe + archive
+memory(operation="cleanup", dry_run=True, project_path="/path")      # Preview: near-dupe removal + decay + archive
+memory(operation="consolidate", dry_run=True, project_path="/path")  # Preview: merge a tag group into one digest (LLM)
+memory(operation="consolidate", tag="decision", dry_run=False, project_path="/path")
+memory(operation="clusters", project_path="/path")                    # List clusters (cluster_id expands one)
 memory(operation="archive", dry_run=True, project_path="/path")       # Preview: move old to cold
 memory(operation="archive_search", query="auth", project_path="/path") # Search cold tier
 memory(operation="restore", memory_id="abc123", project_path="/path") # Bring back from archive
@@ -166,6 +169,7 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 - Memories auto-archive after 14 days without access (configurable: `CLAUDE_ENGRAM_ARCHIVE_DAYS`).
 - Rules never archive. Mistakes: manual ones never; auto-captured one-offs that went stale (3+ weeks, never recurred, away from current work) are archived by the background miner. High-relevance (7+) memories stay hot longer.
 - `cleanup` archives before deleting. Nothing is lost without review.
+- `cleanup` and `consolidate` solve different problems: cleanup drops NEAR-DUPLICATES (Jaccard and cosine at 0.85 — effectively the same memory stored twice), which is why it can report "0 duplicates" over hundreds of related decisions. `consolidate` merges a whole tag group into one LLM-written digest and archives the members. It needs 10+ entries in a group and never touches rules or mistakes (summarizing a specific actionable error into a vague blob destroys it).
 
 ### Smart Injection
 

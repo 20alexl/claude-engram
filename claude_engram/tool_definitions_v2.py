@@ -66,7 +66,9 @@ TOOL_DEFINITIONS = [
 - recall: Get all memories for project
 - forget: Clear project memories
 - search: Find by file/tags/query (file_path, tags, query, limit)
-- cleanup: Dedupe/cluster/decay (dry_run, min_relevance, max_age_days)
+- cleanup: Remove near-duplicates (same memory twice), decay, archive (dry_run, min_relevance, max_age_days)
+- consolidate: Merge RELATED memories in a tag group into one digest via LLM, archiving the members (tag, dry_run). Different from cleanup: that drops copies, this compresses a topic. Needs 10+ in a group; rules and mistakes are never touched
+- clusters: List memory clusters, or expand one (cluster_id)
 - add_rule: Add permanent rule (content, reason) - never decays
 - list_rules: Get all rules for project
 - modify: Edit memory (memory_id, content, relevance, category)
@@ -93,6 +95,8 @@ TOOL_DEFINITIONS = [
                         "forget",
                         "search",
                         "cleanup",
+                        "consolidate",
+                        "clusters",
                         "add_rule",
                         "list_rules",
                         "modify",
@@ -151,7 +155,15 @@ TOOL_DEFINITIONS = [
                 },
                 "dry_run": {
                     "type": "boolean",
-                    "description": "For cleanup/archive: preview only",
+                    "description": "For cleanup/archive/consolidate: preview only (default true)",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "For consolidate: limit to one tag group (default: all)",
+                },
+                "cluster_id": {
+                    "type": "string",
+                    "description": "For clusters: expand a single cluster",
                 },
                 "min_relevance": {
                     "type": "integer",

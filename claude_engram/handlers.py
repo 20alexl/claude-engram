@@ -1587,6 +1587,102 @@ class Handlers:
                 ],
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "consolidate":
+            # Was advertised in the operations list but never dispatched, so the
+            # implementation below (tag-grouped, LLM-summarized, 10+ per group,
+            # rules and mistakes exempt) was unreachable — which is why a store
+            # could grow to hundreds of hot decisions while cleanup's near-dupe
+            # passes (Jaccard/cosine at 0.85) correctly found nothing to merge.
+            # Those detect the SAME memory twice; this merges related ones.
+            dry_run = args.get("dry_run", True)
+            report = self.memory.consolidate_memories(
+                project_path=project_path,
+                llm_client=self.llm,
+                tag=args.get("tag"),
+                dry_run=dry_run,
+            )
+            if report.get("error"):
+                response = EngramResponse(
+                    status="failed",
+                    confidence="high",
+                    reasoning=report["error"],
+                    data=report,
+                )
+                return [TextContent(type="text", text=response.to_formatted_string())]
+            groups = report.get("groups_found", [])
+            done = report.get("consolidated", [])
+            if not groups:
+                reasoning = (
+                    f"Nothing to consolidate: no tag group has 10+ entries "
+                    f"({report.get('original_count', 0)} memories scanned)."
+                )
+            elif dry_run:
+                reasoning = "\n".join(
+                    [f"{len(groups)} group(s) worth consolidating (preview only):"]
+                    + [f"  {g['tag']}: {g['count']} memories" for g in groups]
+                    + ["Re-run with dry_run=false to merge."]
+                )
+            else:
+                reasoning = "\n".join(
+                    [f"Consolidated {len(done)} group(s):"]
+                    + [
+                        f"  {c['tag']}: {c['original_count']} -> 1 ({c['new_memory_id']})"
+                        for c in done
+                    ]
+                )
+            healthy = self.llm.health_check().get("healthy")
+            response = EngramResponse(
+                status="success",
+                confidence="high",
+                reasoning=reasoning,
+                # Compact payload on purpose: to_formatted_string renders a
+                # list-of-dicts as memory entries (id/content/tags), so passing
+                # the raw report printed "[] () {'tag': ...}" per group.
+                data={
+                    "dry_run": dry_run,
+                    "scanned": report.get("original_count", 0),
+                    "groups": {g["tag"]: g["count"] for g in groups},
+                    "merged": {c["tag"]: c["new_memory_id"] for c in done},
+                },
+                warnings=(
+                    []
+                    if (dry_run or healthy)
+                    else ["Ollama is unreachable — consolidation needs it to summarize."]
+                ),
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "clusters":
+            # Same story as consolidate: implemented, listed, never dispatched.
+            clusters = self.memory.get_clusters(
+                project_path=project_path, cluster_id=args.get("cluster_id")
+            )
+            found = clusters.get("clusters", []) or []
+            if clusters.get("error"):
+                reasoning = clusters["error"]
+            elif args.get("cluster_id"):
+                reasoning = f"Cluster {args['cluster_id']}"
+            else:
+                reasoning = "\n".join(
+                    [
+                        f"{len(found)} cluster(s) over "
+                        f"{clusters.get('total_memories', 0)} memories "
+                        f"({clusters.get('unclustered_count', 0)} unclustered):"
+                    ]
+                    + [
+                        f"  {c.get('name', c.get('id'))}: {c.get('memory_count', 0)}"
+                        for c in sorted(
+                            found, key=lambda x: x.get("memory_count", 0), reverse=True
+                        )
+                    ]
+                )
+            response = EngramResponse(
+                status="success",
+                confidence="high",
+                reasoning=reasoning,
+                # Same compact-payload rule as consolidate above.
+                data={"count": len(found)} if not args.get("cluster_id") else clusters,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "archive_status":
             stats = self.memory.get_archive_stats(project_path)
             response = EngramResponse(
