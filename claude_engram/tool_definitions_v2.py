@@ -67,7 +67,7 @@ TOOL_DEFINITIONS = [
 - forget: Clear project memories
 - search: Find by file/tags/query (file_path, tags, query, limit)
 - cleanup: Remove near-duplicates (same memory twice), decay, archive (dry_run, min_relevance, max_age_days)
-- consolidate: Merge RELATED memories in a tag group into one digest via LLM, archiving the members (tag, dry_run). Different from cleanup: that drops copies, this compresses a topic. Needs 10+ in a group; rules and mistakes are never touched
+- consolidate: Merge RELATED memories in a tag group into one LLM digest, keeping the 5 most relevant and ARCHIVING the rest (tag, dry_run). Different from cleanup: that drops copies, this compresses a topic. Needs 10+ in a group; rules and mistakes are never touched; archived members stay searchable and restorable. Scope it with `tag` — a very large group (hundreds) compresses into one paragraph and loses the specifics that made each memory worth recalling
 - clusters: List memory clusters, or expand one (cluster_id)
 - add_rule: Add permanent rule (content, reason) - never decays
 - list_rules: Get all rules for project

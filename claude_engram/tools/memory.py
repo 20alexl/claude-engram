@@ -3113,19 +3113,32 @@ Output ONLY the consolidated memory text (no explanation):"""
 
         # Keep top 5 highest-relevance entries (preserve specifics).
         # Only remove the rest — don't destroy all individual memories.
+        # Keep top 5 highest-relevance entries (preserve specifics).
         keep_entries = sorted(entries, key=lambda e: e.relevance, reverse=True)[:5]
         keep_ids = {e.id for e in keep_entries}
-        remove_ids = {e.id for e in entries} - keep_ids
-        proj.entries = [e for e in proj.entries if e.id not in remove_ids]
+
+        # ARCHIVE the rest, never delete. This used to reassign proj.entries and
+        # drop them outright, which is unrecoverable and contradicts the rule the
+        # rest of the store follows ("nothing is lost without review"). It also
+        # bites hardest exactly where consolidation is most tempting: auto-
+        # captured decisions all carry the same relevance, so "top 5 by
+        # relevance" degenerates to "the first 5 in list order" and the other
+        # two hundred would have gone for good on one non-dry-run call.
+        # _move_entries_to_archive removes them from the hot tier for us.
+        removed = [e for e in entries if e.id not in keep_ids]
+        archived = self._move_entries_to_archive(proj, removed) if removed else 0
 
         # Add consolidated summary alongside the kept entries
         proj.entries.append(new_entry)
         self._rebuild_indexes(proj)
         self._save()
+        if archived:
+            self._save_archive()
 
         return {
             "id": new_entry.id,
             "content": new_entry.content[:100] + "...",
-            "removed_count": len(remove_ids),
+            "removed_count": len(removed),
+            "archived_count": archived,
         }
 

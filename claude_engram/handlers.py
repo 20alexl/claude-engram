@@ -1626,8 +1626,14 @@ class Handlers:
                 reasoning = "\n".join(
                     [f"Consolidated {len(done)} group(s):"]
                     + [
-                        f"  {c['tag']}: {c['original_count']} -> 1 ({c['new_memory_id']})"
+                        f"  {c['tag']}: {c['original_count']} -> 1 digest + 5 kept "
+                        f"({c['new_memory_id']})"
                         for c in done
+                    ]
+                    + [
+                        "Merged members were ARCHIVED, not deleted — "
+                        "memory(archive_search) finds them, memory(restore) brings "
+                        "one back."
                     ]
                 )
             healthy = self.llm.health_check().get("healthy")

@@ -169,6 +169,7 @@ context(operation="verify_completion", task="OAuth2 migration", verification_ste
 - Memories auto-archive after 14 days without access (configurable: `CLAUDE_ENGRAM_ARCHIVE_DAYS`).
 - Rules never archive. Mistakes: manual ones never; auto-captured one-offs that went stale (3+ weeks, never recurred, away from current work) are archived by the background miner. Relevance **8+** exempts a memory from age-archiving entirely — deliberately above every default (manual `remember` is 5; the miner mints auto-captured decisions at 7). It was 7+, which exactly equalled the auto-capture default, so every auto-captured decision was born permanently exempt and the hot tier could not shrink.
 - `cleanup` archives before deleting. Nothing is lost without review.
+- `consolidate` is non-destructive: it keeps the 5 most relevant originals and **archives** the rest (searchable via `archive_search`, restorable by id). Scope it with `tag` — merging a group of hundreds into one paragraph loses the specifics that made each memory worth recalling.
 - `cleanup` and `consolidate` solve different problems: cleanup drops NEAR-DUPLICATES (Jaccard and cosine at 0.85 — effectively the same memory stored twice), which is why it can report "0 duplicates" over hundreds of related decisions. `consolidate` merges a whole tag group into one LLM-written digest and archives the members. It needs 10+ entries in a group and never touches rules or mistakes (summarizing a specific actionable error into a vague blob destroys it).
 
 ### Smart Injection

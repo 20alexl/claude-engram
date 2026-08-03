@@ -240,6 +240,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.12 — 2026-07-26
+
+- **Consolidation deleted the memories it merged.** `_consolidate_group_with_llm` kept the 5 highest-relevance originals and dropped the rest by reassigning `proj.entries` — nothing wrote them anywhere else, so they were gone for good. That contradicts the rule the rest of the store follows ("cleanup archives before deleting; nothing is lost without review"), and it was latent only because `consolidate` had no dispatch branch until v0.8.9 — wiring the operation is what made it reachable.
+  - It bites hardest exactly where consolidation is most tempting: auto-captured decisions are all minted at the same relevance, so "keep the top 5 by relevance" degenerates to "keep whichever 5 come first". One `dry_run=false` call on the reference store's decision group would have destroyed roughly 200 memories with no way back.
+  - Merged members now go through `_move_entries_to_archive` — the same restorable path everything else uses. The response and the tool description say so, and both now warn that a very large group compresses into one paragraph and loses the specifics worth recalling.
+  - New `tests/bench_consolidate_safety.py` (7 checks): every dropped member lands in the archive, nothing evaporates (`hot_before == hot_after - digest + archived`), an archived member restores by id, the digest reaches the hot tier, and rules/mistakes are never consolidated. It uses a fake LLM client, so the safety property is pinned without needing Ollama.
+
 ### v0.8.11 — 2026-07-26
 
 - **The hot tier could not shrink: two constants collided.** The miner mints auto-captured decisions with a hardcoded `relevance=7` (`extractors.py`, `work_tracker.py`), and `_is_archivable` exempted anything with `relevance >= 7`. Every auto-captured decision was therefore born permanently exempt from age-archiving. On the reference store that left **231 decisions untouched for over two weeks and still un-archivable**, with relevance taking exactly two values across all 444 (417 at 7, 27 at 6) — a constant, not a judgment.
