@@ -240,6 +240,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.10 — 2026-07-26
+
+- **One name per concept on the ring record.** Every checkpoint written to the ring carried both vocabularies — the checkpoint one (`pending_steps`, `files_involved`, `handoff_warnings`, `handoff_context_needed`, `key_decisions`, `timestamp`) and the handoff one (`next_steps`, `files_in_progress`, `warnings`, `context_needed`, `decisions`, `created`). Audited before changing anything: across the 129 stored records carrying both, all six pairs were identical in **every single record**. The checkpoint twin is no longer written.
+  - **`task_description` / `summary` is not a twin pair and was left alone.** `summary` is the handoff note (`handoff_summary or task_description`) and differed from the task title in **110 of those 129 records** — collapsing it would have merged "what the task is" with "where things stand" and lost one.
+  - **No migration.** Records on disk keep both names and every reader accepts either. Two readers did *not*: the SessionStart banner checked only `pending_steps` and `checkpoint_restore` checked only `key_decisions`, both with no fallback — so a handoff-shaped record (written by `create_handoff`, which only ever emits the handoff vocabulary) silently lost its "Pending: N steps" and "Key decisions: N recorded" lines. Both fixed here.
+  - A side effect worth naming: `checkpoint_restore` passes the whole record as `data`, and `to_formatted_string` renders every list in it — so a dual-vocabulary record printed **each list twice**, once per name. The collapse removes the repeat without losing a line.
+  - New `tests/bench_ring_vocabulary.py` (19 checks): canonical name written and twin absent, `task_description`/`summary` both surviving with different values, a collapsed record rendering the same as a legacy one through both the banner and restore, and a handoff-shaped record rendering every line.
+
 ### v0.8.9 — 2026-07-26
 
 - **`memory(consolidate)` and `memory(clusters)` were unreachable.** Both were fully implemented (LLM tag-group consolidation with a 10-entry floor, rules and mistakes exempt; cluster listing) and both were named in the tool's own "Use: …" error string as valid operations — but neither appeared in the MCP schema `enum`, and neither had a dispatch branch. So they could not be called at all, while the error you got for trying said they were valid. Now wired, schema'd, and documented.

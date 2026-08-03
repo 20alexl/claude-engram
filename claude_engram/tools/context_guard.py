@@ -141,6 +141,32 @@ class ContextGuard:
         # deliberate save; the bridge-field aliases let the unified reader/banner
         # render it like any other checkpoint. (The single-slot latest_checkpoint
         # writes were dropped; old files are still read via the restore fallback.)
+        # ONE name per concept on the ring. Every record used to carry both
+        # vocabularies -- the checkpoint one and the handoff one -- for six
+        # concepts that were verified byte-identical across all 129 stored
+        # records that had both. The twin is now dropped instead of written.
+        #
+        # task_description is deliberately NOT in this list: `summary` is the
+        # HANDOFF NOTE (handoff_summary), which is a different sentence from
+        # the task title and differed from it in 110 of those 129 records.
+        # Collapsing that pair would merge "what the task is" with "where
+        # things stand" and lose one of them.
+        #
+        # No migration: records already on disk keep both names, and every
+        # reader takes either (the two that did not are fixed alongside this).
+        # The per-task checkpoint file written above keeps the checkpoint
+        # vocabulary and is untouched.
+        _RING_ALIAS_TWINS = (
+            "pending_steps",
+            "files_involved",
+            "handoff_warnings",
+            "handoff_context_needed",
+            "key_decisions",
+            "timestamp",
+        )
+        checkpoint_data = {
+            k: v for k, v in checkpoint_data.items() if k not in _RING_ALIAS_TWINS
+        }
         checkpoint_data["kind"] = "manual"
         checkpoint_data["created"] = checkpoint.timestamp
         checkpoint_data["summary"] = handoff_summary or task_description
@@ -370,10 +396,11 @@ class ContextGuard:
         if data.get("blockers"):
             summary_lines.append(f"**Blockers:** {', '.join(data['blockers'])}")
 
-        if data.get("key_decisions"):
-            summary_lines.append(
-                f"**Key decisions:** {len(data['key_decisions'])} recorded"
-            )
+        # Either vocabulary (see the pending/next pair above): a handoff-shaped
+        # entry carries only `decisions`, so this line was silently missing.
+        _decisions = data.get("key_decisions") or data.get("decisions") or []
+        if _decisions:
+            summary_lines.append(f"**Key decisions:** {len(_decisions)} recorded")
 
         # Include handoff info if present. Skip when the summary is already the
         # headline (handoff-shaped entry) so it isn't printed twice.

@@ -761,8 +761,11 @@ def _format_restored_context(entry: dict) -> list[str]:
     step = entry.get("current_step")
     if step and step != "Context was compacted":
         out.append(f"  Current step: {_truncate(step, 60)}")
-    if entry.get("pending_steps"):
-        out.append(f"  Pending: {len(entry['pending_steps'])} steps")
+    # Either vocabulary: a handoff-shaped entry carries only next_steps, so the
+    # unguarded pending_steps read used to skip this line entirely for those.
+    _pending = entry.get("pending_steps") or entry.get("next_steps") or []
+    if _pending:
+        out.append(f"  Pending: {len(_pending)} steps")
     _trivial = {"review what was in progress", "continue work from before compaction"}
     real_next = [
         s
