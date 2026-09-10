@@ -212,6 +212,21 @@ def main():
         r3 = rr.collect(sid, str(project), st2)
         check("compaction joined to the NEAREST hook record by time", (r3["compactions"][0].get("restored") or {}).get("task_id") == "near")
         check("run.started_at beats last_session_start", r3["started_at"] == rr._iso(started))
+        # A session id resumed for months: the transcript carries compactions
+        # from long before the run; the report reads from the run's start.
+        old = tmp / f"{sid}-old.jsonl"
+        lines = transcript.read_text(encoding="utf-8").splitlines()
+        june = {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-06-10T23:32:39Z", "sessionId": sid, "content": "Conversation compacted", "compactMetadata": {"trigger": "manual", "preTokens": 555421, "postTokens": 17000}}
+        old.write_text(json.dumps(june) + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
+        tr_all = rr._read_transcript(old, sid)
+        tr_since = rr._read_transcript(old, sid, since=rr._parse_iso("2026-09-01T00:00:00Z"))
+        check("without since: both compactions", len(tr_all["compactions"]) == 2)
+        check("since the run's start: only the run's compaction", len(tr_since["compactions"]) == 1 and tr_since["compactions"][0]["pre_tokens"] == 489107)
+        run_start = rr._parse_iso("2026-09-09T09:30:00Z")  # inside the transcript's span
+        r_old = rr.collect(sid, str(project), {"run": {"transcript_path": str(old), "started_at": run_start}, "pressure": st2["pressure"]})
+        check("collect scopes the transcript to the run and still joins the restore", len(r_old["compactions"]) == 1 and (r_old["compactions"][0].get("restored") or {}).get("task_id") == "near")
+        r_skew = rr.collect(sid, str(project), {"run": {"transcript_path": str(old), "started_at": time.time()}, "pressure": st2["pressure"]})
+        check("a run start past the transcript's last record never empties the report", len(r_skew["compactions"]) == 2)
 
         print("compaction-triggered SessionStart keeps the session's accumulators:")
         remind._session_id = "s-cont"

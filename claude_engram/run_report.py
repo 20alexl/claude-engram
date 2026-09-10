@@ -123,8 +123,14 @@ def find_transcript(session_id: str, project_dir: str, hint: str = "") -> Option
         return None
 
 
-def _read_transcript(path: Optional[Path], session_id: str) -> dict:
-    """Model, branch, timestamps, /goal text, compactions, tool errors."""
+def _read_transcript(path: Optional[Path], session_id: str, since: float = 0.0) -> dict:
+    """Model, branch, timestamps, /goal text, compactions, tool errors.
+
+    ``since``: skip records older than this epoch. A session id that is
+    resumed for months carries every compaction and error since its first
+    day; the run is the life of the hook state's ``run`` block, so the
+    report reads the transcript from there (2026-09-10: a report listed
+    compactions from June under a run that started the day before)."""
     out: dict[str, Any] = {
         "models": [],  # in order of first appearance; a session can switch
         "branch": "",
@@ -160,6 +166,8 @@ def _read_transcript(path: Optional[Path], session_id: str) -> dict:
             if session_id and msg.get("sessionId") and msg.get("sessionId") != session_id:
                 continue
             ts = _parse_iso(str(msg.get("timestamp", "")))
+            if since and ts and ts < since:
+                continue
             if ts:
                 if not out["first_ts"]:
                     out["first_ts"] = ts
@@ -361,18 +369,26 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
     loop = _dict(state.get("loop"))
 
     transcript_path = find_transcript(session_id, project_dir, str(run.get("transcript_path") or ""))
-    tr = _read_transcript(transcript_path, session_id)
 
     # Clocks: the hook state is authoritative for both ends (SessionEnd stamps
     # last_session_end before writing); the transcript only fills a missing
     # start. The run block's started_at survives compaction-triggered
     # SessionStarts; last_session_start is the most recent (re)start. A live
-    # (unended) session reads as "until now".
-    started = (
-        float(run.get("started_at") or 0)
-        or float(state.get("last_session_start") or 0)
-        or tr["first_ts"]
-    )
+    # (unended) session reads as "until now". The transcript is read from
+    # the run's start (with a minute of slack for clock skew between the
+    # hook state and the transcript's timestamps).
+    started_state = float(run.get("started_at") or 0) or float(state.get("last_session_start") or 0)
+    since = 0.0
+    if started_state and transcript_path:
+        # Only when the transcript demonstrably spans past the run's start:
+        # records both before and after it. A clock mismatch between the
+        # hook state and the transcript must never empty the report.
+        first, last = _transcript_bounds(transcript_path)
+        cut = started_state - 60.0
+        if first and last and first < cut <= last:
+            since = cut
+    tr = _read_transcript(transcript_path, session_id, since=since)
+    started = started_state or tr["first_ts"]
     ended = float(state.get("last_session_end") or 0) or time.time()
     if ended < started:
         # A stale end from before a resume of the same session id.
@@ -852,6 +868,36 @@ def _atomic(path: Path, text: str) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_bytes(text.encode("utf-8"))
     tmp.replace(path)
+
+
+def _transcript_bounds(path: Path) -> tuple[float, float]:
+    """(first, last) record timestamps, from the head and a 64 KB tail read.
+    Zero when unreadable."""
+    first = last = 0.0
+    try:
+        with open(path, "rb") as fh:
+            for i, line in enumerate(fh):
+                m = _TS_RE.search(line)
+                if m:
+                    first = _parse_iso(m.group(1).decode("ascii", "ignore"))
+                    if first:
+                        break
+                if i >= 400:
+                    break
+            size = fh.seek(0, 2)
+            fh.seek(max(0, size - 65536))
+            for line in fh.read().splitlines()[::-1]:
+                m = _TS_RE.search(line)
+                if m:
+                    last = _parse_iso(m.group(1).decode("ascii", "ignore"))
+                    if last:
+                        break
+    except Exception:
+        return first, last
+    return first, last
+
+
+_TS_RE = re.compile(rb'"timestamp":\s*"([0-9T:.+\-]+Z?)"')
 
 
 def goal_seen(transcript_path: str, max_lines: int = 400) -> bool:

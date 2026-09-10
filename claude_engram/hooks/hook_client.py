@@ -130,6 +130,8 @@ def _nudge_daemon() -> None:
 
     A 30s-TTL marker keeps a burst of falling-back hooks from spawning a
     pile of servers (each would load the model; last one wins PORT_FILE)."""
+    if os.environ.get("CLAUDE_ENGRAM_NO_DAEMON", "").strip():
+        return  # benches / temporary stores: never spawn from here
     marker = os.path.join(_storage_dir(), "scorer_starting")
     try:
         if os.path.exists(marker) and time.time() - os.path.getmtime(marker) < 30:

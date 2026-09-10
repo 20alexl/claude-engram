@@ -182,6 +182,7 @@ def test_hook_never_titles():
 
             env = dict(os.environ)
             env["CLAUDE_ENGRAM_DIR"] = str(store)
+            env["CLAUDE_ENGRAM_NO_DAEMON"] = "1"  # never spawn a daemon on a temp store
             env.pop("CLAUDE_CODE_SESSION_ID", None)
 
             seed_file = store / "_seed.py"

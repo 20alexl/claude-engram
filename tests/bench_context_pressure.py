@@ -488,6 +488,30 @@ def test_milestones(cp):
     cp.note_manual_checkpoint(state)
     t, _ = cp.nudge(state, sid)
     check("checkpoint after the claim clears the nudge silently", t == "")
+    # A save made from ANOTHER process reaches the ring, not this state's
+    # flag (two false nudges on 2026-09-10): the ring answers the nudge.
+    from claude_engram.hooks import remind as _remind
+
+    time.sleep(0.01)
+    cp.note_stop(state)  # a plain turn after the save, so the next claim is a fresh turn
+    time.sleep(0.01)
+    cp.note_stop(state, "Step 4 complete.")
+    check("claim staged (no flag this turn)", isinstance(state["pressure"]["milestone_pending"], dict))
+    _orig = _remind.get_handoff_data
+    _remind.get_handoff_data = lambda p="": {"kind": "manual", "created": time.time() + 1.0}
+    try:
+        t, _ = cp.nudge(state, sid, "E:/ws/proj")
+    finally:
+        _remind.get_handoff_data = _orig
+    check("a newer manual entry in the ring answers the nudge without the flag", t == "")
+    time.sleep(0.01)
+    cp.note_stop(state, "Step 5 complete.")
+    _remind.get_handoff_data = lambda p="": {"kind": "auto", "created": time.time() + 1.0}
+    try:
+        t, _ = cp.nudge(state, sid, "E:/ws/proj")
+    finally:
+        _remind.get_handoff_data = _orig
+    check("an automatic entry does not (only a deliberate save counts)", "Step 5 complete" in t)
     # Task tools path stages with kind=task.
     cp.stage_milestone(state, "Implement user authentication", "task")
     t, _ = cp.nudge(state, sid)
@@ -627,7 +651,7 @@ def test_stop_failure(tmp):
         "context_window": {"total_input_tokens": 10, "context_window_size": 1_000_000},
         "rate_limits": {"five_hour": {"used_percentage": 100, "resets_at": int(now + 1800)}},
     })
-    env = dict(os.environ, CLAUDE_ENGRAM_DIR=os.environ["CLAUDE_ENGRAM_DIR"], CLAUDE_PROJECT_DIR=str(tmp))
+    env = dict(os.environ, CLAUDE_ENGRAM_DIR=os.environ["CLAUDE_ENGRAM_DIR"], CLAUDE_PROJECT_DIR=str(tmp), CLAUDE_ENGRAM_NO_DAEMON="1")
     r = subprocess.run(
         [sys.executable, "-m", "claude_engram.hooks.remind", "stop_failure_json"],
         input=json.dumps({"session_id": sid, "hook_event_name": "StopFailure", "error_type": "rate_limit",

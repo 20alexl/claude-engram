@@ -397,6 +397,14 @@ def serve():
     except (OSError, ValueError):
         pass  # Windows doesn't support SIGTERM in all contexts
 
+    # The daemon serves hook code it imported at start. After an edit to the
+    # package it would keep serving the old code until its idle timeout (an
+    # hour of stale context-pressure thresholds, seen 2026-09-10), so it
+    # watches the package's newest source mtime and exits when that moves;
+    # the next hook call falls back in-process and respawns it.
+    code_stamp = _code_stamp()
+    last_code_check = time.time()
+
     try:
         while True:
             server_sock.settimeout(60.0)  # Check idle every 60s
@@ -414,9 +422,33 @@ def serve():
                 if time.time() - last_activity > IDLE_TIMEOUT:
                     print("Idle timeout — shutting down.", file=sys.stderr)
                     break
+            if time.time() - last_code_check >= CODE_CHECK_SECS:
+                last_code_check = time.time()
+                if _code_stamp() != code_stamp:
+                    print("Package source changed — exiting so the next hook restarts on the new code.", file=sys.stderr)
+                    break
     finally:
         server_sock.close()
         _cleanup()
+
+
+CODE_CHECK_SECS = 10.0
+
+
+def _code_stamp() -> float:
+    """Newest mtime across the package's Python sources (one directory walk,
+    ~100 files, a few milliseconds)."""
+    root = Path(__file__).resolve().parent.parent
+    newest = 0.0
+    try:
+        for p in root.rglob("*.py"):
+            try:
+                newest = max(newest, p.stat().st_mtime)
+            except OSError:
+                continue
+    except Exception:
+        return newest
+    return newest
 
 
 def _cleanup():
@@ -505,6 +537,11 @@ def start_server_background():
     """
     if is_server_running():
         return True
+    if os.environ.get("CLAUDE_ENGRAM_NO_DAEMON", "").strip():
+        # Benches and one-off hook runs against a temporary store: a daemon
+        # spawned from there inherits CLAUDE_ENGRAM_DIR, outlives the
+        # temp dir and idles for 30 minutes holding a loaded model.
+        return False
 
     import subprocess
     import platform

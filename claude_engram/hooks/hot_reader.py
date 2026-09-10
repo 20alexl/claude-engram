@@ -41,6 +41,31 @@ _GENERIC_BASENAMES = {
     "setup.py",
     "conftest.py",
     "types.ts",
+    # Every project has one; a bare mention of the name says nothing about
+    # WHICH one. Editing engram's README surfaced another project's
+    # `src/README.md` mistake and its CLAUDE.md a trade repo's worktree
+    # decisions (2026-09-10). Only a full-path signal counts for these.
+    "readme.md",
+    "claude.md",
+    "agents.md",
+    "changelog.md",
+    "license",
+    "pyproject.toml",
+    "setup.cfg",
+    "requirements.txt",
+    "package.json",
+    "tsconfig.json",
+    "cargo.toml",
+    "makefile",
+    "dockerfile",
+    ".gitignore",
+    ".env",
+    "config.py",
+    "settings.py",
+    "utils.py",
+    "main.py",
+    "app.py",
+    "test_utils.py",
 }
 
 # Tag patterns for inferring context tags from a file path in hooks

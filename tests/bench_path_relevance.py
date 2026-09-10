@@ -56,6 +56,14 @@ if __name__ == "__main__":
         "engine.py service-a full path does NOT match service-b engine.py",
         S(ENG_B, [ENG_A], "") < GATE,
     )
+    # Every project has a README.md, a CLAUDE.md and a pyproject.toml: a bare
+    # mention names no project (engram's README edit surfaced another
+    # project's src/README.md mistake, 2026-09-10).
+    check("README.md name-drop in content does NOT match (generic)", S("E:/ws/engram/README.md", [], "FileNotFoundError: src/README.md") < GATE)
+    check("bare CLAUDE.md related does NOT match (generic)", S("E:/ws/engram/CLAUDE.md", ["CLAUDE.md"], "") < GATE)
+    check("bare pyproject.toml related does NOT match (generic)", S("E:/ws/engram/pyproject.toml", ["pyproject.toml"], "") < GATE)
+    check("the SAME README by full path still matches", S("E:/ws/engram/README.md", ["E:/ws/engram/README.md"], "") >= GATE)
+    check("a full-path mention of the same README still matches", S("E:/ws/engram/README.md", [], "edited e:/ws/engram/readme.md today") >= GATE)
     check(
         "unrelated file does not match",
         S(SVC_B, ["/other/proj/server.py"], "server crash") == 0.0,

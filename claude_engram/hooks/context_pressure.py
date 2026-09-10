@@ -455,6 +455,23 @@ def note_manual_checkpoint(state: dict) -> None:
     ps["milestone_pending"] = None
 
 
+def _ring_manual_after(project_dir: str, t: float) -> bool:
+    """Is there a deliberate (manual) checkpoint in the project's ring newer
+    than ``t``? The ring is what any process writes; the state flag is not."""
+    if not project_dir or not t:
+        return False
+    try:
+        from claude_engram.hooks.remind import get_handoff_data
+
+        entry = get_handoff_data(project_dir) or {}
+        if str(entry.get("kind", "")) != "manual":
+            return False
+        created = float(entry.get("created") or entry.get("timestamp") or 0.0)
+        return created > t
+    except Exception:
+        return False
+
+
 def stage_milestone(state: dict, quote: str, kind: str = "claim") -> None:
     """Remember that a unit closed without a deliberate checkpoint; the next
     injection point asks for one. The newest claim wins."""
@@ -738,7 +755,17 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
     if isinstance(mp, dict) and not texts:
         ps["milestone_pending"] = None
         changed = True
-        if float(ps.get("last_manual_checkpoint_at") or 0.0) <= float(mp.get("at") or 0.0):
+        claim_at = float(mp.get("at") or 0.0)
+        answered = float(ps.get("last_manual_checkpoint_at") or 0.0) > claim_at
+        if not answered:
+            # The state flag is set by checkpoint_save in THIS session's
+            # process; a save made from another process (a script, the MCP
+            # server under a different session id) reaches the ring but not
+            # the flag. The ring is the record, so read it: a manual entry
+            # newer than the claim answers the nudge. (Two false nudges on
+            # 2026-09-10 came from exactly that.)
+            answered = _ring_manual_after(project_dir, claim_at)
+        if not answered:
             from claude_engram.hooks.milestones import milestone_text
 
             texts.append(milestone_text(str(mp.get("quote", "")), str(mp.get("kind", "claim"))))
