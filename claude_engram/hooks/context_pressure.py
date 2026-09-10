@@ -62,6 +62,13 @@ CHECKPOINT_FRACTION_SMALL = 0.05  # windows <= 200K: 3% is only 6K tokens
 # signal than a save schedule.
 CADENCE_STOPS = 60
 
+# Subscription usage windows. A run that hits the 5-hour or weekly limit ends
+# on an API error (StopFailure: rate_limit), which no Stop hook sees and which
+# Claude Code does not retry -- the goal loop cannot save it. Said once per
+# window, with the reset time, at these fractions of the window.
+BUDGET_FIVE_HOUR_PCT = 90
+BUDGET_SEVEN_DAY_PCT = 95
+
 # A statusLine is configured but no mirror has appeared this long after the
 # session started: the script is not calling record_statusline(). Say so once.
 NOT_RECORDING_AFTER_SECS = 300
@@ -104,6 +111,14 @@ def record_statusline(data: dict) -> Optional[Path]:
         "model_name": model.get("display_name", "") or "",
         "total_cost_usd": (data.get("cost") or {}).get("total_cost_usd"),
     }
+    # Subscription usage windows (Claude.ai plans; absent on API keys):
+    # rate_limits.five_hour / seven_day {used_percentage, resets_at}.
+    rl = data.get("rate_limits") or {}
+    for key, prefix in (("five_hour", "five_hour"), ("seven_day", "seven_day")):
+        w = rl.get(key) or {}
+        if isinstance(w, dict) and w.get("used_percentage") is not None:
+            rec[f"{prefix}_pct"] = w.get("used_percentage")
+            rec[f"{prefix}_resets_at"] = w.get("resets_at")
     path = mirror_path(sid)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -405,6 +420,8 @@ def pressure_state(state: dict) -> dict:
     ps.setdefault("last_stop_at", 0.0)
     ps.setdefault("milestone_pending", None)
     ps.setdefault("setpoint_notice_done", False)
+    ps.setdefault("budget_5h_noticed_reset", 0)  # resets_at the 5-hour notice was for
+    ps.setdefault("budget_7d_noticed_reset", 0)
     return ps
 
 
@@ -560,6 +577,81 @@ def setpoint_mismatch(a: dict) -> bool:
     return a.get("source") == "model-default" and int(a["window"]) <= SMALL_WINDOW
 
 
+def _fmt_reset(ts) -> str:
+    """'14:05 (in 41 min)' or '' when unknown."""
+    try:
+        t = float(ts or 0)
+    except (TypeError, ValueError):
+        return ""
+    if t <= 0:
+        return ""
+    left = t - time.time()
+    when = time.strftime("%a %H:%M", time.localtime(t))
+    if left <= 0:
+        return f"{when} (passed)"
+    if left < 3600:
+        return f"{when} (in {left / 60:.0f} min)"
+    if left < 48 * 3600:
+        return f"{when} (in {left / 3600:.1f} h)"
+    return f"{when} (in {left / 86400:.1f} d)"
+
+
+def budget_text(window: str, pct, resets_at) -> str:
+    reset = _fmt_reset(resets_at)
+    reset_s = f", resets {reset}" if reset else ""
+    if window == "five_hour":
+        return (
+            f"<engram-context>Usage budget: the 5-hour window is at {float(pct):.0f}%{reset_s}. "
+            "A limit hit ends the turn on an API error that no Stop hook sees and Claude Code "
+            "does not retry; a goal loop dies there. Finish the current step, bank a "
+            "context(checkpoint_save), and park on a ScheduleWakeup or Monitor until the reset "
+            "instead of running into it mid-step.</engram-context>"
+        )
+    return (
+        f"<engram-context>Usage budget: the 7-day window is at {float(pct):.0f}%{reset_s}. "
+        "Nothing unattended should start before it resets; checkpoint what is open."
+        "</engram-context>"
+    )
+
+
+def budget_nudges(state: dict, mirror: Optional[dict]) -> list[str]:
+    """Once per window (keyed by resets_at): the 5-hour window at
+    BUDGET_FIVE_HOUR_PCT, the weekly at BUDGET_SEVEN_DAY_PCT. Absent fields
+    (API-key sessions) mean nothing fires."""
+    if not mirror:
+        return []
+    ps = pressure_state(state)
+    out: list[str] = []
+    five = _env_int("CLAUDE_ENGRAM_BUDGET_FIVE_HOUR_PCT", BUDGET_FIVE_HOUR_PCT)
+    seven = _env_int("CLAUDE_ENGRAM_BUDGET_SEVEN_DAY_PCT", BUDGET_SEVEN_DAY_PCT)
+    for key, threshold, latch in (
+        ("five_hour", five, "budget_5h_noticed_reset"),
+        ("seven_day", seven, "budget_7d_noticed_reset"),
+    ):
+        pct = mirror.get(f"{key}_pct")
+        if pct is None:
+            continue
+        try:
+            pct_f = float(pct)
+        except (TypeError, ValueError):
+            continue
+        resets = mirror.get(f"{key}_resets_at") or 0
+        try:
+            resets_i = int(float(resets))
+        except (TypeError, ValueError):
+            resets_i = 0
+        if pct_f < threshold:
+            continue
+        # Same window already announced (same reset stamp) -> quiet.
+        if resets_i and int(ps.get(latch) or 0) == resets_i:
+            continue
+        if not resets_i and int(ps.get(latch) or 0) == -1:
+            continue
+        ps[latch] = resets_i or -1
+        out.append(budget_text(key, pct_f, resets_i))
+    return out
+
+
 def not_recording_text() -> str:
     return (
         "<engram-context>Context pressure: a statusLine is configured but no "
@@ -611,6 +703,12 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
         ps["setpoint_notice_done"] = True
         changed = True
         texts.append(setpoint_text(a))
+
+    # Subscription usage windows, once per window, from the same mirror.
+    _budget = budget_nudges(state, read_mirror(session_id))
+    if _budget:
+        changed = True
+        texts.extend(_budget)
 
     # A closed step with no deliberate checkpoint behind it. Delivered once;
     # a checkpoint that landed since the claim answers it silently.
@@ -697,6 +795,12 @@ def _fmt_statusline(data: dict) -> str:
     cost = (data.get("cost") or {}).get("total_cost_usd")
     if cost is not None:
         parts.append(f"${cost:.2f}")
+    five = ((data.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
+    if five is not None:
+        try:
+            parts.append(f"5h {float(five):.0f}%")
+        except (TypeError, ValueError):
+            pass
     cwd = data.get("cwd") or ""
     if cwd:
         parts.append(os.path.basename(cwd))

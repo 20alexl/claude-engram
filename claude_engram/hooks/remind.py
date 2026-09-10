@@ -2847,6 +2847,46 @@ def _hook_pre_bash(project_dir: str) -> None:
         pass
 
 
+def _hook_stop_failure(project_dir: str) -> None:
+    """StopFailure: the turn ended on an API error (rate_limit, overloaded,
+    billing_error, max_output_tokens, ...). Output is ignored by Claude Code;
+    this is the record -- when, which error, and, for a usage limit, when the
+    window resets (from the statusline mirror) so the run report and the
+    launcher can say when a resume makes sense."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        state = load_state()
+        run = state.get("run")
+        if not isinstance(run, dict):
+            run = {}
+            state["run"] = run
+        rec = {
+            "at": time.time(),
+            "error_type": str(data.get("error_type") or "unknown"),
+            "error": str(data.get("error") or "")[:300],
+            "permission_mode": str(data.get("permission_mode") or ""),
+        }
+        try:
+            from claude_engram.hooks import context_pressure as _cp
+
+            mirror = _cp.read_mirror(_session_id) or {}
+            for key in ("five_hour_pct", "five_hour_resets_at", "seven_day_pct", "seven_day_resets_at"):
+                if mirror.get(key) is not None:
+                    rec[key] = mirror[key]
+        except Exception:
+            pass
+        run["failures"] = (list(run.get("failures") or []) + [rec])[-20:]
+        run["last_failure"] = rec
+        save_state(state)
+    except Exception:
+        pass
+
+
 def _hook_post_batch(project_dir: str) -> None:
     """PostToolBatch: account every call in the batch to the open turn
     (hooks/stall.py) and deliver whatever nudge is due. The batch payload
@@ -4192,6 +4232,9 @@ def main():
 
     elif hook_type == "pre_bash_json":
         _hook_pre_bash(project_dir)
+
+    elif hook_type == "stop_failure_json":
+        _hook_stop_failure(project_dir)
 
     elif hook_type == "post_milestone_json":
         _hook_post_milestone()

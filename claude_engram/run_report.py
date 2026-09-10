@@ -532,6 +532,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
         "stalls": stalls,
         "compliance": compliance,
         "end_reason": str(run.get("end_reason") or ""),
+        "failures": [f for f in (run.get("failures") or []) if isinstance(f, dict)],
         "not_measured": not_measured,
         "transcript_path": str(transcript_path) if transcript_path else "",
     }
@@ -584,6 +585,24 @@ def render_md(r: dict) -> str:
         )
     if r.get("end_reason"):
         lines.append(f"- **Ended:** {r['end_reason']}")
+    for f in (r.get("failures") or [])[-5:]:
+        at = f.get("at")
+        try:
+            at_s = time.strftime("%H:%M", time.localtime(float(at))) if at else "?"
+        except Exception:
+            at_s = "?"
+        extra = ""
+        if f.get("error_type") == "rate_limit":
+            reset = f.get("five_hour_resets_at") or f.get("seven_day_resets_at")
+            pct = f.get("five_hour_pct")
+            try:
+                reset_s = time.strftime("%a %H:%M", time.localtime(float(reset))) if reset else ""
+            except Exception:
+                reset_s = ""
+            if reset_s:
+                extra = f"; 5-hour window at {pct}%, resets {reset_s}" if pct is not None else f"; window resets {reset_s}"
+        msg = str(f.get("error") or "")[:120].replace("|", "/")
+        lines.append(f"- **API failure at {at_s}:** {f.get('error_type', '?')}{extra}{' -- ' + msg if msg else ''}")
     lines.append("")
 
     verdicts = r.get("goal_verdicts") or []

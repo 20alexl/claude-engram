@@ -208,6 +208,7 @@ def get_hooks_config():
                 },
             ],
             "PostToolBatch": [{"matcher": "", "hooks": [_hook("post_batch_json")]}],
+            "StopFailure": [{"matcher": "", "hooks": [_hook("stop_failure_json", 1500)]}],
             "PostToolUseFailure": [
                 {"matcher": "", "hooks": [_hook("tool_failure_json")]}
             ],

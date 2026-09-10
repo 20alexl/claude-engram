@@ -555,6 +555,90 @@ def test_provenance(tmp):
     check("banner labels a foreign checkpoint with its own project", lines and ", claude-engram" in lines[0] and "goal-test" not in lines[0])
 
 
+def test_budget(cp, tmp):
+    print("usage budget (5-hour / 7-day windows):")
+    _clean_env()
+    for k in ("CLAUDE_ENGRAM_BUDGET_FIVE_HOUR_PCT", "CLAUDE_ENGRAM_BUDGET_SEVEN_DAY_PCT"):
+        os.environ.pop(k, None)
+    sid = "s-budget"
+    now = time.time()
+    payload = {
+        "session_id": sid,
+        "context_window": {"total_input_tokens": 50_000, "context_window_size": 1_000_000},
+        "rate_limits": {
+            "five_hour": {"used_percentage": 93, "resets_at": int(now + 41 * 60)},
+            "seven_day": {"used_percentage": 40, "resets_at": int(now + 3 * 86400)},
+        },
+    }
+    cp.record_statusline(payload)
+    m = cp.read_mirror(sid)
+    check("the mirror carries both windows", m["five_hour_pct"] == 93 and m["seven_day_pct"] == 40 and m["five_hour_resets_at"] == int(now + 41 * 60))
+    state = {}
+    t, changed = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("5-hour window at 93% fires once", changed and "5-hour window is at 93%" in t and "resets" in t and "in 41 min" in t)
+    check("...with the park-until-reset instruction", "ScheduleWakeup" in t and "checkpoint_save" in t)
+    check("...and the weekly at 40% stays quiet", "7-day" not in t)
+    t2, _ = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("same window: not again", "Usage budget" not in t2)
+    payload["rate_limits"]["five_hour"]["used_percentage"] = 97
+    cp.record_statusline(payload)
+    t3, _ = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("rising inside the same window: still quiet", "Usage budget" not in t3)
+    payload["rate_limits"]["five_hour"] = {"used_percentage": 91, "resets_at": int(now + 5 * 3600 + 41 * 60)}
+    cp.record_statusline(payload)
+    t4, _ = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("a new window (new resets_at) fires again", "5-hour window is at 91%" in t4)
+    payload["rate_limits"]["seven_day"] = {"used_percentage": 96, "resets_at": int(now + 2 * 86400)}
+    cp.record_statusline(payload)
+    t5, _ = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("weekly at 96% fires with its reset", "7-day window is at 96%" in t5 and "resets" in t5 and "unattended" in t5)
+    check("weekly once", "7-day" not in cp.nudge(state, sid, str(tmp / "no-proj"))[0])
+    os.environ["CLAUDE_ENGRAM_BUDGET_FIVE_HOUR_PCT"] = "50"
+    payload["rate_limits"]["five_hour"] = {"used_percentage": 55, "resets_at": int(now + 9 * 3600)}
+    cp.record_statusline(payload)
+    t6, _ = cp.nudge(state, sid, str(tmp / "no-proj"))
+    check("threshold is env-tunable", "5-hour window is at 55%" in t6)
+    os.environ.pop("CLAUDE_ENGRAM_BUDGET_FIVE_HOUR_PCT", None)
+    api = {"session_id": "s-apikey", "context_window": {"total_input_tokens": 1, "context_window_size": 200_000}}
+    cp.record_statusline(api)
+    check("an API-key session (no rate_limits) never fires", "Usage budget" not in cp.nudge({}, "s-apikey", str(tmp / "no-proj"))[0])
+    check("the shipped statusline shows the 5-hour figure", "5h 93%" in cp._fmt_statusline(dict(payload, rate_limits={"five_hour": {"used_percentage": 93}})))
+    check("reset formatting: passed", "passed" in cp._fmt_reset(now - 10))
+    check("reset formatting: days", " d)" in cp._fmt_reset(now + 3 * 86400))
+    check("reset formatting: unknown", cp._fmt_reset(None) == "" and cp._fmt_reset("x") == "")
+
+
+def test_stop_failure(tmp):
+    print("StopFailure is recorded with the window's reset:")
+    from claude_engram.hooks import context_pressure as cp
+
+    sid = "s-stopfail"
+    now = time.time()
+    cp.record_statusline({
+        "session_id": sid,
+        "context_window": {"total_input_tokens": 10, "context_window_size": 1_000_000},
+        "rate_limits": {"five_hour": {"used_percentage": 100, "resets_at": int(now + 1800)}},
+    })
+    env = dict(os.environ, CLAUDE_ENGRAM_DIR=os.environ["CLAUDE_ENGRAM_DIR"], CLAUDE_PROJECT_DIR=str(tmp))
+    r = subprocess.run(
+        [sys.executable, "-m", "claude_engram.hooks.remind", "stop_failure_json"],
+        input=json.dumps({"session_id": sid, "hook_event_name": "StopFailure", "error_type": "rate_limit",
+                          "error": "You've hit your session limit", "permission_mode": "bypassPermissions"}),
+        capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120,
+    )
+    check("hook exits 0 and prints nothing (output is ignored by Claude Code)", r.returncode == 0 and r.stdout.strip() == "")
+    st = json.loads((Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
+    f = (st.get("run") or {}).get("failures") or []
+    check("failure recorded with type, message and the window's reset", len(f) == 1 and f[0]["error_type"] == "rate_limit" and f[0]["five_hour_resets_at"] == int(now + 1800) and f[0]["five_hour_pct"] == 100)
+    from claude_engram import run_report as rr
+
+    rep = rr.collect(sid, str(tmp), st)
+    md = rr.render_md(rep)
+    check("the run report says how it ended and when the window resets", "API failure at" in md and "rate_limit" in md and "5-hour window at 100%" in md and "resets" in md)
+    inst = (ROOT / "install.py").read_text(encoding="utf-8")
+    check("install registers StopFailure", '"StopFailure"' in inst and "stop_failure_json" in inst)
+
+
 def main():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -574,6 +658,8 @@ def main():
         test_source_guards()
         test_milestones(cp)
         test_provenance(tmp)
+        test_budget(cp, tmp)
+        test_stop_failure(tmp)
 
     print()
     if _fails:

@@ -47,6 +47,14 @@
 | Stall detection (effect-judged turns, decaying strikes) + setpoint notice | Stable | v0.8.21 |
 | Memory store freshness across processes (disk stamps, stale-skip, merge-by-id) | Stable | v0.8.22 |
 | Rules compliance (hand-written detectors, per-rule coverage and health, verdict by permission mode) | Stable | v0.8.23 |
+| Usage budget (5-hour / 7-day windows mirrored, once-per-window nudge, StopFailure record) | Stable | v0.8.24 |
+
+## Done / Shipped (v0.8.24)
+
+| Feature | Notes |
+|---------|-------|
+| Budget pressure | The statusline's `rate_limits` windows are mirrored beside the token counts; at 90% of the 5-hour window (95% weekly) one nudge per window with the reset time: checkpoint and park on a wakeup until the reset. API-key sessions never fire. |
+| StopFailure record | Every API failure (`rate_limit`, `overloaded`, `billing_error`, `max_output_tokens`, …) lands in `run.failures` with the window's reset; the run report shows how the run ended. Claude Code ignores the hook's output, so this is the record, not a rescue. |
 
 ## Done / Shipped (v0.8.23)
 
