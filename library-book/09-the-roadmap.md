@@ -46,6 +46,16 @@
 | Default pack (scaffold + rules) and rotation | Stable | v0.8.19 |
 | Stall detection (effect-judged turns, decaying strikes) + setpoint notice | Stable | v0.8.21 |
 | Memory store freshness across processes (disk stamps, stale-skip, merge-by-id) | Stable | v0.8.22 |
+| Rules compliance (hand-written detectors, per-rule coverage and health, verdict by permission mode) | Stable | v0.8.23 |
+
+## Done / Shipped (v0.8.23)
+
+| Feature | Notes |
+|---------|-------|
+| Detectors on rules | `memory(add_rule, detector=…)` / `memory(set_detector)`: tools, command regex, path globs, input regex. Stored on the rule, inherited with it. A broken regex is refused, or reported BROKEN if it got in another way. |
+| The trail | PreToolUse on `Bash|PowerShell` matches, records and injects the rule before the command runs; PostToolBatch records the other tools. Deduped by `tool_use_id`; verdict `unattended` / `prompted` / `plan` from `permission_mode`. Subagent calls flagged. |
+| Run report section | Per rule: detector or advisory, health, hits; every match with turn, verdict, tool and input. Rules without a detector are listed as advisory in "Not measured". |
+| Pack detectors | Destructive shell, kill by image name, and leaves-the-machine ship on their rules (pack version 4); a project's own covering rule adopts the detector it lacked. |
 
 ## Done / Shipped (v0.8.22)
 

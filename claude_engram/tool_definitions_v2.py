@@ -69,8 +69,9 @@ TOOL_DEFINITIONS = [
 - cleanup: Remove near-duplicates (same memory twice), decay, archive (dry_run, min_relevance, max_age_days)
 - consolidate: Merge RELATED memories in a tag group into one LLM digest, keeping the 5 most relevant and ARCHIVING the rest (tag, dry_run). Different from cleanup: that drops copies, this compresses a topic. Needs 10+ in a group; rules and mistakes are never touched; archived members stay searchable and restorable. Scope it with `tag` — a very large group (hundreds) compresses into one paragraph and loses the specifics that made each memory worth recalling
 - clusters: List memory clusters, or expand one (cluster_id)
-- add_rule: Add permanent rule (content, reason) - never decays
-- list_rules: Get all rules for project
+- add_rule: Add permanent rule (content, reason, optional detector) - never decays
+- set_detector: Attach a hand-written detector to a rule (memory_id, detector) so its matches are recorded in the run report; {} clears
+- list_rules: Get all rules for project ([detector] marks the ones with one)
 - modify: Edit memory (memory_id, content, relevance, category)
 - delete: Remove single memory (memory_id)
 - batch_delete: Bulk delete by IDs (memory_ids) or by category. Rules/mistakes protected from category delete.
@@ -112,6 +113,7 @@ TOOL_DEFINITIONS = [
                         "embed_all",
                         "list_mistakes",
                         "acknowledge_mistake",
+                        "set_detector",
                     ],
                     "description": "Operation to perform",
                 },
@@ -119,6 +121,16 @@ TOOL_DEFINITIONS = [
                 "content": {
                     "type": "string",
                     "description": "For remember/add_rule/modify: content",
+                },
+                "detector": {
+                    "type": "object",
+                    "description": (
+                        "For add_rule/set_detector: a hand-written detector so the rule's matches "
+                        "are recorded in the run report. Keys: tools (list of tool names, empty = any), "
+                        "command (regex against a Bash/PowerShell command), paths (globs against an "
+                        "edited file path), input (regex against the tool input JSON), note (what it "
+                        "catches). Pass {} to set_detector to clear."
+                    ),
                 },
                 "category": {
                     "type": "string",

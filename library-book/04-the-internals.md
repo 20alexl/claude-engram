@@ -157,6 +157,21 @@ Storage: ~/.claude_engram/
 - `nudge(state, bearings)` — delivers `pending` once. `_with_pressure()` in remind.py supplies `bearings` (the restored checkpoint lines and the top rules, the same material PostCompact injects) for strike 2 and above
 - `events` — one record per strike or decay with the turn number (`stops_total` from the pressure state), capped at 60; `summary()` feeds the run report's Stalls section
 
+### Compliance (`hooks/compliance.py`)
+
+**What it does:** Records every tool call that matches a rule's hand-written detector, with the turn, an excerpt of the input and a verdict, and reports per-rule coverage and detector health. Rules without a detector are advisory and said to be.
+
+**Why it's separate:** A rule is natural language; matching it against a call needs something mechanical, and inferring that mechanism from the words is where a dishonest trail creeps in. So the detector is written by a person, stored on the rule entry itself (`MemoryEntry.detector`, so it travels with the rule and inherits through ancestors), and the module only ever reports what a regex or a glob actually matched.
+
+**Key internals:**
+- `normalize_detector` / `compile_detector` — `tools` (names; empty = any), `command` (regex, shell tools only), `paths` (globs against `file_path`, relative, absolute or Windows), `input` (regex against the tool input JSON), `note`. A regex that fails to compile is refused at `set_detector` time and, if it reached the store another way, reported as BROKEN per rule
+- `rules_with_detectors(project_memory)` — every active rule in scope, once each, compiled where it has a detector
+- `record(state, rules, hits, ...)` — appends to `state["compliance"]["matches"]` (deduped by `tool_use_id`, capped at 200) and keeps `health[rule_id] = {ok, error, hits}`. The verdict comes from `permission_mode`: `unattended` (bypassPermissions / dontAsk / auto), `prompted` (default / acceptEdits), `plan`
+- `rule_text(hits, mode)` — the `<engram-rule>` block injected before a matching shell command runs; the wording differs by verdict
+- In remind.py, `_compliance_check()` is called from `_hook_pre_bash` (PreToolUse `Bash|PowerShell`, daemon-served, injects) and from `_hook_post_batch` (every other tool, records only). Subagent calls are recorded and flagged, never nudged
+- `summary(state, project_memory)` feeds the run report's "Rules compliance" section
+- The pack (`default_pack.py`) ships `DESTRUCTIVE_DETECTOR`, `KILL_BY_NAME_DETECTOR` and `OUTBOUND_DETECTOR` on the rules that need them; `seed_rules` attaches a pack detector to a project's own covering rule that lacks one, walking up to the ancestor project that owns the rule id. `add_rule` does the same for a similar existing rule
+
 ### Run Report (`run_report.py`)
 
 **What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.

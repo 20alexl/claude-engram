@@ -34,13 +34,47 @@ from typing import Optional
 
 from claude_engram import project_config
 
-PACK_VERSION = 3
+PACK_VERSION = 4  # 4: detectors on the rules that need one
+
+# Detectors (hooks/compliance.py) for the pack rules that can be watched by
+# a regex. Hand-written, shipped with the rule; a project's own rule that
+# already covers the same ground adopts the detector if it has none.
+DESTRUCTIVE_DETECTOR = {
+    "tools": ["Bash", "PowerShell"],
+    "command": (
+        r"(?:^|[;&|(]\s*|\bsudo\s+|\bxargs\s+(?:-\S+\s+)*)rm\s+(?!--cached\b)(?!--help\b)"
+        r"|\bgit\s+rm\s+(?!--cached\b)"
+        r"|\bRemove-Item\b[^|;\n]*(?:-Recurse|-Force)"
+        r"|\brmdir\s+/s\b|\bdel\s+/[sq]\b|\brd\s+/s\b"
+        r"|\bgit\s+(?:reset\s+--hard|clean\s+-[a-zA-Z]*[fx]|branch\s+-D|checkout\s+--\s|restore\s+--staged|stash\s+drop|filter-branch|filter-repo)"
+        r"|\bgit\s+push\b[^|;\n]*(?:--force\b|-f\b|--force-with-lease)"
+        r"|\bDROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX)\b|\bTRUNCATE\s+TABLE\b"
+        r"|\bformat\s+[a-zA-Z]:|\bmkfs\b|\bdd\s+if=|\bshred\b"
+        r"|\btaskkill\b|\bStop-Process\b|\bpkill\b|\bkillall\b|\bkill\s+-9\b"
+    ),
+    "note": "destructive shell: recursive/forced delete, hard reset, force-push, DROP/TRUNCATE, disk format, kill",
+}
+KILL_BY_NAME_DETECTOR = {
+    "tools": ["Bash", "PowerShell"],
+    "command": r"\btaskkill\b[^|;\n]*/IM\b|\bStop-Process\b[^|;\n]*-Name\b|\bpkill\b|\bkillall\b|\bkill\s+-9\s+\$\(pgrep",
+    "note": "kill by image or process name",
+}
+OUTBOUND_DETECTOR = {
+    "tools": ["Bash", "PowerShell"],
+    "command": (
+        r"\bgit\s+push\b|\bgh\s+(?:pr\s+(?:create|merge|comment|review|close)|issue\s+(?:create|comment|close)|release\s+create|repo\s+create)\b"
+        r"|\bglab\s+mr\s+create\b|\bnpm\s+publish\b|\btwine\s+upload\b|\bcargo\s+publish\b|\bdocker\s+push\b"
+        r"|\bcurl\b[^|;\n]*(?:-X\s*(?:POST|PUT|PATCH|DELETE)|--data\b|-d\s)"
+    ),
+    "note": "leaves the machine: push, pull request, publish, outbound POST",
+}
 
 # The workspace rules, in the words they are written in there.
 UNIVERSAL_RULES: list[dict] = [
     {
         "content": "Don't run destructive commands without asking. trash > rm. Never git push --force to main.",
         "reason": "Undo is cheaper than recovery.",
+        "detector": DESTRUCTIVE_DETECTOR,
     },
     {
         "content": "Search first (grep, the code index), then read only relevant files. Don't read entire files when a targeted search works.",
@@ -65,6 +99,7 @@ UNIVERSAL_RULES: list[dict] = [
     {
         "content": "Private things stay private. Ask before acting externally.",
         "reason": "Sending, pushing and publishing are hard to undo.",
+        "detector": OUTBOUND_DETECTOR,
     },
     {
         "content": "Proactively push back and bring things to the user's attention: flag risks, forgotten items, and misalignments with the plan without being asked.",
@@ -79,6 +114,7 @@ UNIVERSAL_RULES: list[dict] = [
     {
         "content": "Never kill processes by image name; kill only a PID you started.",
         "reason": "A kill-by-name once took down a four-hour GPU run and the memory server together.",
+        "detector": KILL_BY_NAME_DETECTOR,
     },
     {
         "content": "Session maintenance is not optional: errors and fixes go in .learnings/ERRORS.md, patterns in .learnings/LEARNINGS.md, and a daily note in session-logs/YYYY-MM-DD.md. Delegate it to a background agent so the main work stays focused.",
@@ -124,6 +160,7 @@ WORKFLOW_RULES: list[dict] = [
         "content": "Anything that leaves the machine is the owner's decision: a push, a pull request, a comment. Local commits are free. Never force-push main. One pull request, one idea; squash by default, but never squash a pull request another branch is stacked on.",
         "reason": "A squashed base orphaned two stacked pull requests once; local commits are free, pushes are not.",
         "anchors": ["leaves the machine", "force-push", "force push"],
+        "detector": OUTBOUND_DETECTOR,
     },
     {
         "content": "Write the learning when it happens, not at the end, and only what the repo does not already say. Every markdown document carries the nav header (type, status, updated, project, summary).",
@@ -198,14 +235,43 @@ def seeded_version(project_dir: str) -> int:
         return 0
 
 
-def existing_rule_texts(project_dir: str) -> list[str]:
-    """This project's rules plus inherited ones from ancestors."""
+def existing_rules(project_dir: str) -> list[dict]:
+    """This project's rules plus inherited ones from ancestors, as raw
+    entries ({id, content, detector, ...})."""
     try:
-        from claude_engram.hooks.storage import load_project_memory, get_project_rules
+        from claude_engram.hooks.storage import load_project_memory
 
-        return [r.get("content", "") for r in get_project_rules(load_project_memory(project_dir))]
+        pm = load_project_memory(project_dir)
+        return [
+            e
+            for e in pm.get("entries", []) or []
+            if isinstance(e, dict) and e.get("category") == "rule" and not e.get("archived_at")
+        ]
     except Exception:
         return []
+
+
+def existing_rule_texts(project_dir: str) -> list[str]:
+    """This project's rules plus inherited ones from ancestors."""
+    return [str(e.get("content", "")) for e in existing_rules(project_dir)]
+
+
+def _attach_detector(store, project_dir: str, rule_id: str, detector: dict) -> bool:
+    """Attach a pack detector to a covering rule that has none. The rule may
+    live in this project or in an ancestor (workspace-level rules are
+    inherited), so walk up until a store knows the id."""
+    p = Path(project_dir).resolve()
+    for _ in range(12):
+        try:
+            ok, _msg = store.set_detector(str(p), rule_id, detector)
+        except Exception:
+            ok = False
+        if ok:
+            return True
+        if p.parent == p:
+            break
+        p = p.parent
+    return False
 
 
 def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = True) -> dict:
@@ -215,20 +281,35 @@ def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = T
     if not force and seeded_version(project_dir) >= PACK_VERSION:
         report["already_seeded"] = True
         return report
-    existing = existing_rule_texts(project_dir)
+    existing_entries = existing_rules(project_dir)
     try:
         from claude_engram.tools.memory import MemoryStore
 
         store = MemoryStore()
     except Exception:
         return report
+    report["detectors_attached"] = []
     rules = UNIVERSAL_RULES + (WORKFLOW_RULES if include_workflow else [])
     for rule in rules:
-        if any(similar(rule["content"], e, anchors=rule.get("anchors")) for e in existing):
+        covering = [
+            e
+            for e in existing_entries
+            if similar(rule["content"], str(e.get("content", "")), anchors=rule.get("anchors"))
+        ]
+        if covering:
             report["skipped"].append(rule["content"][:60])
+            # The project's own rule covers this ground; if the pack rule
+            # ships a detector and the covering rule has none, it adopts it.
+            det = rule.get("detector")
+            for e in covering:
+                if det and not e.get("detector") and e.get("id"):
+                    if _attach_detector(store, project_dir, str(e["id"]), det):
+                        report["detectors_attached"].append(str(e["id"]))
             continue
         try:
-            ok, _ = store.add_rule(project_dir, rule["content"], rule["reason"])
+            ok, _ = store.add_rule(
+                project_dir, rule["content"], rule["reason"], detector=rule.get("detector")
+            )
         except Exception:
             ok = False
         (report["added"] if ok else report["skipped"]).append(rule["content"][:60])

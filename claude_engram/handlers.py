@@ -1434,14 +1434,46 @@ class Handlers:
                 max_age_days=args.get("max_age_days", 30),
             )
         elif operation == "add_rule":
+            _det = args.get("detector")
             added, msg = self.memory.add_rule(
                 project_path=project_path,
                 content=args.get("content", ""),
                 reason=args.get("reason"),
                 relevance=args.get("relevance", 9),
+                detector=_det if isinstance(_det, dict) else None,
             )
             response = EngramResponse(
                 status="success" if added else "needs_clarification",
+                confidence="high",
+                reasoning=msg,
+            )
+            return [TextContent(type="text", text=response.to_formatted_string())]
+        elif operation == "set_detector":
+            # A detector is hand-written: tool names, a command regex, path
+            # globs. Validated here so a broken regex is refused, not stored.
+            from claude_engram.hooks import compliance as _cpl
+
+            _det = args.get("detector")
+            if _det:
+                _norm = _cpl.normalize_detector(_det)
+                if not _norm:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Detector needs at least one of: tools, command (regex), paths (globs), input (regex)",
+                        )
+                    ]
+                _compiled, _err = _cpl.compile_detector(_norm)
+                if _err:
+                    return [TextContent(type="text", text=f"Detector rejected: {_err}")]
+                _det = _norm
+            success, msg = self.memory.set_detector(
+                project_path=project_path,
+                memory_id=args.get("memory_id", ""),
+                detector=_det if isinstance(_det, dict) else None,
+            )
+            response = EngramResponse(
+                status="success" if success else "needs_clarification",
                 confidence="high",
                 reasoning=msg,
             )
@@ -1454,7 +1486,8 @@ class Handlers:
                 ]
             lines = [f"Rules for {project_path}:", ""]
             for r in rules:
-                lines.append(f"  [{r.id}] {r.content}")
+                _mark = " [detector]" if getattr(r, "detector", None) else ""
+                lines.append(f"  [{r.id}]{_mark} {r.content}")
             response = EngramResponse(
                 status="success",
                 confidence="high",

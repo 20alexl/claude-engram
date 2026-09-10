@@ -2781,6 +2781,72 @@ def _stall_bearings(project_dir: str) -> list[str]:
     return lines
 
 
+def _compliance_check(
+    project_dir: str, data: dict, tool_name: str, tool_input, state: "dict | None" = None
+) -> "tuple[list[dict], dict | None]":
+    """Match one call against the rules' detectors and record it. Returns
+    (new matches, the state that was loaded/mutated) -- the caller saves."""
+    from claude_engram.hooks import compliance as _cpl
+
+    if not _cpl.enabled(project_dir):
+        return [], state
+    rules = _cpl.rules_with_detectors(load_project_memory(project_dir))
+    if not any(r.get("detector") for r in rules):
+        return [], state
+    hits = _cpl.match_call(rules, tool_name, tool_input)
+    if state is None:
+        state = load_state()
+    turn = int((state.get("pressure") or {}).get("stops_total", 0)) + 1
+    new = _cpl.record(
+        state,
+        rules,
+        hits,
+        tool_name,
+        tool_input,
+        tool_use_id=str(data.get("tool_use_id") or ""),
+        turn=turn,
+        permission_mode=str(data.get("permission_mode") or ""),
+        agent_id=str(data.get("agent_id") or ""),
+    )
+    return new, state
+
+
+def _hook_pre_bash(project_dir: str) -> None:
+    """PreToolUse on Bash / PowerShell: the compliance trail's live half.
+    A command that matches a rule's detector is recorded and the rule is
+    injected before it runs -- the reminder at the moment it matters."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        tool_name = str(data.get("tool_name") or "Bash")
+        new, state = _compliance_check(project_dir, data, tool_name, data.get("tool_input"))
+        if state is not None:
+            save_state(state)
+        if data.get("agent_id"):
+            return  # recorded (flagged as a subagent's), never nudged
+        from claude_engram.hooks import compliance as _cpl
+
+        result = _cpl.rule_text(new, str(data.get("permission_mode") or "")) if new else ""
+        result = _with_pressure(result, project_dir)
+        if result:
+            print(
+                json_module.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "additionalContext": result,
+                        }
+                    }
+                )
+            )
+    except Exception:
+        pass
+
+
 def _hook_post_batch(project_dir: str) -> None:
     """PostToolBatch: account every call in the batch to the open turn
     (hooks/stall.py) and deliver whatever nudge is due. The batch payload
@@ -2799,6 +2865,19 @@ def _hook_post_batch(project_dir: str) -> None:
 
         state = load_state()
         _stall.note_batch(state, calls if isinstance(calls, list) else [])
+        # Compliance on every non-shell call (path globs on edits, MCP tools
+        # by name); shell calls were matched at PreToolUse and dedupe by
+        # tool_use_id here.
+        try:
+            for call in calls if isinstance(calls, list) else []:
+                if not isinstance(call, dict):
+                    continue
+                _tn = str(call.get("tool_name") or "")
+                _payload = dict(data)
+                _payload["tool_use_id"] = call.get("tool_use_id", "")
+                _compliance_check(project_dir, _payload, _tn, call.get("tool_input"), state)
+        except Exception:
+            pass
         save_state(state)
         if data.get("agent_id"):
             return  # a subagent's batch: counted, never nudged
@@ -4110,6 +4189,9 @@ def main():
 
     elif hook_type == "post_batch_json":
         _hook_post_batch(project_dir)
+
+    elif hook_type == "pre_bash_json":
+        _hook_pre_bash(project_dir)
 
     elif hook_type == "post_milestone_json":
         _hook_post_milestone()

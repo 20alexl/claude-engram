@@ -166,7 +166,7 @@ def main():
         check("this session's deliberate checkpoint listed", any(x["task_id"] == "task_1" and x["kind"] == "manual" for x in cps))
         check("another session's checkpoint excluded", all(x["task_id"] != "task_9" for x in cps))
         check("deliberate count", r["checkpoint_counts"]["deliberate"] == 1)
-        check("stalls measured from state; compliance null and listed as not measured", isinstance(r["stalls"], dict) and r["compliance"] is None and [n for n in r["not_measured"] if "Phase" in n] == ["rules compliance (Phase 5)"])
+        check("stalls and compliance measured from state; no phase left under not measured", isinstance(r["stalls"], dict) and isinstance(r["compliance"], dict) and not [n for n in r["not_measured"] if "Phase" in n])
 
         print("render + write:")
         md = rr.render_md(r)

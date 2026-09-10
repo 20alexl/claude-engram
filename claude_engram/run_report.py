@@ -443,7 +443,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
     checkpoints = _session_checkpoints(project_dir, session_id)
     errors = _summarize_errors(tr["errors"], _known_error_signatures(project_dir))
 
-    not_measured = ["rules compliance (Phase 5)"]
+    not_measured: list[str] = []
     try:
         from claude_engram.hooks import stall as _stall
 
@@ -451,6 +451,18 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
     except Exception:
         stalls = None
         not_measured.append("stall strikes (state unreadable)")
+    try:
+        from claude_engram.hooks import compliance as _cpl
+        from claude_engram.hooks.storage import load_project_memory as _lpm
+
+        compliance = _cpl.summary(state, _lpm(project_dir))
+        if compliance["advisory"]:
+            not_measured.append(
+                f"{compliance['advisory']} rule(s) without a detector: advisory only, never matched"
+            )
+    except Exception:
+        compliance = None
+        not_measured.append("rules compliance (state or rules unreadable)")
     verdicts = tr["goal_verdicts"]
     goal_outcome = ""
     if tr["goal_text"] is not None:
@@ -518,7 +530,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
             "auto": sum(1 for c in checkpoints if c["kind"] != "manual"),
         },
         "stalls": stalls,
-        "compliance": None,
+        "compliance": compliance,
         "end_reason": str(run.get("end_reason") or ""),
         "not_measured": not_measured,
         "transcript_path": str(transcript_path) if transcript_path else "",
@@ -692,6 +704,49 @@ def render_md(r: dict) -> str:
             for ev in evs[-30:]:
                 lines.append(
                     f"| {ev.get('turn', '?')} | {ev.get('kind', '?')} | {ev.get('strikes', '?')} | {ev.get('reason', '')} |"
+                )
+        lines.append("")
+
+    cp = r.get("compliance")
+    if isinstance(cp, dict):
+        lines.append(
+            f"## Rules compliance ({cp.get('with_detector', 0)} with a detector, "
+            f"{cp.get('advisory', 0)} advisory, {cp.get('broken', 0)} broken)"
+        )
+        lines.append("")
+        lines.append(
+            "A rule with a detector has every matching tool call recorded. A rule without one "
+            "is advisory: nothing here says whether it was followed. The verdict is what the hooks "
+            "can see: `unattended` means no person approved the call (bypass / auto / dontAsk mode); "
+            "`prompted` means Claude Code's permission prompt stood between the model and the call."
+        )
+        rules = cp.get("rules") or []
+        if rules:
+            lines.append("")
+            lines.append("| Rule | Detector | Health | Matches |")
+            lines.append("|---|---|---|---|")
+            for ru in rules:
+                det = ru.get("note") or ("yes" if ru.get("detector") else "advisory")
+                if ru.get("detector"):
+                    health = "ok" if ru.get("ok") else f"BROKEN: {ru.get('error', '')}"
+                else:
+                    health = "-"
+                lines.append(
+                    f"| [{ru.get('id', '')}] {str(ru.get('rule', '')).replace('|', '/')[:90]} | {det.replace('|', '/')} | {health.replace('|', '/')} | {ru.get('hits', 0)} |"
+                )
+        matches = cp.get("matches") or []
+        lines.append("")
+        lines.append(
+            f"- matches: {len(matches)} · unattended {cp.get('unattended', 0)} · prompted {cp.get('prompted', 0)}"
+        )
+        if matches:
+            lines.append("")
+            lines.append("| Turn | Verdict | Rule | Tool | Input |")
+            lines.append("|---|---|---|---|---|")
+            for m in matches[-40:]:
+                sub = " (subagent)" if m.get("subagent") else ""
+                lines.append(
+                    f"| {m.get('turn', '?')} | {m.get('verdict', '?')}{sub} | [{m.get('rule_id', '')}] {m.get('what', '')} | {m.get('tool', '')} | {str(m.get('input', '')).replace('|', '/')[:100]} |"
                 )
         lines.append("")
 

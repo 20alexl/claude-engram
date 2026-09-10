@@ -63,6 +63,8 @@ class MemoryEntry(BaseModel):
 
     # v3: Archive support
     archived_at: Optional[float] = None  # When moved to archive; None = active
+    # Rules only: a hand-written detector (hooks/compliance.py). None = advisory.
+    detector: Optional[dict] = None
 
 
 # Hot-path scoring/matching primitives live in hooks.hot_reader (stdlib-only
@@ -1851,6 +1853,7 @@ class MemoryStore:
         content: str,
         reason: Optional[str] = None,
         relevance: int = 9,
+        detector: Optional[dict] = None,
     ) -> tuple[bool, str]:
         """
         Add a global rule that should always be followed.
@@ -1861,6 +1864,8 @@ class MemoryStore:
             content: The rule content (e.g., "Always use strict TypeScript")
             reason: Why this rule exists
             relevance: Importance (default 9 - rules are important)
+            detector: Optional hand-written detector (hooks/compliance.py);
+                a similar existing rule without one adopts it
 
         Returns:
             (added, message)
@@ -1876,6 +1881,11 @@ class MemoryStore:
         existing_rules = [e for e in proj.entries if e.category == "rule"]
         duplicate = self._is_duplicate(full_content, existing_rules)
         if duplicate:
+            if detector and not duplicate.detector:
+                duplicate.detector = dict(detector)
+                self._dirty_projects.add(proj.project_path)
+                self._save()
+                return (False, f"Similar rule already exists (id={duplicate.id}); detector attached")
             return (False, f"Similar rule already exists (id={duplicate.id})")
 
         entry = MemoryEntry(
@@ -1886,14 +1896,34 @@ class MemoryStore:
             relevance=relevance,
             tags=self._extract_tags(full_content) + ["rule"],
             related_files=self._extract_file_refs(full_content),
+            detector=dict(detector) if detector else None,
         )
 
         proj.entries.append(entry)
         self._update_indexes(proj, entry)
         proj.last_updated = time.time()
+        self._dirty_projects.add(proj.project_path)
         self._save()
 
         return (True, f"Rule added with id={entry.id}")
+
+    def set_detector(
+        self, project_path: str, memory_id: str, detector: Optional[dict]
+    ) -> tuple[bool, str]:
+        """Attach a detector to a rule, or clear it (None / {})."""
+        proj = self.get_project(project_path)
+        if not proj:
+            return (False, "Project not found")
+        entry = self._get_entry_by_id(proj, memory_id)
+        if not entry:
+            return (False, f"Memory {memory_id} not found")
+        if entry.category != "rule":
+            return (False, f"Memory {memory_id} is a {entry.category}, not a rule")
+        entry.detector = dict(detector) if detector else None
+        proj.last_updated = time.time()
+        self._dirty_projects.add(self._normalize_path(project_path))
+        self._save()
+        return (True, f"Detector {'set' if entry.detector else 'cleared'} on rule {memory_id}")
 
     def get_rules(self, project_path: str) -> list[MemoryEntry]:
         """

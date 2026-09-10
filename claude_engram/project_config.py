@@ -27,6 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "default_rules": True,
     "workflow_rules": True,
     "structure": True,
+    "compliance": True,  # rules with detectors matched against tool calls
     "rotation_log_days": 30,
     "rotation_learn_days": 90,  # ERRORS.md: dated fixes age out
     "rotation_learnings_days": 0,  # LEARNINGS.md: patterns don't; 0 = cap only
@@ -38,6 +39,7 @@ _ENV = {
     "default_rules": "CLAUDE_ENGRAM_DEFAULT_RULES",
     "workflow_rules": "CLAUDE_ENGRAM_WORKFLOW_RULES",
     "structure": "CLAUDE_ENGRAM_STRUCTURE",
+    "compliance": "CLAUDE_ENGRAM_COMPLIANCE",
 }
 
 

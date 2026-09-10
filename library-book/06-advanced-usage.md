@@ -291,6 +291,7 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_STALL_TURNS` | `3` | Consecutive turns with tool use and no effect per stall strike |
 | `CLAUDE_ENGRAM_STALL_DECAY` | `5` | Consecutive good turns (real effect) that remove one strike |
 | `CLAUDE_ENGRAM_STRIKE_CAP` | `3` | The ladder's top; the halt in autonomy mode |
+| `CLAUDE_ENGRAM_COMPLIANCE` | on | `off` disables detector matching and the compliance section (or `"compliance": false` in `.engram/config.json`) |
 | `CLAUDE_ENGRAM_ROTATION` | unset | `0` disables rotation planning; `auto` applies at session end (overrides `.engram/config.json`) |
 | `CLAUDE_ENGRAM_DEFAULT_RULES` | unset | `0` skips seeding the default rule pack |
 | `CLAUDE_ENGRAM_STRUCTURE` | unset | `0` skips creating the project scaffold |

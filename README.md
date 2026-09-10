@@ -166,6 +166,19 @@ Three consecutive no-effect turns are one strike. Strike 1 is a warning that nam
 
 Accounting arrives from the `PostToolBatch` hook (every call in a batch, no matcher), with the Edit and Bash `PostToolUse` handlers as a fallback for settings that predate it; the turn is judged at Stop, and the strike text is delivered at the next injection point. Re-run `python install.py` to register the batch hook.
 
+## Rules compliance
+
+Rules are natural language and stay that way. A rule may carry a **detector**, hand-written and never inferred: tool names, a regex against a shell command, globs against an edited path, or a regex against the tool input. With one, every matching tool call is recorded in the run report with the turn, an excerpt of the input, and a verdict that is only what the hooks can see: `unattended` (bypass, auto or dontAsk mode, so no person approved the call) or `prompted` (Claude Code's own permission prompt stood between the model and the call). A rule without a detector is advisory, and the report says so per rule. Detector health is shown too, so a regex that stopped compiling is visible rather than silently ignored. No language model sits in this path.
+
+The live half runs at PreToolUse on shell commands: a matching command gets the rule injected before it runs, which in an interactive session is the reminder at the moment it matters. Other tools are matched at PostToolBatch (path globs on edits, MCP tools by name).
+
+```text
+memory(add_rule, content="Never push without asking", detector={"tools": ["Bash"], "command": "\\bgit\\s+push\\b", "note": "push"})
+memory(set_detector, memory_id=<rule id>, detector={...})   # {} clears
+```
+
+The default pack ships detectors on the rules that need one: destructive shell commands (recursive or forced deletes, hard resets, force-push, DROP and TRUNCATE, disk formats, kills), kill by image name, and anything that leaves the machine (push, pull request, publish, outbound POST). A project whose own rule already covers that ground adopts the pack detector if it has none. `"compliance": false` in `.engram/config.json` or `CLAUDE_ENGRAM_COMPLIANCE=off` turns the trail off; re-run `python install.py` to register the shell PreToolUse hook.
+
 ## Defaults: structure, rules, rotation
 
 Engram ships an opinion about how a project is kept, on by default and one line to turn off in `<project>/.engram/config.json`:

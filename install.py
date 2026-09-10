@@ -164,6 +164,7 @@ def get_hooks_config():
         "pre_read_json",
         "tool_failure_json",
         "post_batch_json",
+        "pre_bash_json",
     }
 
     def _hook(hook_type, timeout=1000, status=None):
@@ -195,6 +196,7 @@ def get_hooks_config():
                     "hooks": [_hook("pre_edit_json", status="Checking memories...")],
                 },
                 {"matcher": "Read", "hooks": [_hook("pre_read_json")]},
+                {"matcher": "Bash|PowerShell", "hooks": [_hook("pre_bash_json")]},
             ],
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},
