@@ -160,7 +160,7 @@ Every substantial session leaves one auditable artifact in the repo: `<project>/
 - checkpoints written this session, deliberate vs automatic
 - what was **not** measured, listed rather than omitted (stall strikes and rules compliance arrive in later phases)
 
-Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. Do not pair `/goal` with `/loop` in one session: the goal's Stop hook never lets the session idle, so scheduled tasks never fire, and the model ends up doing the loop's work itself.
+Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. `/goal` already loops; pairing it with a fixed-interval `/loop` is redundant, and in one live test the cron job never fired before the model did the loop's work itself, because a not-met verdict re-prompts at once and leaves no idle gap for scheduled tasks. A self-paced wakeup did fire under a goal. Prefer the goal alone, or a dynamic loop.
 
 ## Reindexing
 
