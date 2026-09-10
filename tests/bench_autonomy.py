@@ -243,6 +243,8 @@ def test_launcher_units(run):
     c = run.build_cmd("/goal x", "sid-1", "bypassPermissions", "sonnet", 40)
     check("fresh command shape", c[:3] == ["claude", "-p", "/goal x"] and "--session-id" in c and c[c.index("--session-id") + 1] == "sid-1"
           and "--output-format" in c and c[c.index("--permission-mode") + 1] == "bypassPermissions" and c[c.index("--model") + 1] == "sonnet" and c[c.index("--max-turns") + 1] == "40")
+    c3 = run.build_cmd("/goal x", "sid-1", "bypassPermissions", "sonnet", 40, headless=False)
+    check("interactive command shape: no -p, no output format, no max-turns, the prompt first", c3[:2] == ["claude", "/goal x"] and "-p" not in c3 and "--output-format" not in c3 and "--max-turns" not in c3 and c3[c3.index("--session-id") + 1] == "sid-1" and c3[c3.index("--model") + 1] == "sonnet")
     c2 = run.build_cmd("Continue.", "sid-1", "bypassPermissions", resume=True)
     check("resume command shape", c2[:4] == ["claude", "-p", "--resume", "sid-1"] and "Continue." in c2 and "--session-id" not in c2 and "--model" not in c2)
     now = 1_000_000.0
@@ -267,6 +269,10 @@ def test_dry_run(tmp):
     r = subprocess.run([sys.executable, "-m", "claude_engram.run", "--goal", "x", "--project", str(proj), "--dry-run", "--model", "sonnet"],
                        capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120)
     check("exits 0 and prints the plan", r.returncode == 0 and "dry run" in r.stdout and "compaction point 750,000" in r.stdout and "window 1,000,000" in r.stdout)
+    check("the default mode is interactive (foreground)", "(interactive)" in r.stdout and " -p " not in r.stdout.split("cmd:")[-1])
+    r2 = subprocess.run([sys.executable, "-m", "claude_engram.run", "--goal", "x", "--project", str(proj), "--dry-run", "--headless"],
+                        capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120)
+    check("--headless switches to claude -p", "(headless)" in r2.stdout and "-p" in r2.stdout.split("cmd:")[-1])
     check("no manifest written", not list((proj / ".engram" / "runs").glob("*")) if (proj / ".engram" / "runs").exists() else True)
     r = subprocess.run([sys.executable, "-m", "claude_engram.run", "--project", str(proj), "--dry-run"], capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120)
     check("nothing to run without a goal or prompt", r.returncode == 2)
@@ -312,7 +318,7 @@ def test_launcher_end_to_end(tmp):
     fake = _fake_claude(tmp)
     env = dict(os.environ, CLAUDE_ENGRAM_DIR=str(store), CLAUDE_ENGRAM_RESUME_SLACK="0", CLAUDE_ENGRAM_LIVE_MINE="0")
     r = subprocess.run(
-        [sys.executable, "-m", "claude_engram.run", "--goal", "done.txt contains ok", "--project", str(proj),
+        [sys.executable, "-m", "claude_engram.run", "--headless", "--goal", "done.txt contains ok", "--project", str(proj),
          "--claude-bin", str(fake), "--session-id", "11111111-2222-4333-8444-555555555555", "--max-turns", "5",
          "--alert-command", f'"{sys.executable}" "{script}" {{message}} "{log}"'],
         capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=300,

@@ -103,10 +103,20 @@ def build_cmd(
     max_turns: int = 0,
     resume: bool = False,
     claude_bin: str = "claude",
+    headless: bool = True,
 ) -> list[str]:
     # A .py stand-in (the bench's fake claude) runs under this interpreter;
     # a .cmd wrapper cannot carry a multi-line prompt through cmd.exe.
-    cmd = ([sys.executable, claude_bin] if claude_bin.lower().endswith(".py") else [claude_bin]) + ["-p"]
+    base = [sys.executable, claude_bin] if claude_bin.lower().endswith(".py") else [claude_bin]
+    if not headless:
+        # The normal interactive session, in this terminal, with the goal as
+        # its first prompt and autonomy armed by the environment: you watch,
+        # you interject, you stop it. --max-turns is print-mode only.
+        cmd = base + ([prompt] if prompt else []) + ["--session-id", session_id, "--permission-mode", permission_mode]
+        if model:
+            cmd += ["--model", model]
+        return cmd
+    cmd = base + ["-p"]
     if resume:
         cmd += ["--resume", session_id]
         if prompt:
@@ -255,7 +265,8 @@ def launch(args: argparse.Namespace) -> int:
     prompt = build_prompt(args.goal or "", prompt_text, park_hint=not args.no_park_hint)
     alert_cmd = (args.alert_command or os.environ.get("CLAUDE_ENGRAM_ALERT_COMMAND", "")).strip()
     env = build_env(os.environ, point, alert_cmd)
-    cmd = build_cmd(prompt, session_id, args.permission_mode, args.model or "", args.max_turns, claude_bin=args.claude_bin)
+    headless = bool(args.headless)
+    cmd = build_cmd(prompt, session_id, args.permission_mode, args.model or "", args.max_turns, claude_bin=args.claude_bin, headless=headless)
     manifest = {
         "session_id": session_id,
         "project": project_dir,
@@ -273,7 +284,8 @@ def launch(args: argparse.Namespace) -> int:
         "rules": _rules_snapshot(project_dir),
         "cmd": cmd,
     }
-    print(f"engram run {session_id[:8]}")
+    manifest["mode"] = "headless" if headless else "interactive"
+    print(f"engram run {session_id[:8]}  ({manifest['mode']})")
     print(f"  project      {project_dir}")
     print(f"  model        {manifest['model']}  window {window:,}  compaction point {point:,} ({args.window_fraction:.0%})")
     print(f"  permissions  {args.permission_mode}   max turns {args.max_turns}   max resumes {args.max_resumes}")
@@ -291,7 +303,15 @@ def launch(args: argparse.Namespace) -> int:
     resumes = 0
     exit_code = 1
     result: dict = {}
-    while True:
+    if not headless:
+        # Foreground: the session takes this terminal. No output capture, no
+        # resume loop -- the interactive client handles its own usage-limit
+        # resume and the person is right there. Report and alert on exit.
+        print("  launching the interactive session in this terminal; stop it like any other")
+        r = subprocess.run(cmd, cwd=project_dir, env=env)
+        exit_code = r.returncode
+        print(f"  claude exited {exit_code}")
+    while headless:
         started = time.time()
         # stdin closed: with a prompt on the command line claude -p still
         # waits 3 s for piped input before proceeding (seen on the first run).
@@ -357,6 +377,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--session-id", default="", help="use this UUID (default: new)")
     ap.add_argument("--claude-bin", default="claude", help="the claude executable")
     ap.add_argument("--no-park-hint", action="store_true", help="do not append the unattended-run instructions")
+    ap.add_argument("--headless", action="store_true", help="run claude -p with no terminal UI (cron, overnight); default is the normal interactive session in this terminal with autonomy armed")
     ap.add_argument("--dry-run", action="store_true", help="print the plan and exit")
     args = ap.parse_args(argv)
     return launch(args)

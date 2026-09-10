@@ -247,6 +247,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.27 — 2026-09-10
+
+- **The foreground is the default.** The user: "not behind a curtain where you can't see." `python -m claude_engram.run` now opens the normal interactive session in your terminal with the goal as its first prompt and autonomy armed (halt, alerts, unattended = deny, the 75% compaction window, the manifest); you watch, interject and stop it like any session, and the interactive client handles its own usage-limit resume. `--headless` is the old behaviour — `claude -p`, no terminal, the hard `--max-turns`, the sleep-and-resume loop — for cron and overnight. `/engram run` from a session prints the foreground command for you (a session cannot open a second terminal UI) and runs headless in the background only when asked to. Cost is the same as any session: a plan pays with its usage windows, an API key or enterprise provider per token; the headless `total_cost_usd` is Claude Code's client-side estimate.
+
 ### v0.8.26 — 2026-09-10
 
 - **Checkpoint provenance (Phase 7).** Every deliberate checkpoint now records the commit the repo stood at and the active `/goal` condition (the launcher primes it before launch; an interactive session's comes from the transcript's own goal record). A restore, whether the session-start banner or `context(checkpoint_restore)`, prints the goal and one staleness line — "Since this checkpoint: 2 commits, 5 files changed -- incl. app.py", or "no commits", or that the checkpoint's commit is not in this history — so the model reads how far the repo moved before it acts on the last session's framing. Best effort, silent outside a repo; older entries print neither line. The halt's deny reason now orders the record: checkpoint first, then the notification, then stop.
