@@ -183,6 +183,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Point `statusLine` at `python -m claude_engram.hooks.context_pressure statusline`, or add `record_statusline(data)` to your own script (README: Context pressure). Prefer the env var or the setting over the launch flag for the window. `python -m claude_engram.hooks.context_pressure assess <session_id>` prints exactly what engram sees.
 
+### Gotcha: `claude -p "/goal …"` from Git Bash sets no goal
+
+**Symptom:** A headless goal run answers like a normal prompt, the transcript has no `goal_status` entries, and no run report is written.
+
+**Cause:** MSYS path conversion. Git Bash rewrites a leading `/goal` argument into `C:/Program Files/Git/goal …` before `claude` sees it. The same command from PowerShell, or from Bash with `MSYS_NO_PATHCONV=1`, sets the goal.
+
+**Fix:** `MSYS_NO_PATHCONV=1 claude -p "/goal …"`. The report's `goal_outcome` will read `met`, `failed` or `unresolved` once the goal is real.
+
 ## Common Mistakes
 
 | Mistake | What They Do | What They Should Do |

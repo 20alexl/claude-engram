@@ -247,6 +247,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.17 — 2026-09-09
+
+- **Goal verdicts are in the run report, from verified records.** Three headless `/goal` runs on a scratch project (`claude -p "/goal …"`, Sonnet 5, Haiku evaluator) established the transcript shape: `attachment.type == "goal_status"`, a sentinel when the goal is set (`sentinel: true`, `condition`), then one entry per evaluator verdict with `met`, `reason`, `iterations`, `durationMs`, `tokens`; a goal judged impossible carries `failed: true` (the docs' "failed entry"). The report now shows the condition, when it was set, every verdict with its reason, and the outcome: met, failed, unresolved, or set with no verdict recorded. The 0.8.16 "not parsed" note is gone.
+- **A goal run always gets its report.** The first real run wrote `done.txt` through Bash, never touched Edit, and so was not "substantial" — no report. `substantial()` now also fires on a test run and on a goal (a bounded head scan of the transcript for the sentinel). Verified: the next two runs wrote `.engram/runs/<date>-<session8>.md` at SessionEnd on their own.
+- **The session-start teaser labelled a foreign checkpoint with the new project's name.** A brand-new project has no ring, so the global ring served the last deliberate checkpoint from another project — correct as a fallback — but the label inferred the project from the entry's first edited file *resolved against the cwd*, which yields the cwd. An engram checkpoint appeared as `goal-test`. The entry's own `project_path` now names it (files remain the fallback for old autos only).
+- Milestone classifier: `goal` / `objective` join the unit nouns and `met` / `achieved` / `reached` / `satisfied` / `resolved` the completion words, so "Goal met: …" is a claim and "the goal is not met yet" is not.
+- Gotcha recorded: from Git Bash on Windows, `claude -p "/goal …"` needs `MSYS_NO_PATHCONV=1`, or the leading `/goal` is rewritten into a filesystem path and no goal is set.
+- `/loop` cannot be exercised headlessly: scheduled tasks fire only while an interactive session is idle. That test belongs to a live session.
+
 ### v0.8.16 — 2026-09-09
 
 - **Run report.** Every substantial session now leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session8>.md` plus a `.json` twin, written at SessionEnd (an edit, a compaction, or five prompts qualifies) or on demand via `session_mine(run_report)` and `python -m claude_engram.run_report --session <id>`. Nothing in it is self-reported by the model.

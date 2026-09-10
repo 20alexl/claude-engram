@@ -53,6 +53,11 @@ def _write_transcript(path: Path, sid: str):
     t0 = "2026-09-09T10:00:00Z"
     lines = [
         _msg("user", t0, sid=sid, message={"role": "user", "content": "<command-name>/goal</command-name>\n<command-message>goal</command-message>\n<command-args>make all benches pass or stop after 20 turns</command-args>"}),
+        # The verified shape from a real /goal run (2.1.267): sentinel on set,
+        # then one goal_status attachment per evaluator verdict.
+        {"type": "attachment", "timestamp": "2026-09-09T10:00:01Z", "sessionId": sid, "attachment": {"type": "goal_status", "met": False, "sentinel": True, "condition": "make all benches pass or stop after 20 turns"}},
+        {"type": "attachment", "timestamp": "2026-09-09T10:30:00Z", "sessionId": sid, "attachment": {"type": "goal_status", "met": False, "condition": "make all benches pass or stop after 20 turns", "reason": "Two benches still fail.", "iterations": 1, "durationMs": 4000, "tokens": 900}},
+        {"type": "attachment", "timestamp": "2026-09-09T11:58:00Z", "sessionId": sid, "attachment": {"type": "goal_status", "met": True, "condition": "make all benches pass or stop after 20 turns", "reason": "All benches pass in the transcript.", "iterations": 2, "durationMs": 5000, "tokens": 1200}},
         _msg("user", "2026-09-09T10:00:05Z", sid=sid, message={"role": "user", "content": "start"}),
         _msg("assistant", "2026-09-09T10:00:10Z", sid=sid, message={"role": "assistant", "model": "claude-fable-5-1", "content": [{"type": "text", "text": "working"}, {"type": "tool_use", "id": "e1", "name": "Edit", "input": {"file_path": "E:\\ws\\proj\\a.py"}}, {"type": "tool_use", "id": "e2", "name": "Write", "input": {"file_path": "E:/ws/proj/c.py"}}]}),
         _msg("assistant", "2026-09-09T10:00:12Z", sid=sid, message={"role": "assistant", "model": "<synthetic>", "content": [{"type": "text", "text": "injected"}]}),
@@ -120,8 +125,12 @@ def main():
         print("collect():")
         r = rr.collect(sid, str(project), state)
         check("run_id = date + session8", r["run_id"].endswith("-sess-123") and r["run_id"][:4] == "2026")
-        check("goal text from the /goal command", r["goal_text"] == "make all benches pass or stop after 20 turns")
-        check("goal verdicts are NOT parsed (honest null)", r["goal_verdicts"] is None and any("verdict" in n for n in r["not_measured"]))
+        check("goal text from the goal_status sentinel", r["goal_text"] == "make all benches pass or stop after 20 turns" and r["goal_set_at"] == "2026-09-09T10:00:01Z")
+        vs = r["goal_verdicts"]
+        check("two evaluator verdicts parsed (sentinel excluded)", len(vs) == 2 and vs[0]["met"] is False and vs[1]["met"] is True)
+        check("verdict carries reason, iterations, duration, tokens", vs[1]["reason"].startswith("All benches") and vs[1]["iterations"] == 2 and vs[1]["duration_ms"] == 5000 and vs[1]["tokens"] == 1200)
+        check("goal outcome = met", r["goal_outcome"] == "met")
+        check("verdicts are no longer listed as not measured", not any("verdict" in n for n in r["not_measured"]))
         check("model from the transcript", r["model"] == "claude-fable-5-1" and r["models"] == ["claude-fable-5-1"])
         check("branch: transcript's when the project has no git", r["branch"] == "feat/x")
         check("permission mode + start commit from the run block", r["permission_mode"] == "auto" and r["start_commit"] == "abc1234")
@@ -160,7 +169,8 @@ def main():
         md = rr.render_md(r)
         for sect in ("# Run ", "## Compactions (1)", "## Files touched (3)", "## Tests", "## Errors (3;", "## Checkpoints (1 deliberate,", "## Not measured"):
             check(f"section {sect!r}", sect in md)
-        check("goal line rendered", "**Goal:** make all benches pass" in md)
+        check("goal line rendered with outcome", "**Goal:** make all benches pass" in md and "**met**" in md)
+        check("goal section with the verdict table", "## Goal (2 evaluator verdicts)" in md and "| yes | 2 | All benches pass" in md)
         check("compaction row shows sizes and restore", "489K → 28K" in md and "manual task_1" in md)
         p = rr.write_report(sid, str(project), state)
         check("write_report returns the .md path", p is not None and p.suffix == ".md")
@@ -219,13 +229,31 @@ def main():
         r2 = rr.collect("nosess", str(project), bare_state)
         check("still collects", r2["files"][0]["path"] == "x.py")
         check("names the missing sources", any("transcript" in n for n in r2["not_measured"]) and any("mirror" in n for n in r2["not_measured"]))
-        check("no goal -> no verdict note", not any("verdict" in n for n in r2["not_measured"]))
+        check("no goal -> empty goal fields", r2["goal_text"] is None and r2["goal_verdicts"] == [] and r2["goal_outcome"] == "")
+        # A goal set but never judged (session died) is said plainly.
+        tr_unjudged = tmp / "unjudged.jsonl"
+        tr_unjudged.write_text(json.dumps({"type": "attachment", "timestamp": "2026-09-09T10:00:01Z", "sessionId": "u1", "attachment": {"type": "goal_status", "met": False, "sentinel": True, "condition": "finish it"}}) + "\n", encoding="utf-8")
+        r4 = rr.collect("u1", str(project), {"last_session_start": time.time() - 5, "run": {"transcript_path": str(tr_unjudged)}})
+        check("goal with no verdict -> 'set, no verdict recorded'", r4["goal_outcome"] == "set, no verdict recorded")
+        # Judged impossible: the verified "failed entry" shape.
+        tr_failed = tmp / "failed.jsonl"
+        tr_failed.write_text(
+            json.dumps({"type": "attachment", "timestamp": "2026-09-09T10:00:01Z", "sessionId": "f1", "attachment": {"type": "goal_status", "met": False, "sentinel": True, "condition": "prove 2 is odd"}}) + "\n"
+            + json.dumps({"type": "attachment", "timestamp": "2026-09-09T10:01:00Z", "sessionId": "f1", "attachment": {"type": "goal_status", "met": False, "failed": True, "condition": "prove 2 is odd", "reason": "2 is even; the assistant refused to fabricate a proof.", "iterations": 1, "durationMs": 54988, "tokens": 3574}}) + "\n",
+            encoding="utf-8",
+        )
+        r5 = rr.collect("f1", str(project), {"last_session_start": time.time() - 5, "run": {"transcript_path": str(tr_failed)}})
+        check("failed verdict -> outcome 'failed'", r5["goal_outcome"] == "failed" and r5["goal_verdicts"][0]["flags"] == {"failed": True})
+        check("failed verdict rendered", "| failed | 1 | 2 is even" in rr.render_md(r5))
 
         print("gate:")
         check("edits make a session substantial", rr.substantial({"files_edited_this_session": ["a"]}))
         check("a compaction makes it substantial", rr.substantial({"pressure": {"cycle": 1}}))
         check("five prompts make it substantial", rr.substantial({"prompts_this_session": 5}))
         check("an empty session is not", not rr.substantial({"prompts_this_session": 2}))
+        check("a goal makes it substantial even with no edits (Bash-written files)", rr.substantial({"run": {"transcript_path": str(transcript)}}))
+        check("a test run makes it substantial", rr.substantial({"test_runs_this_session": 1}))
+        check("goal_seen is false on a transcript without one", not rr.goal_seen(str(tmp / "nope.jsonl")))
 
         print("CLI:")
         import subprocess

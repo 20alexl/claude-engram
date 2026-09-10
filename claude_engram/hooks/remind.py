@@ -772,20 +772,22 @@ def _format_restored_context(entry: dict) -> list[str]:
     created = entry.get("created", entry.get("timestamp", 0))
     age = (time.time() - created) / 3600 if created else 0.0
     files = entry.get("files_in_progress") or entry.get("files_involved") or []
-    sub = ""
-    if files:
+    # The entry's own project_path is the truth about whose checkpoint this
+    # is. Inferring it from the first edited file resolved AGAINST THE CWD,
+    # so a foreign checkpoint served from the global ring into a brand-new
+    # project (which has no ring yet) was labelled with the new project's
+    # name -- verified on a scratch /goal run that teased an engram
+    # checkpoint as "goal-test". Files are the fallback for old autos only.
+    # Manual saves before 0.8.14 carried the path only under metadata.
+    _pp = entry.get("project_path") or (entry.get("metadata") or {}).get(
+        "project_path", ""
+    )
+    sub = Path(_pp).name if _pp else ""
+    if not sub and files:
         try:
             sub = Path(resolve_project_for_file(files[0])).name
         except Exception:
             sub = ""
-    if not sub:
-        # Cross-project breadcrumbs may carry no files; the saved project
-        # path still names whose checkpoint this is. Manual saves before
-        # 0.8.14 carried it only under metadata.
-        _pp = entry.get("project_path") or (entry.get("metadata") or {}).get(
-            "project_path", ""
-        )
-        sub = Path(_pp).name if _pp else ""
     label = f"{entry.get('kind', 'auto')}, {age:.1f}h ago"
     if sub:
         label += f", {sub}"

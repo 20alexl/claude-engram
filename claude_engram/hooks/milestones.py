@@ -38,12 +38,13 @@ _UNIT = (
     r"(?:phase|step|part|stage|milestone|round|section|sprint|batch|item|"
     r"task|feature|refactor|migration|pull request|release|rollout|module|"
     r"component|epic|story|ticket|bench(?:mark)?|suite|plan|deliverable|"
-    r"follow-?up|v?\d+\.\d+(?:\.\d+)?)"
+    r"follow-?up|goal|objective|v?\d+\.\d+(?:\.\d+)?)"
 )
 _DONE = (
     r"(?:done|complete|completed|finished|shipped|landed|closed|closes|"
     r"wrapped up|wraps up|concluded|concludes|built|merged|verified|green|"
-    r"passing|passes|passed|in place|wired|delivered|implemented|integrated)"
+    r"passing|passes|passed|in place|wired|delivered|implemented|integrated|"
+    r"met|achieved|reached|satisfied|resolved)"
 )
 # Words within a short window BEFORE the completion word that flip it to a
 # non-claim: negation, future, conditional, partial.

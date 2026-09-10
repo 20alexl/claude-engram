@@ -131,6 +131,13 @@ def _read_transcript(path: Optional[Path], session_id: str) -> dict:
         "first_ts": 0.0,
         "last_ts": 0.0,
         "goal_text": None,
+        # Verified on real /goal runs (2.1.267): attachment.type == "goal_status".
+        # The first entry is the sentinel (goal set: met=false, sentinel=true,
+        # condition); each later one is an evaluator verdict (met, reason,
+        # iterations, durationMs, tokens), and a goal judged impossible adds
+        # "failed": true. Any other flag is carried through under "flags".
+        "goal_set_at": "",
+        "goal_verdicts": [],
         "compactions": [],
         "errors": [],
         "prompts": 0,
@@ -156,6 +163,33 @@ def _read_transcript(path: Optional[Path], session_id: str) -> dict:
             if not out["branch"] and msg.get("gitBranch"):
                 out["branch"] = str(msg.get("gitBranch"))
             mtype = msg.get("type")
+            if mtype == "attachment":
+                att = msg.get("attachment") or {}
+                if isinstance(att, dict) and att.get("type") == "goal_status":
+                    cond = str(att.get("condition") or "")
+                    if att.get("sentinel"):
+                        out["goal_text"] = cond or out["goal_text"]
+                        out["goal_set_at"] = _iso(ts)
+                    else:
+                        extra = {
+                            k: v
+                            for k, v in att.items()
+                            if k not in ("type", "condition", "met", "reason", "iterations", "durationMs", "tokens", "sentinel")
+                        }
+                        out["goal_verdicts"].append(
+                            {
+                                "at": _iso(ts),
+                                "met": bool(att.get("met")),
+                                "reason": str(att.get("reason") or ""),
+                                "iterations": att.get("iterations"),
+                                "duration_ms": att.get("durationMs"),
+                                "tokens": att.get("tokens"),
+                                **({"flags": extra} if extra else {}),
+                            }
+                        )
+                        if not out["goal_text"] and cond:
+                            out["goal_text"] = cond
+                continue
             if mtype == "system" and msg.get("subtype") == "compact_boundary":
                 meta = msg.get("compactMetadata") or {}
                 out["compactions"].append(
@@ -401,8 +435,19 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
     errors = _summarize_errors(tr["errors"], _known_error_signatures(project_dir))
 
     not_measured = ["stall strikes (Phase 4)", "rules compliance (Phase 5)"]
+    verdicts = tr["goal_verdicts"]
+    goal_outcome = ""
     if tr["goal_text"] is not None:
-        not_measured.append("goal evaluator verdicts (format unverified; not parsed)")
+        # Verified shapes: met -> {"met": true, ...}; judged impossible ->
+        # {"met": false, "failed": true, ...} (the docs' "failed entry").
+        if any(v.get("met") for v in verdicts):
+            goal_outcome = "met"
+        elif any((v.get("flags") or {}).get("failed") for v in verdicts):
+            goal_outcome = "failed"
+        elif verdicts:
+            goal_outcome = "unresolved"
+        else:
+            goal_outcome = "set, no verdict recorded"
     if not transcript_path:
         not_measured.append("transcript (not found): model, compaction sizes, errors")
     # The transcript's gitBranch is the cwd's (a session started from a
@@ -427,7 +472,9 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
         "project": str(project_dir).replace("\\", "/"),
         "generated_at": _iso(time.time()),
         "goal_text": tr["goal_text"],
-        "goal_verdicts": None,
+        "goal_set_at": tr["goal_set_at"],
+        "goal_verdicts": verdicts,
+        "goal_outcome": goal_outcome,
         "model": " → ".join(models) if models else "",
         "models": models,
         "permission_mode": str(run.get("permission_mode") or ""),
@@ -484,7 +531,7 @@ def render_md(r: dict) -> str:
     lines.append(f"- **Project:** {r['project']}")
     lines.append(f"- **Session:** {r['session_id']}")
     if r.get("goal_text"):
-        lines.append(f"- **Goal:** {r['goal_text']}")
+        lines.append(f"- **Goal:** {r['goal_text']} — **{r.get('goal_outcome') or '?'}**")
     lines.append(f"- **Model:** {r.get('model') or '?'} · permission mode: {r.get('permission_mode') or '?'}")
     lines.append(
         f"- **Commits:** {r.get('start_commit') or '?'} → {r.get('end_commit') or '?'}"
@@ -503,6 +550,26 @@ def render_md(r: dict) -> str:
     if r.get("end_reason"):
         lines.append(f"- **Ended:** {r['end_reason']}")
     lines.append("")
+
+    verdicts = r.get("goal_verdicts") or []
+    if r.get("goal_text"):
+        lines.append(f"## Goal ({len(verdicts)} evaluator verdict{'s' if len(verdicts) != 1 else ''})")
+        lines.append("")
+        lines.append(f"- **Condition:** {r['goal_text']}")
+        if r.get("goal_set_at"):
+            lines.append(f"- **Set:** {r['goal_set_at']}")
+        lines.append(f"- **Outcome:** {r.get('goal_outcome') or '?'}")
+        if verdicts:
+            lines.append("")
+            lines.append("| At | Met | Iterations | Reason |")
+            lines.append("|---|---|---|---|")
+            for v in verdicts:
+                flags = v.get("flags") or {}
+                met = "yes" if v.get("met") else ("failed" if flags.get("failed") else "no")
+                lines.append(
+                    f"| {v.get('at', '')} | {met} | {v.get('iterations') if v.get('iterations') is not None else '-'} | {str(v.get('reason', '')).replace('|', '/')[:300]} |"
+                )
+        lines.append("")
 
     comps = r.get("compactions") or []
     lines.append(f"## Compactions ({len(comps)})")
@@ -613,14 +680,37 @@ def _atomic(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
+def goal_seen(transcript_path: str, max_lines: int = 400) -> bool:
+    """Was a /goal set in this transcript? The sentinel goal_status attachment
+    is written when the goal is set, near the top, so a bounded head scan is
+    enough and cheap at SessionEnd."""
+    if not transcript_path:
+        return False
+    try:
+        with open(transcript_path, "rb") as fh:
+            for i, line in enumerate(fh):
+                if i >= max_lines:
+                    break
+                if b'"goal_status"' in line:
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 def substantial(state: dict) -> bool:
-    """Worth a report: something was edited, or a compaction happened, or the
-    session ran more than a handful of prompts."""
+    """Worth a report: something was edited, or a compaction happened, or a
+    goal was set (a /goal run that never touched Edit -- the model wrote its
+    file through Bash -- must still leave its report), or the session ran
+    more than a handful of prompts or tests."""
     ps = _dict(state.get("pressure"))
+    run = _dict(state.get("run"))
     return bool(
         state.get("files_edited_this_session")
         or int(ps.get("cycle") or 0) > 0
         or int(state.get("prompts_this_session") or 0) >= 5
+        or int(state.get("test_runs_this_session") or 0) > 0
+        or goal_seen(str(run.get("transcript_path") or ""))
     )
 
 

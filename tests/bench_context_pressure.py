@@ -336,6 +336,7 @@ def test_milestones(cp):
         "Finished the refactor of the scorer module.",
         "Phase 2 wrapped up; moving to phase 3.",
         "Milestone reached: the report module is in place.",
+        "Goal met: done.txt contains ok and check.py prints PASS.",
     ]
     negatives = [
         "Is phase 1 done?",
@@ -353,6 +354,7 @@ def test_milestones(cp):
         "Committed as f3a61b0.",
         "I'll mark the task complete after you confirm.",
         "The step needs to be verified before it is done.",
+        "The goal is not met yet; two benches still fail.",
     ]
     for t in positives:
         s, q = ms.classify_completion(t, use_semantic=False)
@@ -491,6 +493,20 @@ def test_provenance(tmp):
     }
     lines = remind._format_restored_context(legacy)
     check("banner derives the project from metadata on a legacy entry", lines and ", projA" in lines[0])
+    # A foreign checkpoint served from the global ring into a project with
+    # no ring of its own must be labelled with ITS project, not the cwd's:
+    # the file-based inference resolved against the cwd and said "goal-test"
+    # for an engram checkpoint.
+    foreign = {
+        "kind": "manual",
+        "created": time.time(),
+        "task_description": "Engram phases 1-2",
+        "summary": "Engram phases 1-2",
+        "project_path": "E:/workspace/claude-engram",
+        "files_in_progress": ["E:/workspace/claude-engram/claude_engram/run_report.py"],
+    }
+    lines = remind._format_restored_context(foreign)
+    check("banner labels a foreign checkpoint with its own project", lines and ", claude-engram" in lines[0] and "goal-test" not in lines[0])
 
 
 def main():

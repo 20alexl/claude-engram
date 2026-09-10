@@ -44,6 +44,14 @@
 | Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
 
+## Done / Shipped (v0.8.17)
+
+| Feature | Notes |
+|---------|-------|
+| Goal verdicts in the run report | Verified on real headless `/goal` runs (met and failed): `goal_status` attachments — sentinel on set, one per evaluator verdict with reason, `failed: true` when judged impossible. Report shows condition, verdicts, outcome. |
+| Goal runs always reported | `substantial()` also fires on a goal or a test run; a Bash-only goal run had left no report. |
+| Teaser label fix | A foreign checkpoint served from the global ring is labelled with its own project, not the cwd's. |
+
 ## Done / Shipped (v0.8.16)
 
 | Feature | Notes |
