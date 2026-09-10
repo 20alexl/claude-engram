@@ -293,7 +293,9 @@ def launch(args: argparse.Namespace) -> int:
     result: dict = {}
     while True:
         started = time.time()
-        r = subprocess.run(cmd, cwd=project_dir, env=env, capture_output=True, text=True)
+        # stdin closed: with a prompt on the command line claude -p still
+        # waits 3 s for piped input before proceeding (seen on the first run).
+        r = subprocess.run(cmd, cwd=project_dir, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         exit_code = r.returncode
         result = _parse_result(r.stdout)
         print(
