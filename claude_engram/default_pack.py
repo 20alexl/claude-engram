@@ -67,6 +67,16 @@ UNIVERSAL_RULES: list[dict] = [
         "reason": "Sending, pushing and publishing are hard to undo.",
     },
     {
+        "content": "Proactively push back and bring things to the user's attention: flag risks, forgotten items, and misalignments with the plan without being asked.",
+        "reason": "A collaborator who only answers the question asked misses the thing that was about to go wrong.",
+        "anchors": ["push back", "pushback"],
+    },
+    {
+        "content": "Follow the user's plan sequentially. Don't skip steps, and don't jump to later steps because they seem more interesting.",
+        "reason": "Skipped steps are how a later step builds on something that was never done.",
+        "anchors": ["plan sequentially", "skip steps"],
+    },
+    {
         "content": "Never kill processes by image name; kill only a PID you started.",
         "reason": "A kill-by-name once took down a four-hour GPU run and the memory server together.",
     },
