@@ -288,6 +288,9 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_HEADSUP_FRACTION` | `0.10` | Context-pressure heads-up this fraction of the window before the compaction point |
 | `CLAUDE_ENGRAM_CHECKPOINT_FRACTION` | `0.03` (`0.05` on ≤200K) | `CHECKPOINT NOW` nudge this fraction of the window before the compaction point |
 | `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `60` | Fallback: turns (Stop events) with neither a deliberate checkpoint nor a completed step before a reminder. Milestones, not this, are the normal trigger |
+| `CLAUDE_ENGRAM_STALL_TURNS` | `3` | Consecutive turns with tool use and no effect per stall strike |
+| `CLAUDE_ENGRAM_STALL_DECAY` | `5` | Consecutive good turns (real effect) that remove one strike |
+| `CLAUDE_ENGRAM_STRIKE_CAP` | `3` | The ladder's top; the halt in autonomy mode |
 | `CLAUDE_ENGRAM_ROTATION` | unset | `0` disables rotation planning; `auto` applies at session end (overrides `.engram/config.json`) |
 | `CLAUDE_ENGRAM_DEFAULT_RULES` | unset | `0` skips seeding the default rule pack |
 | `CLAUDE_ENGRAM_STRUCTURE` | unset | `0` skips creating the project scaffold |

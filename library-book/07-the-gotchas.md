@@ -183,6 +183,22 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Point `statusLine` at `python -m claude_engram.hooks.context_pressure statusline`, or add `record_statusline(data)` to your own script (README: Context pressure). Prefer the env var or the setting over the launch flag for the window. `python -m claude_engram.hooks.context_pressure assess <session_id>` prints exactly what engram sees.
 
+### Gotcha: `/autocompact 750k` set on a 1M model, then a 200K session compacts with no headroom
+
+**Symptom:** On the smaller model the `CHECKPOINT NOW` nudge arrives a few thousand tokens before compaction, or the PostCompact rhythm says `compaction at ~200K (settings; the configured 750K is capped at the 200K window …)`.
+
+**Cause:** `autoCompactWindow` is a token count, not a fraction, and Claude Code caps it at the model's context window. 750K is 75% of a 1M model and the whole window of a 200K one. The setting lives in the user's settings file, so it follows you across models. Hooks cannot change a live session's point.
+
+**Fix:** Engram says so once at the first context reading, with the number for that model (`/autocompact 150k` on 200K). For unattended launches set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window in the launch environment instead; the env var beats the setting.
+
+### Gotcha: a stall strike after a few research turns
+
+**Symptom:** `<engram-stall>Strike 1 of 3: 3 turns with tool use and no effect` while you were legitimately reading code before deciding.
+
+**Cause:** Strike 1 is exactly that cheap by design: three consecutive turns of reads and searches with nothing changed. In an interactive session that is usually research; in an unattended loop it is the first sign of circling, and the same three turns cost the same money either way.
+
+**Fix:** Nothing, if it was research: say what you are looking for and carry on; the strike decays after five turns with real effect. If a run keeps hitting strike 2, the bearings check is the point: name the blocker and pick a different action, or park on a wait primitive instead of polling. Turns with no tools at all and turns parked on Monitor / ScheduleWakeup / a cron are neutral and never count.
+
 ### Gotcha: `claude -p "/goal …"` from Git Bash sets no goal
 
 **Symptom:** A headless goal run answers like a normal prompt, the transcript has no `goal_status` entries, and no run report is written.

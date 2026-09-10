@@ -166,7 +166,10 @@ def _settings_files(project_dir: str = "") -> list[Path]:
     if project_dir:
         p = Path(project_dir)
         out += [p / ".claude" / "settings.local.json", p / ".claude" / "settings.json"]
-    out.append(Path.home() / ".claude" / "settings.json")
+    # CLAUDE_CONFIG_DIR is Claude Code's own relocation of ~/.claude; honoring
+    # it is correct for users who set it and is the test-isolation seam.
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    out.append((Path(cfg) if cfg else Path.home() / ".claude") / "settings.json")
     return out
 
 
@@ -202,7 +205,19 @@ def compaction_point(window: int, project_dir: str = "") -> tuple[int, str]:
     not visible from a hook -- a session that set its window only that way
     reads as ``model-default`` here.
     """
+    d = compaction_point_detail(window, project_dir)
+    return d["point"], d["source"]
+
+
+def compaction_point_detail(window: int, project_dir: str = "") -> dict:
+    """compaction_point() plus what was CONFIGURED and whether the window
+    capped it. A fixed autoCompactWindow is a token count, not a fraction:
+    750K is 75% of a 1M model and, capped, the whole window of a 200K one --
+    no headroom at all. ``recommended`` is 75% of this model's window, the
+    number to give ``/autocompact`` on it."""
     window = int(window)
+    configured = 0
+    source = "model-default"
     env = os.environ.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "").strip()
     if env:
         try:
@@ -210,13 +225,29 @@ def compaction_point(window: int, project_dir: str = "") -> tuple[int, str]:
         except ValueError:
             n = 0
         if n >= _ENV_MIN_WINDOW:
-            return min(n, window), "env"
-    n = settings_autocompact(project_dir)
-    if n:
-        return min(n, window), "settings"
-    if window > SMALL_WINDOW:
-        return min(DEFAULT_COMPACT_1M, window), "model-default"
-    return window, "model-default"
+            configured, source = n, "env"
+    if not configured:
+        n = settings_autocompact(project_dir)
+        if n:
+            configured, source = int(n), "settings"
+    if configured:
+        point = min(configured, window)
+    elif window > SMALL_WINDOW:
+        point = min(DEFAULT_COMPACT_1M, window)
+    else:
+        point = window
+    return {
+        "point": point,
+        "source": source,
+        "configured": configured,
+        "capped": bool(configured and configured > window),
+        "recommended": recommended_point(window),
+    }
+
+
+def recommended_point(window: int) -> int:
+    """75% of the window, rounded down to a whole thousand."""
+    return (int(window) * 3 // 4) // 1000 * 1000
 
 
 def _env_float(name: str, default: float) -> float:
@@ -262,7 +293,8 @@ def assess(mirror: Optional[dict], project_dir: str = "") -> dict:
         out["reason"] = "no tokens counted yet"
         return out
     used, window = int(used), int(window)
-    point, source = compaction_point(window, project_dir)
+    d = compaction_point_detail(window, project_dir)
+    point, source = d["point"], d["source"]
     th = thresholds(window, point)
     band = "clear"
     if used >= th["checkpoint_at"]:
@@ -275,6 +307,9 @@ def assess(mirror: Optional[dict], project_dir: str = "") -> dict:
         window=window,
         point=point,
         source=source,
+        configured=d["configured"],
+        capped=d["capped"],
+        recommended=d["recommended"],
         distance=point - used,
         ts=mirror.get("ts"),
         model=mirror.get("model_name") or mirror.get("model_id") or "",
@@ -310,6 +345,7 @@ def pressure_state(state: dict) -> dict:
     ps.setdefault("not_recording_announced", False)
     ps.setdefault("last_stop_at", 0.0)
     ps.setdefault("milestone_pending", None)
+    ps.setdefault("setpoint_notice_done", False)
     return ps
 
 
@@ -433,6 +469,38 @@ def cadence_text(stops: int) -> str:
     )
 
 
+def setpoint_text(a: dict) -> str:
+    """The configured compaction point does not fit this model. Once per
+    session, with the number to use on it."""
+    rec = a.get("recommended") or 0
+    rec_arg = f"{rec // 1000}k"
+    if a.get("capped"):
+        return (
+            "<engram-context>Compaction point: autoCompactWindow "
+            f"{_k(a['configured'])} ({a['source']}) is above this model's "
+            f"{_k(a['window'])} window, so Claude Code caps it at the boundary: "
+            "compaction fires with no headroom for a checkpoint. The setting is a "
+            "token count, not a fraction; the right number here is "
+            f"`/autocompact {rec_arg}` (75%). Only the person at the terminal can "
+            "change it for this session.</engram-context>"
+        )
+    return (
+        "<engram-context>Compaction point: no autoCompactWindow is set and this "
+        f"model's window is {_k(a['window'])}, so compaction fires at the boundary "
+        "with no headroom for a checkpoint. `/autocompact "
+        f"{rec_arg}` (75%) gives the checkpoint call room on this model."
+        "</engram-context>"
+    )
+
+
+def setpoint_mismatch(a: dict) -> bool:
+    if a.get("band") == "nodata" or not a.get("window"):
+        return False
+    if a.get("capped"):
+        return True
+    return a.get("source") == "model-default" and int(a["window"]) <= SMALL_WINDOW
+
+
 def not_recording_text() -> str:
     return (
         "<engram-context>Context pressure: a statusLine is configured but no "
@@ -478,6 +546,13 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
             changed = True
             texts.append(not_recording_text())
 
+    # The setpoint is a token count and the model's window decides whether
+    # it fits. Said once per session, with the number for this model.
+    if not ps["setpoint_notice_done"] and setpoint_mismatch(a):
+        ps["setpoint_notice_done"] = True
+        changed = True
+        texts.append(setpoint_text(a))
+
     # A closed step with no deliberate checkpoint behind it. Delivered once;
     # a checkpoint that landed since the claim answers it silently.
     mp = ps.get("milestone_pending")
@@ -516,12 +591,19 @@ def rhythm_text(state: dict, session_id: str, project_dir: str = "") -> str:
             f"Compaction #{cycle}. No context reading (statusline mirror missing); "
             f"checkpoint on cadence, every {cadence} turns."
         )
-    point, source = compaction_point(window, project_dir)
+    d = compaction_point_detail(window, project_dir)
+    point, source = d["point"], d["source"]
     th = thresholds(window, point)
+    capped = ""
+    if d["capped"]:
+        capped = (
+            f"; the configured {_k(d['configured'])} is capped at the "
+            f"{_k(window)} window -- `/autocompact {d['recommended'] // 1000}k` fits this model"
+        )
     return (
         f"Compaction #{cycle}. Rhythm: heads-up at ~{_k(th['headsup_at'])} "
         f"({_pct(th['headsup_at'], window)}), checkpoint at ~{_k(th['checkpoint_at'])}, "
-        f"compaction at ~{_k(point)} ({source}). Plan work in units that finish "
+        f"compaction at ~{_k(point)} ({source}{capped}). Plan work in units that finish "
         "before the checkpoint call."
     )
 

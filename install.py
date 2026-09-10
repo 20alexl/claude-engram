@@ -163,6 +163,7 @@ def get_hooks_config():
         "prompt_json",
         "pre_read_json",
         "tool_failure_json",
+        "post_batch_json",
     }
 
     def _hook(hook_type, timeout=1000, status=None):
@@ -204,6 +205,7 @@ def get_hooks_config():
                     "hooks": [_hook("post_milestone_json")],
                 },
             ],
+            "PostToolBatch": [{"matcher": "", "hooks": [_hook("post_batch_json")]}],
             "PostToolUseFailure": [
                 {"matcher": "", "hooks": [_hook("tool_failure_json")]}
             ],

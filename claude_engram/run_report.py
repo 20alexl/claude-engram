@@ -443,7 +443,14 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
     checkpoints = _session_checkpoints(project_dir, session_id)
     errors = _summarize_errors(tr["errors"], _known_error_signatures(project_dir))
 
-    not_measured = ["stall strikes (Phase 4)", "rules compliance (Phase 5)"]
+    not_measured = ["rules compliance (Phase 5)"]
+    try:
+        from claude_engram.hooks import stall as _stall
+
+        stalls = _stall.summary(state)
+    except Exception:
+        stalls = None
+        not_measured.append("stall strikes (state unreadable)")
     verdicts = tr["goal_verdicts"]
     goal_outcome = ""
     if tr["goal_text"] is not None:
@@ -510,7 +517,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
             "deliberate": sum(1 for c in checkpoints if c["kind"] == "manual"),
             "auto": sum(1 for c in checkpoints if c["kind"] != "manual"),
         },
-        "stalls": None,
+        "stalls": stalls,
         "compliance": None,
         "end_reason": str(run.get("end_reason") or ""),
         "not_measured": not_measured,
@@ -660,6 +667,33 @@ def render_md(r: dict) -> str:
                 f"| {c['created']} | {c['kind']} | {c.get('task_id') or '-'} | {c['summary'].replace('|', '/')} |"
             )
     lines.append("")
+
+    st = r.get("stalls")
+    if isinstance(st, dict):
+        tn = st.get("turns") or {}
+        lines.append(
+            f"## Stalls ({st.get('max_strikes', 0)} strike{'s' if st.get('max_strikes', 0) != 1 else ''} at peak, "
+            f"{st.get('strikes_now', 0)} at end)"
+        )
+        lines.append("")
+        lines.append(
+            "A turn is judged by effect: a file changed, a test status flipped, a commit, "
+            "or delegated work. Turns with no tools or parked on a wait primitive are neutral."
+        )
+        lines.append("")
+        lines.append(
+            f"- turns: {tn.get('good', 0)} with effect · {tn.get('noeffect', 0)} without · {tn.get('neutral', 0)} neutral"
+        )
+        evs = st.get("events") or []
+        if evs:
+            lines.append("")
+            lines.append("| Turn | Event | Strikes after | Reason |")
+            lines.append("|---|---|---|---|")
+            for ev in evs[-30:]:
+                lines.append(
+                    f"| {ev.get('turn', '?')} | {ev.get('kind', '?')} | {ev.get('strikes', '?')} | {ev.get('reason', '')} |"
+                )
+        lines.append("")
 
     lines.append("## Not measured")
     lines.append("")

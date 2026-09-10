@@ -44,6 +44,14 @@
 | Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
 | Default pack (scaffold + rules) and rotation | Stable | v0.8.19 |
+| Stall detection (effect-judged turns, decaying strikes) + setpoint notice | Stable | v0.8.21 |
+
+## Done / Shipped (v0.8.21)
+
+| Feature | Notes |
+|---------|-------|
+| Stall detection | A turn is judged by effect at Stop: a file changed, a test status flipped, a commit, or delegated work is good; tools with none of that is no effect; no tools or a parked wait primitive is neutral. Three no-effect turns = one strike (warning → bearings check with the checkpoint and rules → cap); five good turns remove one. Accounted at `PostToolBatch`, delivered at the next injection point, events with turn numbers in the run report. |
+| Setpoint notice | `autoCompactWindow` is a token count, capped at the model's window; a number above it is reported once with the right `/autocompact` value for the model. |
 
 ## Done / Shipped (v0.8.20)
 

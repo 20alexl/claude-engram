@@ -148,6 +148,22 @@ Without a statusline engram says so at session start, and only the cadence runs.
 
 For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper, leaves headroom against the overflow that ends a `/goal` run, and puts the checkpoint nudge a known distance below a number you chose.
 
+The setting is a token count, not a fraction, and it is capped at the model's window. `/autocompact 750k` is 75% of a 1M model and the whole window of a 200K one, which leaves no room for the checkpoint call. Hooks cannot change a live session's point, so engram tells you once, at the first context reading, when the configured number does not fit the model, with the number that does (`/autocompact 150k` on 200K). A 200K model with no setting gets the same one-line notice.
+
+## Stall detection
+
+`/goal`'s own stall rule stops a loop after several turns with **no tool use**. The overnight failure that matters is the other one: a run that uses a tool every turn and changes nothing. Seen live, a goal loop ran nine turns of `cat` on a file that was never going to change; the stall rule never fired because every turn used a tool. Engram judges a turn by its **effect**:
+
+| Turn | Counts as |
+|---|---|
+| A file changed (Edit/Write/NotebookEdit, a mutating shell command, or the git working tree moved), a test status flipped, a commit landed, work was delegated to an agent | Good |
+| Tools were used and none of that happened | No effect |
+| No tools at all, or the turn parked on a wait primitive (Monitor, ScheduleWakeup, a cron, a background task) | Neutral: touches nothing |
+
+Three consecutive no-effect turns are one strike. Strike 1 is a warning that names the pattern and asks for a wait primitive instead of polling. Strike 2 re-injects the latest checkpoint and the rules and asks for a bearings check (task, last real change, blocker, different action). Strike 3 is the cap; in autonomy mode it becomes the halt. **Strikes decay rather than reset**: five consecutive good turns remove one, repeatedly, down to zero. A hard reset would let one edited line wipe a pattern of stalls; no decay would halt an eight-hour run over three stalls spread across it. Every increment and decrement is an event with its turn number in the run report. Tune with `CLAUDE_ENGRAM_STALL_TURNS`, `CLAUDE_ENGRAM_STALL_DECAY`, `CLAUDE_ENGRAM_STRIKE_CAP`.
+
+Accounting arrives from the `PostToolBatch` hook (every call in a batch, no matcher), with the Edit and Bash `PostToolUse` handlers as a fallback for settings that predate it; the turn is judged at Stop, and the strike text is delivered at the next injection point. Re-run `python install.py` to register the batch hook.
+
 ## Defaults: structure, rules, rotation
 
 Engram ships an opinion about how a project is kept, on by default and one line to turn off in `<project>/.engram/config.json`:
@@ -170,7 +186,8 @@ Every substantial session leaves one auditable artifact in the repo: `<project>/
 - files touched with per-file edit counts; test runs, first and last status
 - errors grouped by signature, recurrences, and whether the miner already knew them
 - checkpoints written this session, deliberate vs automatic
-- what was **not** measured, listed rather than omitted (stall strikes and rules compliance arrive in later phases)
+- stalls: turns with and without effect, every strike and decay with its turn number
+- what was **not** measured, listed rather than omitted (rules compliance arrives in a later phase)
 
 Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. `/goal` and `/loop` compose only when the goal is parked. Scheduled tasks fire while the session is idle, and a not-met goal re-prompts at once, so a goal with nothing to do burns turns and starves the loop (seen live: nine verdicts in two minutes, a cron fire lost). A goal idles while it waits on background work, a Monitor or a self-paced wakeup, and the loop fires then. Tell the model to park on such a primitive instead of polling.
 

@@ -2719,16 +2719,84 @@ def _with_pressure(result: str, project_dir: str) -> str:
     only delivery point that fires every turn."""
     try:
         from claude_engram.hooks import context_pressure as _cp
+        from claude_engram.hooks import stall as _stall
 
         state = load_state()
         text, changed = _cp.nudge(state, _session_id, project_dir)
-        if changed:
+        # A staged stall strike (hooks/stall.py) rides the same delivery:
+        # the Stop hook that judged the turn cannot add context itself.
+        bearings = None
+        if isinstance(_stall.stall_state(state).get("pending"), dict):
+            bearings = _stall_bearings(project_dir)
+        s_text, s_changed = _stall.nudge(state, bearings)
+        if s_text:
+            text = f"{text}\n{s_text}" if text else s_text
+        if changed or s_changed:
             save_state(state)
     except Exception:
         return result
     if not text:
         return result
     return f"{result}\n{text}" if result else text
+
+
+def _stall_bearings(project_dir: str) -> list[str]:
+    """Strike 2's re-injection: the latest checkpoint and the top rules, the
+    same material PostCompact restores. Empty when there is nothing."""
+    lines: list[str] = []
+    try:
+        handoff = get_handoff_data(project_dir)
+        if handoff:
+            lines.extend(_format_restored_context(handoff))
+    except Exception:
+        pass
+    try:
+        project_memory = load_project_memory(project_dir)
+        rules = filter_rules_in_claude_md(get_project_rules(project_memory), project_dir)
+        if rules:
+            lines.append(f"Rules ({len(rules)}):")
+            for r in rules[:5]:
+                lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
+    except Exception:
+        pass
+    return lines
+
+
+def _hook_post_batch(project_dir: str) -> None:
+    """PostToolBatch: account every call in the batch to the open turn
+    (hooks/stall.py) and deliver whatever nudge is due. The batch payload
+    carries all calls with their inputs and responses, matcher-free, so this
+    is the one place that sees NotebookEdit, MCP writes and wait primitives
+    without a PostToolUse entry each."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        calls = data.get("tool_calls") or []
+        from claude_engram.hooks import stall as _stall
+
+        state = load_state()
+        _stall.note_batch(state, calls if isinstance(calls, list) else [])
+        save_state(state)
+        if data.get("agent_id"):
+            return  # a subagent's batch: counted, never nudged
+        result = _with_pressure("", project_dir)
+        if result:
+            print(
+                json_module.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolBatch",
+                            "additionalContext": result,
+                        }
+                    }
+                )
+            )
+    except Exception:
+        pass
 
 
 def _hook_post_compact(project_dir: str) -> None:
@@ -3300,6 +3368,19 @@ def main():
             if stdin_data:
                 data = json_module.loads(stdin_data)
 
+                # Effect accounting for the stall ladder (hooks/stall.py);
+                # a fallback for settings without the PostToolBatch hook.
+                try:
+                    from claude_engram.hooks import stall as _stall
+
+                    _sst = load_state()
+                    _stall.note_tool(
+                        _sst, "Bash", data.get("tool_input"), data.get("tool_response")
+                    )
+                    save_state(_sst)
+                except Exception:
+                    pass
+
                 # Subagents: no output injection, no tracking (utility work, not user flow)
                 if data.get("agent_id"):
                     sys.exit(0)
@@ -3385,6 +3466,20 @@ def main():
                     state = load_state()
                     _track_tool_duration(state, "Edit", duration_ms)
                     save_state(state)
+                # Effect accounting for the stall ladder (hooks/stall.py).
+                try:
+                    from claude_engram.hooks import stall as _stall
+
+                    _sst = load_state()
+                    _stall.note_tool(
+                        _sst,
+                        str(data.get("tool_name") or "Edit"),
+                        data.get("tool_input"),
+                        data.get("tool_response"),
+                    )
+                    save_state(_sst)
+                except Exception:
+                    pass
                 file_path = data.get("tool_input", {}).get("file_path", "")
                 if file_path:
                     project_dir = get_project_dir(file_path)
@@ -3769,6 +3864,18 @@ def main():
 
                         _st = load_state()
                         _cp.note_stop(_st, str(last_message or ""))
+                        # Close the turn for the stall ladder: judged by
+                        # effect (hooks/stall.py), strikes staged for the
+                        # next injection point.
+                        try:
+                            from claude_engram.hooks import stall as _stall
+
+                            _turn_no = int(
+                                _cp.pressure_state(_st).get("stops_total", 0)
+                            )
+                            _stall.close_turn(_st, _turn_no, project_dir)
+                        except Exception:
+                            pass
                         save_state(_st)
                     except Exception:
                         pass
@@ -3981,6 +4088,9 @@ def main():
     # ==================================================================
     elif hook_type == "pre_read_json":
         _hook_pre_read()
+
+    elif hook_type == "post_batch_json":
+        _hook_post_batch(project_dir)
 
     elif hook_type == "post_milestone_json":
         _hook_post_milestone()

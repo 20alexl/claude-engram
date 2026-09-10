@@ -30,6 +30,7 @@ DAEMON_EVENTS = {
     "prompt_json",
     "pre_read_json",
     "tool_failure_json",
+    "post_batch_json",
 }
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

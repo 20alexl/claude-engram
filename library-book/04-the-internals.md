@@ -144,6 +144,19 @@ Storage: ~/.claude_engram/
 - Delivery is one turn late by construction and goes through the same `nudge()` slot as pressure; a pressure band outranks it, and a deliberate checkpoint that lands after the claim answers it silently
 - `PostToolUse` on `ExitPlanMode|TaskUpdate` (`post_milestone_json`, `_hook_post_milestone`) injects at once: bank the approved plan with its steps as `pending_steps`; a task marked `completed` is the same claim stated structurally. Claude Code leaves the task tools out on the newest models unless the user opts in, so that path is a bonus, not the design
 
+### Stall Detection (`hooks/stall.py`)
+
+**What it does:** Judges every assistant turn by its effect and climbs a strike ladder when turns keep using tools and changing nothing. `/goal`'s stall rule counts tool use; this counts what the tools did.
+
+**Why it's separate:** The judgment happens at Stop, but Stop cannot inject context, and the evidence arrives across the turn from several hooks. So the module is a small state machine over the session state: hooks account calls to the open turn, Stop closes it, the next injection point delivers.
+
+**Key internals:**
+- `classify_tool(name, input, response)` — `file` (Edit/Write/MultiEdit/NotebookEdit that did not error; a shell command `bash_mutates()` flags: redirects to a real path, in-place sed, file utilities, mutating git subcommands, installs, running a script file; an MCP tool whose name says create/write/set/update/delete), `test` (a test invocation with a readable verdict), `commit`, `delegate` (Agent/Task/Workflow), `park` (Monitor, ScheduleWakeup, CronCreate, TaskOutput, AskUserQuestion, SendMessage, a background Bash), `record` (engram's own durable writes: checkpoint_save, remember, log_mistake), `none` (everything else, and engram's reads)
+- `note_tool()` / `note_batch()` — idempotent accounting into `state["stall"]["turn"]`; the PostToolBatch handler sends every call, the Edit and Bash PostToolUse handlers send theirs as a fallback for settings that predate the batch hook
+- `close_turn(state, turn_no, project_dir)` at Stop — no tools or parked: *neutral*, both streaks untouched. A test verdict counts only when it differs from the last one. Effects found: *good*; the good streak grows and, at `DECAY_GOOD_TURNS`, one strike comes off. Nothing found: `tree_fingerprint()` (HEAD + `git status --porcelain`, run only on this suspect path) is compared with the last effect-free reading, and a change rescues the turn as `tree`; otherwise *no effect*, the good streak resets, and at `STALL_TURNS` a strike is added (cap `STRIKE_CAP`) and staged in `pending`. A flagged effect invalidates the stored fingerprint so the next reading starts fresh
+- `nudge(state, bearings)` — delivers `pending` once. `_with_pressure()` in remind.py supplies `bearings` (the restored checkpoint lines and the top rules, the same material PostCompact injects) for strike 2 and above
+- `events` — one record per strike or decay with the turn number (`stops_total` from the pressure state), capped at 60; `summary()` feeds the run report's Stalls section
+
 ### Run Report (`run_report.py`)
 
 **What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.

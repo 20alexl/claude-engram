@@ -59,6 +59,12 @@ def _clean_env():
         "CLAUDE_ENGRAM_CHECKPOINT_CADENCE",
     ):
         os.environ.pop(k, None)
+    # The user's real ~/.claude/settings.json may carry autoCompactWindow
+    # (it does on the author's machine since /autocompact 750k); point the
+    # user-settings lookup at an empty config dir so defaults are defaults.
+    cfg = Path(tempfile.gettempdir()) / "engram-bench-empty-config"
+    cfg.mkdir(parents=True, exist_ok=True)
+    os.environ["CLAUDE_CONFIG_DIR"] = str(cfg)
 
 
 def test_parse_window_value(cp):
