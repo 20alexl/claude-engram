@@ -248,6 +248,9 @@ def test_default_pack(tmp):
     check("similar: paraphrase of the destructive-commands rule", dp.similar(dp.RULES[0]["content"], "No destructive commands without asking. trash > rm. Never git push --force to main. (Reason: Protect against accidents)"))
     check("similar: unrelated rule is not", not dp.similar(dp.RULES[0]["content"], "Use tabs for indentation in Go files."))
     check("similar: search-first paraphrase", dp.similar(dp.RULES[1]["content"], "Search first (qmd/grep), then read only relevant files. Don't read entire files when a targeted search works."))
+    sm = next(r for r in dp.RULES if "Session maintenance" in r["content"])
+    check("anchor: a short user rule covers the pack's long session-maintenance rule", dp.similar(sm["content"], "Delegate session maintenance (learnings, errors, session logs) to background sonnet sub-agents.", anchors=sm["anchors"]))
+    check("anchor: no anchor, no match", not dp.similar(sm["content"], "Delegate session maintenance (learnings, errors, session logs) to background sonnet sub-agents."))
     home = Path.home()
     check("home dir is never a project", not dp.is_project_dir(str(home)))
     bare = tmp / "bare"

@@ -73,6 +73,7 @@ UNIVERSAL_RULES: list[dict] = [
     {
         "content": "Session maintenance is not optional: errors and fixes go in .learnings/ERRORS.md, patterns in .learnings/LEARNINGS.md, and a daily note in session-logs/YYYY-MM-DD.md. Delegate it to a background agent so the main work stays focused.",
         "reason": "Rotation and the next session both read from there; an unrecorded fix gets rediscovered.",
+        "anchors": ["session maintenance"],
     },
     {
         "content": "Checkpoint when you judge a step done: before declaring a phase, step, or part of a plan finished, call context(checkpoint_save) with what closed and what is next.",
@@ -97,8 +98,9 @@ WORKFLOW_RULES: list[dict] = [
         "reason": "Skipping gates to go faster is how grouping errors reached forty models; a phase that was never audited is a phase nobody knows the state of.",
     },
     {
-        "content": "Delegate by size, not by habit: do small in-context work yourself; delegate multi-hour or parallel builds to subagents; use a cheap model for logs and maintenance and a strong one for review; give every agent prompt a hard agent budget; batch source commits so a re-cut happens once.",
-        "reason": "Uncapped delegation defaults to expensive fleets; unbatched commits get re-cut every time.",
+        "content": "Delegate by size, not by habit: do small in-context work yourself; hand multi-hour or parallel builds to subagents; a cheap model for logs and maintenance, a strong one for review and audits; a scripted multi-agent workflow only when the task is genuinely many independent stages, which is rare; every agent prompt carries a hard agent budget; batch source commits so a re-cut happens once.",
+        "reason": "Uncapped delegation defaults to expensive fleets; a workflow where one subagent would do is the same waste; unbatched commits get re-cut every time.",
+        "anchors": ["delegate by size", "agent budget"],
     },
     {
         "content": "Verify before claiming done: run the targeted tests plus one unmocked end-to-end path, list every created file in the report, and never launch a run on an input you know is broken. 'Found, not fixed' is not done.",
@@ -111,6 +113,7 @@ WORKFLOW_RULES: list[dict] = [
     {
         "content": "Anything that leaves the machine is the owner's decision: a push, a pull request, a comment. Local commits are free. Never force-push main. One pull request, one idea; squash by default, but never squash a pull request another branch is stacked on.",
         "reason": "A squashed base orphaned two stacked pull requests once; local commits are free, pushes are not.",
+        "anchors": ["leaves the machine", "force-push", "force push"],
     },
     {
         "content": "Write the learning when it happens, not at the end, and only what the repo does not already say. Every markdown document carries the nav header (type, status, updated, project, summary).",
@@ -130,8 +133,11 @@ def _words(s: str) -> set[str]:
     return {w for w in _WORD.findall(s.lower()) if len(w) > 2}
 
 
-def similar(a: str, b: str, threshold: float = 0.45) -> bool:
-    """Same rule in substance: word-set Jaccard, or one's opening inside the other."""
+def similar(a: str, b: str, threshold: float = 0.45, anchors: Optional[list[str]] = None) -> bool:
+    """Same rule in substance: word-set Jaccard, one's opening inside the
+    other, or a rule-specific anchor phrase present in the existing text (a
+    user's own "Delegate session maintenance..." covers the pack's longer
+    session-maintenance rule even though the words mostly differ)."""
     wa, wb = _words(a), _words(b)
     if not wa or not wb:
         return False
@@ -139,7 +145,10 @@ def similar(a: str, b: str, threshold: float = 0.45) -> bool:
     if j >= threshold:
         return True
     head = a.lower()[:40].strip()
-    return bool(head) and head in b.lower()
+    if head and head in b.lower():
+        return True
+    bl = b.lower()
+    return any(anc.lower() in bl for anc in (anchors or []))
 
 
 def is_project_dir(project_dir: str) -> bool:
@@ -205,7 +214,7 @@ def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = T
         return report
     rules = UNIVERSAL_RULES + (WORKFLOW_RULES if include_workflow else [])
     for rule in rules:
-        if any(similar(rule["content"], e) for e in existing):
+        if any(similar(rule["content"], e, anchors=rule.get("anchors")) for e in existing):
             report["skipped"].append(rule["content"][:60])
             continue
         try:
@@ -239,7 +248,7 @@ _WORKFLOW_MD = """## Workflow
 - **Plan before code.** Nothing gets implemented until the design is written down and agreed. Say what you intend, wait for the go, then do it. An approved design is not by itself an approval to build it.
 - **Proposed, open, decided.** Three different things. A proposal never silently becomes a decision; a decision is written down with a "revisit if" condition.
 - **Gates and audits.** Every milestone has a gate written before the work and a verdict after. A large milestone gets an independent review before anything is built on it.
-- **Delegate by size.** Small in-context work yourself; multi-hour or parallel builds to subagents; a cheap model for logs and maintenance, a strong one for review; every agent prompt carries a hard agent budget; batch source commits so a re-cut happens once.
+- **Delegate by size.** Small in-context work yourself; multi-hour or parallel builds to subagents; a cheap model for logs and maintenance, a strong one for review and audits; a scripted multi-agent workflow only when the task is genuinely many independent stages, which is rare; every agent prompt carries a hard agent budget; batch source commits so a re-cut happens once.
 - **Verify before done.** Targeted tests plus one unmocked end-to-end path; every created file listed in the report; never launch a run on an input you know is broken.
 - **Evidence.** Numbers get a source; the run behind a cited number is kept in `experiments/` or the run report.
 - **Git.** Anything that leaves the machine is the owner's decision; local commits are free. Never force-push `main`. One pull request, one idea; squash by default, never a pull request something is stacked on.
