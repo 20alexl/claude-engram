@@ -2947,6 +2947,23 @@ def _hook_session_start(project_dir: str) -> None:
                 lines.append(_no_sl)
         except Exception:
             pass
+        # The default pack (rules + structure) on a fresh start only, and a
+        # pending rotation plan from the last SessionEnd, if any.
+        if source == "startup":
+            try:
+                from claude_engram import default_pack as _dp
+
+                lines.extend(_dp.run_at_session_start(project_dir))
+            except Exception:
+                pass
+        try:
+            from claude_engram import rotation as _rot
+
+            _pending = _rot.pending_notice(project_dir)
+            if _pending:
+                lines.append(_pending)
+        except Exception:
+            pass
 
         # Load and show key context (CLAUDE.md-covered rules skipped)
         project_memory = load_project_memory(project_dir)
@@ -3801,6 +3818,15 @@ def main():
                         _resolve_session_project(project_dir, files_edited),
                         state,
                     )
+            except Exception:
+                pass
+
+            # Rotation: plan (and apply when "auto") for the project the
+            # session worked in. Nothing is deleted; see rotation.py.
+            try:
+                from claude_engram import rotation as _rot
+
+                _rot.run_at_session_end(_resolve_session_project(project_dir, files_edited))
             except Exception:
                 pass
 

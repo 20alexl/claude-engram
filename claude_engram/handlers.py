@@ -2357,6 +2357,27 @@ class Handlers:
                 )
             ]
 
+        elif operation == "rotate":
+            # Rotation of session-logs and .learnings: dry run by default.
+            from claude_engram import rotation as _rot
+
+            _plan = _rot.plan(project_path)
+            if not _plan["items"]:
+                return [TextContent(type="text", text="Nothing to rotate: every daily and dated entry is inside the retention window.")]
+            head = _rot.summarize(_plan)
+            dry_run = args.get("dry_run", True)
+            if dry_run is False:
+                done = _rot.apply(_plan)
+                _rot.save_plan(project_path, {"items": []})
+                return [TextContent(type="text", text="Rotated (nothing deleted; see archive/):\n- " + "\n- ".join(done))]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Rotation plan (dry run): {head}\n\nApply with session_mine(rotate, dry_run=false). "
+                    'Set "rotation": "auto" in .engram/config.json to apply at every session end, or "rotation": false to stop planning.',
+                )
+            ]
+
         elif operation == "run_report":
             # On-demand run report for THIS session (the MCP server adopted
             # the session id at startup); written to <project>/.engram/runs/

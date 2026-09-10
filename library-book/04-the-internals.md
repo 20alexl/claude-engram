@@ -157,6 +157,18 @@ Storage: ~/.claude_engram/
 - `render_md()` / `write_report()` — atomic writes, idempotent per run id; `substantial()` gates the automatic SessionEnd write (an edit, a compaction, or five prompts)
 - Automatic per-turn saves contend only for the ring's latest pointer, so the report lists deliberate checkpoints as the record and at most the one surviving auto
 
+### Default Pack and Rotation (`default_pack.py`, `rotation.py`, `project_config.py`)
+
+**What they do:** The opinion engram ships about how a project is kept. `default_pack` creates the workspace scaffold where pieces are missing and seeds ten working rules once; `rotation` keeps `session-logs/` and `.learnings/` from growing without bound; `project_config` is the one-line opt-out (`<project>/.engram/config.json`, env overrides).
+
+**Why they're separate:** Each is a file-system policy with its own tests, none of them belongs on the hook's hot path, and the hooks only call two entry points: `default_pack.run_at_session_start` (fresh starts only) and `rotation.run_at_session_end`.
+
+**Key internals:**
+- The scaffold is `tools/new-project.sh` from the author's workspace, byte for byte in spirit: nav-headered files (`type / status / updated / project / summary`), `CLAUDE.md` with Purpose / Testing / Structure, `.learnings/ERRORS.md`, `.learnings/LEARNINGS.md`, `session-logs/`. Created only in a directory that already is a project; a per-person layout (`.learnings/<name>/`) gets no top-level files
+- Rules are the workspace `CLAUDE.md` rules in their own words. `similar()` (word-set Jaccard ≥ 0.45, or one's opening inside the other) skips any rule the project or an ancestor already carries, so seeding never duplicates a user's rule. A marker in the project's engram dir makes it idempotent per pack version
+- Rotation parses every heading shape seen in real files (`## date — title`, `### date — title`, date-only `##` with `###` children, `## Title (date)`); undated sections never move, STANDING / permanent / RULE sections never move. Files keep their line endings; each trimmed file gets one `> Rotated …` line under its H1 (replaced, not stacked). Session dailies move to `archive/<YYYY-MM>/` and the month digest is rebuilt from the archived originals. Per-person folders are units of their own
+- `plan()` is pure; `apply()` acts; `run_at_session_end()` applies only under `"rotation": "auto"`, else persists `.engram/rotation-plan.json` for `pending_notice()` at SessionStart. `session_mine(rotate, dry_run)` and `python -m claude_engram.rotation --project X [--apply]` expose the same two steps
+
 ### Scorer/Hook Daemon (`hooks/scorer_server.py`)
 
 **What it does:** Persistent TCP server with two jobs: (1) keeps the embedding model loaded — decision scores and embeddings in ~5-25ms instead of ~500ms+ cold start; (2) runs high-frequency hook events in-process with warm imports, so a hook costs one round trip (~15-25ms in-daemon) instead of a full import chain.

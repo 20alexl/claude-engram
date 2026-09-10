@@ -148,6 +148,18 @@ Without a statusline engram says so at session start, and only the cadence runs.
 
 For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper, leaves headroom against the overflow that ends a `/goal` run, and puts the checkpoint nudge a known distance below a number you chose.
 
+## Defaults: structure, rules, rotation
+
+Engram ships an opinion about how a project is kept, on by default and one line to turn off in `<project>/.engram/config.json`:
+
+- **Structure.** A project (a git repo, a package manifest, or a `CLAUDE.md`) gets the scaffold if pieces are missing: a headered `CLAUDE.md` with Purpose / Testing / Structure, `.learnings/ERRORS.md`, `.learnings/LEARNINGS.md`, `session-logs/`. A multi-person layout (`.learnings/<name>/`, `session-logs/<name>/`) is left as it is. `"structure": false`.
+- **Rules.** Ten working rules seeded once into the project's memory on its first session (no destructive commands without asking, search first, quality over speed, prerequisites first, be direct, try before asking, private stays private, never kill by image name, session maintenance, checkpoint when you judge a step done). Any rule the project or an ancestor already has in substance is skipped, so your own rules win. `memory(list_rules)` shows them; `"default_rules": false`.
+- **Rotation.** Nothing is deleted, ever. Dailies older than 30 days move to `session-logs/archive/<month>/` with a monthly digest beside them; dated `ERRORS.md` entries older than 90 days move to `.learnings/archive/ERRORS-<year>.md`; `LEARNINGS.md` holds patterns, which do not age out, so it rotates only when over the cap. Either file over 500 lines sheds its oldest 30-day-plus entries until it fits. Undated and STANDING/permanent entries never move. Each trimmed file gets a one-line note under its title saying what moved and where. Per-person folders rotate inside themselves. By default SessionEnd only plans and SessionStart announces; `session_mine(rotate, dry_run=false)` applies, `"rotation": "auto"` applies at every session end, `"rotation": false` stops planning. Thresholds: `rotation_log_days` (30), `rotation_learn_days` (90, ERRORS), `rotation_learnings_days` (0 = cap only), `rotation_learn_max_lines` (500).
+
+```json
+{"rotation": "auto", "default_rules": false, "structure": true}
+```
+
 ## Run report
 
 Every substantial session leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session>.md` plus a `.json` twin, written at SessionEnd or on demand with `session_mine(run_report)` / `python -m claude_engram.run_report --session <id>`. Every line is hook-captured or read from the transcript, never self-reported by the model:

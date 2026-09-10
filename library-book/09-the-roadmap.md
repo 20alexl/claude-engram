@@ -43,6 +43,15 @@
 | Context-pressure checkpoint nudges (statusline mirror, distance to compaction) | Stable | v0.8.14 |
 | Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
+| Default pack (scaffold + rules) and rotation | Stable | v0.8.19 |
+
+## Done / Shipped (v0.8.19)
+
+| Feature | Notes |
+|---------|-------|
+| Default pack | The workspace scaffold (headered `CLAUDE.md`, `.learnings/*.md`, `session-logs/`) created where missing, per-person layouts left alone; ten working rules seeded once, skipping any the project or an ancestor already has. `.engram/config.json`: one line each to turn off. |
+| Rotation | Dailies > 30 d → `session-logs/archive/<month>/` + digest; dated learnings > 90 d or over the 500-line cap → `.learnings/archive/`; nothing deleted; line endings and nav headers preserved; note under the title. Plans at SessionEnd, announces at SessionStart, applies on request or with `"rotation": "auto"`. |
+| `session_mine(rotate)` + CLI | Dry run by default; `dry_run=false` applies. |
 
 ## Done / Shipped (v0.8.18)
 

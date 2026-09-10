@@ -632,6 +632,7 @@ TOOL_DEFINITIONS = [
                         "reflect",
                         "commitments",
                         "run_report",
+                        "rotate",
                     ],
                     "description": "Operation to perform. run_report: write and return this session's auditable run report (<project>/.engram/runs/) -- hook-captured facts only: commits, turns, files with edit counts, tests, errors, compactions with sizes and what each restored, checkpoints deliberate vs auto, goal text",
                 },
@@ -663,6 +664,10 @@ TOOL_DEFINITIONS = [
                 "since": {
                     "type": "string",
                     "description": "For search: filter after date (YYYY-MM-DD)",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "For rotate: preview only (default true). false applies: dailies older than 30 days -> session-logs/archive/<month>/ + a monthly digest; dated .learnings entries older than 90 days -> .learnings/archive/. Nothing is deleted.",
                 },
                 "until": {
                     "type": "string",
