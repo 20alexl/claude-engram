@@ -34,10 +34,10 @@ from typing import Optional
 
 from claude_engram import project_config
 
-PACK_VERSION = 2
+PACK_VERSION = 3
 
 # The workspace rules, in the words they are written in there.
-RULES: list[dict] = [
+UNIVERSAL_RULES: list[dict] = [
     {
         "content": "Don't run destructive commands without asking. trash > rm. Never git push --force to main.",
         "reason": "Undo is cheaper than recovery.",
@@ -79,6 +79,46 @@ RULES: list[dict] = [
         "reason": "A compaction or a crash keeps only what is written; the model is the one who knows when a unit closed.",
     },
 ]
+
+# How the work flows. Distilled from the author's best-kept project rulebooks
+# (plan-before-code, proposed/open/decided, gates and audits, delegation,
+# verification, evidence, git) in their own wording where it exists.
+WORKFLOW_RULES: list[dict] = [
+    {
+        "content": "Plan before code: nothing gets implemented until the design is written down and agreed. Say what you intend, wait for the go, then do it. An approved design is not by itself an approval to build it.",
+        "reason": "Code written before the design settles encodes an assumption nobody argued about.",
+    },
+    {
+        "content": "Proposed, open, and decided are three different things. A proposal never silently becomes a decision; a decision is written down where decisions live, with a 'revisit if' condition.",
+        "reason": "That is how a repo ends up with six decisions nobody remembers making.",
+    },
+    {
+        "content": "Every milestone has a gate written before the work and a verdict written after. A phase is not done until its gate is met and recorded, and a large milestone gets an independent review (a fresh reviewer or an adversarial pass) before anything is built on it.",
+        "reason": "Skipping gates to go faster is how grouping errors reached forty models; a phase that was never audited is a phase nobody knows the state of.",
+    },
+    {
+        "content": "Delegate by size, not by habit: do small in-context work yourself; delegate multi-hour or parallel builds to subagents; use a cheap model for logs and maintenance and a strong one for review; give every agent prompt a hard agent budget; batch source commits so a re-cut happens once.",
+        "reason": "Uncapped delegation defaults to expensive fleets; unbatched commits get re-cut every time.",
+    },
+    {
+        "content": "Verify before claiming done: run the targeted tests plus one unmocked end-to-end path, list every created file in the report, and never launch a run on an input you know is broken. 'Found, not fixed' is not done.",
+        "reason": "A mocked seam hid a dead path once; a known input defect wasted a full run.",
+    },
+    {
+        "content": "Numbers get a source and evidence gets kept: if a document or a decision cites a number, the thing that produced it is in experiments/ or the run report, with where it came from and when.",
+        "reason": "A conclusion is a claim; only the run behind it survives 'are you sure?' a year later.",
+    },
+    {
+        "content": "Anything that leaves the machine is the owner's decision: a push, a pull request, a comment. Local commits are free. Never force-push main. One pull request, one idea; squash by default, but never squash a pull request another branch is stacked on.",
+        "reason": "A squashed base orphaned two stacked pull requests once; local commits are free, pushes are not.",
+    },
+    {
+        "content": "Write the learning when it happens, not at the end, and only what the repo does not already say. Every markdown document carries the nav header (type, status, updated, project, summary).",
+        "reason": "The value is in the entries written while they still hurt; the header is what lets documents be indexed and read at a glance.",
+    },
+]
+
+RULES: list[dict] = UNIVERSAL_RULES + WORKFLOW_RULES
 
 STRUCTURE_MARKERS = (".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod", "CLAUDE.md", "setup.py", "Makefile")
 LEARNING_FILES = ("ERRORS.md", "LEARNINGS.md")
@@ -149,7 +189,7 @@ def existing_rule_texts(project_dir: str) -> list[str]:
         return []
 
 
-def seed_rules(project_dir: str, force: bool = False) -> dict:
+def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = True) -> dict:
     """Add the pack's rules the project does not already have in substance.
     Returns {"added": [...], "skipped": [...], "already_seeded": bool}."""
     report: dict = {"added": [], "skipped": [], "already_seeded": False}
@@ -163,7 +203,8 @@ def seed_rules(project_dir: str, force: bool = False) -> dict:
         store = MemoryStore()
     except Exception:
         return report
-    for rule in RULES:
+    rules = UNIVERSAL_RULES + (WORKFLOW_RULES if include_workflow else [])
+    for rule in rules:
         if any(similar(rule["content"], e) for e in existing):
             report["skipped"].append(rule["content"][:60])
             continue
@@ -193,12 +234,26 @@ def _header(kind: str, project: str, summary: str, today: str) -> str:
     return f"---\ntype: {kind}\nstatus: active\nupdated: {today}\nproject: {project}\nsummary: {summary}\n---\n\n"
 
 
+_WORKFLOW_MD = """## Workflow
+
+- **Plan before code.** Nothing gets implemented until the design is written down and agreed. Say what you intend, wait for the go, then do it. An approved design is not by itself an approval to build it.
+- **Proposed, open, decided.** Three different things. A proposal never silently becomes a decision; a decision is written down with a "revisit if" condition.
+- **Gates and audits.** Every milestone has a gate written before the work and a verdict after. A large milestone gets an independent review before anything is built on it.
+- **Delegate by size.** Small in-context work yourself; multi-hour or parallel builds to subagents; a cheap model for logs and maintenance, a strong one for review; every agent prompt carries a hard agent budget; batch source commits so a re-cut happens once.
+- **Verify before done.** Targeted tests plus one unmocked end-to-end path; every created file listed in the report; never launch a run on an input you know is broken.
+- **Evidence.** Numbers get a source; the run behind a cited number is kept in `experiments/` or the run report.
+- **Git.** Anything that leaves the machine is the owner's decision; local commits are free. Never force-push `main`. One pull request, one idea; squash by default, never a pull request something is stacked on.
+- **Record.** Errors and fixes in `.learnings/ERRORS.md`, patterns in `.learnings/LEARNINGS.md`, a daily note in `session-logs/`, written when it happens. Every markdown document carries the nav header.
+"""
+
+
 def _claude_md(project: str, today: str) -> str:
     return _header("readme", project, f"TODO - one line describing {project}.", today) + (
         f"# {project}\n\n"
         "## Purpose\n(describe the project)\n\n"
         "## Testing\n```bash\n# (add test commands)\n```\n\n"
-        "## Structure\n- `.learnings/` — Errors and learnings\n- `session-logs/` — Daily session logs\n"
+        "## Structure\n- `.learnings/` — Errors and learnings\n- `session-logs/` — Daily session logs\n\n"
+        + _WORKFLOW_MD
     )
 
 
@@ -266,7 +321,7 @@ def run_at_session_start(project_dir: str) -> list[str]:
                 "Project structure created: " + ", ".join(created) + ' (turn off with "structure": false in .engram/config.json)'
             )
     if project_config.enabled(cfg, "default_rules") and is_project_dir(project_dir):
-        rep = seed_rules(project_dir)
+        rep = seed_rules(project_dir, include_workflow=project_config.enabled(cfg, "workflow_rules"))
         if rep["added"]:
             lines.append(
                 f"Default rules seeded: {len(rep['added'])} added, {len(rep['skipped'])} already covered "

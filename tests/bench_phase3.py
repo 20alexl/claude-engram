@@ -259,6 +259,7 @@ def test_default_pack(tmp):
     check("structure created in a git project", set(created) == {"CLAUDE.md", ".learnings/ERRORS.md", ".learnings/LEARNINGS.md", "session-logs/"})
     cm = (proj / "CLAUDE.md").read_text(encoding="utf-8")
     check("CLAUDE.md is the workspace scaffold: nav header + Purpose/Testing/Structure", cm.startswith("---\ntype: readme\nstatus: active\nupdated: ") and f"project: {proj.name}\n" in cm and "## Purpose" in cm and "## Testing" in cm and "## Structure" in cm)
+    check("CLAUDE.md carries the workflow section (plan before code, gates, delegation, verify, evidence, git, record)", "## Workflow" in cm and "Plan before code" in cm and "Gates and audits" in cm and "Delegate by size" in cm and "Verify before done" in cm)
     em = (proj / ".learnings" / "ERRORS.md").read_text(encoding="utf-8")
     check("ERRORS.md is the scaffold's headered file", em.startswith("---\ntype: learnings\n") and "# Errors\n\nProject-specific errors and fixes." in em)
     # A multi-person project (trade-lab's shape) keeps its layout: no
@@ -287,6 +288,16 @@ def test_default_pack(tmp):
     check("inherited rules skipped, the rest added", len(rep["skipped"]) >= 2 and len(rep["added"]) == len(dp.RULES) - len(rep["skipped"]) and len(rep["added"]) >= 4)
     rules_after = [r.content for r in MemoryStore().get_rules(str(sub))]
     check("added rules live in the sub-project store", any("Never kill processes by image name" in r for r in rules_after))
+    check("workflow tier seeded too (plan before code, gates, delegation)", any(r.startswith("Plan before code") for r in rules_after) and any("gate written before the work" in r for r in rules_after) and any(r.startswith("Delegate by size") for r in rules_after))
+    check("pack = universal + workflow", len(dp.RULES) == len(dp.UNIVERSAL_RULES) + len(dp.WORKFLOW_RULES) and len(dp.WORKFLOW_RULES) >= 6)
+    # Workflow tier can be turned off on its own.
+    wf_off = tmp / "ws" / "wf-off"
+    (wf_off / ".git").mkdir(parents=True)
+    (wf_off / ".engram").mkdir()
+    (wf_off / ".engram" / "config.json").write_text(json.dumps({"workflow_rules": False, "structure": False}), encoding="utf-8")
+    dp.run_at_session_start(str(wf_off))
+    wf_rules = [r.content for r in MemoryStore().get_rules(str(wf_off))]
+    check("workflow_rules=false: universal seeded, workflow not", any("Never kill processes" in r for r in wf_rules) and not any(r.startswith("Plan before code") for r in wf_rules))
     rep2 = dp.seed_rules(str(sub))
     check("second seed is a no-op (marker)", rep2["already_seeded"] and rep2["added"] == [])
     rules_again = [r.content for r in MemoryStore().get_rules(str(sub))]

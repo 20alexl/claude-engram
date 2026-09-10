@@ -25,6 +25,7 @@ CONFIG_FILE = "config.json"
 DEFAULTS: dict[str, Any] = {
     "rotation": True,
     "default_rules": True,
+    "workflow_rules": True,
     "structure": True,
     "rotation_log_days": 30,
     "rotation_learn_days": 90,  # ERRORS.md: dated fixes age out
@@ -35,6 +36,7 @@ DEFAULTS: dict[str, Any] = {
 _ENV = {
     "rotation": "CLAUDE_ENGRAM_ROTATION",
     "default_rules": "CLAUDE_ENGRAM_DEFAULT_RULES",
+    "workflow_rules": "CLAUDE_ENGRAM_WORKFLOW_RULES",
     "structure": "CLAUDE_ENGRAM_STRUCTURE",
 }
 

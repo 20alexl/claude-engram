@@ -45,6 +45,12 @@
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
 | Default pack (scaffold + rules) and rotation | Stable | v0.8.19 |
 
+## Done / Shipped (v0.8.20)
+
+| Feature | Notes |
+|---------|-------|
+| Workflow tier | Eight rules on method (plan before code; proposed/open/decided; gates and audits; delegate by size with a budget; verify before done; evidence for numbers; nothing leaves the machine without the owner; record when it happens), seeded with the pack and written into the scaffolded `CLAUDE.md`. `"workflow_rules": false` opts out of the tier. |
+
 ## Done / Shipped (v0.8.19)
 
 | Feature | Notes |
