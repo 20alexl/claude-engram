@@ -187,9 +187,30 @@ def load_project_memory(project_dir: str) -> dict:
         return {}
 
 
-def get_past_mistakes(project_memory: dict) -> list[dict]:
-    """Extract past mistakes from project memory, newest first.
-    Returns list of dicts with 'id' and 'content' keys."""
+def _mistake_scope(entry: dict, project_dir: str) -> int:
+    """0 = names a file under this project, 1 = names no file, 2 = names a
+    file elsewhere (another project's mistake pooled in an ancestor store)."""
+    files = entry.get("related_files") or []
+    if isinstance(files, str):
+        files = [files]
+    if not files or not project_dir:
+        return 1
+    root = str(project_dir).replace("\\", "/").rstrip("/").lower() + "/"
+    for f in files:
+        p = str(f).replace("\\", "/").lower()
+        if p.startswith(root):
+            return 0
+    return 2
+
+
+def get_past_mistakes(project_memory: dict, project_dir: str = "") -> list[dict]:
+    """Extract past mistakes from project memory, newest first within scope.
+
+    With ``project_dir``, mistakes that name a file under the project come
+    first, then ones that name no file, then ones that name a file elsewhere
+    (a workspace-root store pools every sub-project's mining; a session in
+    one project used to see another's traceback at the top of its banner,
+    2026-09-10). Returns list of dicts with 'id', 'content' and 'scope'."""
     mistakes = []
     entries = project_memory.get("entries", [])
 
@@ -202,15 +223,18 @@ def get_past_mistakes(project_memory: dict) -> list[dict]:
         content = entry.get("content", "")
         category = entry.get("category", "")
         entry_id = entry.get("id", "")
+        scope = _mistake_scope(entry, project_dir)
 
         # Check both MISTAKE: prefix and category="mistake"
         if content.upper().startswith("MISTAKE:"):
             mistake_text = (
                 content[9:] if content.startswith("MISTAKE: ") else content[8:]
             )
-            mistakes.append({"id": entry_id, "content": mistake_text})
+            mistakes.append({"id": entry_id, "content": mistake_text, "scope": scope})
         elif category == "mistake":
-            mistakes.append({"id": entry_id, "content": content})
+            mistakes.append({"id": entry_id, "content": content, "scope": scope})
+    if project_dir:
+        mistakes.sort(key=lambda m: m["scope"])  # stable: newest first within a scope
 
     return mistakes
 

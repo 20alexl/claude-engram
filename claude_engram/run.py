@@ -148,7 +148,7 @@ def _rules_snapshot(project_dir: str) -> list[dict]:
 
 def _git_head(project_dir: str) -> str:
     try:
-        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir, capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=project_dir, capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
         return r.stdout.strip() if r.returncode == 0 else ""
     except Exception:
         return ""

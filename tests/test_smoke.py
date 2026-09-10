@@ -77,6 +77,38 @@ def test_generic_basenames_need_a_full_path():
     assert hot_reader._file_match_score("E:/ws/engram/README.md", ["E:/ws/engram/README.md"], "") >= gate
 
 
+def test_past_mistakes_rank_this_project_first():
+    from claude_engram.hooks import storage
+
+    mem = {"entries": [
+        {"id": "a", "category": "mistake", "content": "MISTAKE: newest, another project", "created_at": 300,
+         "related_files": ["E:/ws/trade-lab/x.py"]},
+        {"id": "b", "category": "mistake", "content": "MISTAKE: middle, no file", "created_at": 200},
+        {"id": "c", "category": "mistake", "content": "MISTAKE: oldest, this project", "created_at": 100,
+         "related_files": ["E:\\ws\\engram\\claude_engram\\y.py"]},
+    ]}
+    ids = [m["id"] for m in storage.get_past_mistakes(mem, "E:/ws/engram")]
+    assert ids == ["c", "b", "a"]
+    assert [m["id"] for m in storage.get_past_mistakes(mem)] == ["a", "b", "c"]  # no project: newest first
+
+
+def test_every_subprocess_detaches_stdin():
+    # A child that inherits a stdio MCP server's stdin stalled every git call
+    # by the full timeout and hung the server for minutes (2026-09-10).
+    import re
+
+    root = Path(__file__).resolve().parent.parent / "claude_engram"
+    offenders = []
+    for p in root.rglob("*.py"):
+        src = p.read_text(encoding="utf-8")
+        for m in re.finditer(r"subprocess\.(run|Popen|check_output)\(", src):
+            window = src[m.start(): m.start() + 900]
+            head = window.split("\n\n", 1)[0]
+            if "stdin" not in head and "**kwargs" not in head and "input=" not in head:
+                offenders.append(f"{p.name}:{src[:m.start()].count(chr(10)) + 1}")
+    assert offenders == [], offenders
+
+
 def test_goal_turn_cap_from_config_and_env(tmp_path: Path, monkeypatch):
     proj = tmp_path / "p"
     (proj / ".engram").mkdir(parents=True)

@@ -365,12 +365,17 @@ def tree_fingerprint(project_dir: str) -> Optional[str]:
     if not project_dir or not os.path.isdir(project_dir):
         return None
     try:
+        # stdin=DEVNULL: a child that inherits a long-lived stdio process's
+        # stdin (the MCP server's JSON-RPC pipe) stalled 4 s per git call and
+        # hung the server for minutes (2026-09-10, repo_state). Same rule for
+        # every subprocess in the package.
         head = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=project_dir,
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
+            stdin=subprocess.DEVNULL,
         )
         if head.returncode != 0:
             return None
@@ -380,6 +385,7 @@ def tree_fingerprint(project_dir: str) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
+            stdin=subprocess.DEVNULL,
         )
         if status.returncode != 0:
             return None

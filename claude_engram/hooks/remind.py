@@ -1393,7 +1393,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             lines.append("")
 
         # Show past mistakes (newest first) - with IDs for management
-        mistakes = get_past_mistakes(project_memory)
+        mistakes = get_past_mistakes(project_memory, project_dir)
         if mistakes:
             lines.append(f"PAST MISTAKES ({len(mistakes)}) - avoid repeating:")
             for m in mistakes[:5]:  # Already sorted newest first
@@ -3152,7 +3152,7 @@ def _hook_post_compact(project_dir: str) -> None:
         rules = filter_rules_in_claude_md(
             get_project_rules(project_memory), project_dir
         )
-        mistakes = get_past_mistakes(project_memory)
+        mistakes = get_past_mistakes(project_memory, project_dir)
 
         # The rules, the mistakes and the restored checkpoint are re-injected
         # by the SessionStart(compact) banner, which fires for every
@@ -3385,7 +3385,7 @@ def _hook_session_start(project_dir: str) -> None:
         rules = filter_rules_in_claude_md(
             get_project_rules(project_memory), project_dir
         )
-        mistakes = get_past_mistakes(project_memory)
+        mistakes = get_past_mistakes(project_memory, project_dir)
 
         if rules:
             lines.append(f"Rules ({len(rules)}):")

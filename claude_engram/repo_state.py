@@ -15,7 +15,9 @@ the transcript.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +25,8 @@ _GIT_TIMEOUT = 4.0
 
 
 def _git(args: list[str], cwd: str) -> Optional[str]:
+    t0 = time.time()
+    outcome = ""
     try:
         r = subprocess.run(
             ["git", "--no-optional-locks", *args],
@@ -30,10 +34,29 @@ def _git(args: list[str], cwd: str) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
+            stdin=subprocess.DEVNULL,
         )
-    except Exception:
+        outcome = f"rc={r.returncode}"
+        return r.stdout if r.returncode == 0 else None
+    except Exception as e:
+        outcome = f"{type(e).__name__}: {str(e)[:120]}"
         return None
-    return r.stdout if r.returncode == 0 else None
+    finally:
+        _trace(f"git {' '.join(args)} cwd={cwd} {outcome} {time.time() - t0:.2f}s")
+
+
+def _trace(line: str) -> None:
+    """Append one line to CLAUDE_ENGRAM_GIT_TRACE when set: a git call that
+    times out inside a long-lived process (the MCP server) is invisible
+    otherwise -- the caller just sees ''."""
+    p = os.environ.get("CLAUDE_ENGRAM_GIT_TRACE", "")
+    if not p:
+        return
+    try:
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} pid={os.getpid()} {line}\n")
+    except Exception:
+        pass
 
 
 def head(project_dir: str) -> str:

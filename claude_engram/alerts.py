@@ -72,7 +72,7 @@ def send(
         try:
             if "{message}" in cmd:
                 full = cmd.replace("{message}", _quote(message))
-                r = subprocess.run(full, shell=True, capture_output=True, text=True, timeout=ALERT_TIMEOUT)
+                r = subprocess.run(full, shell=True, capture_output=True, text=True, timeout=ALERT_TIMEOUT, stdin=subprocess.DEVNULL)
             else:
                 r = subprocess.run(cmd, shell=True, input=message, capture_output=True, text=True, timeout=ALERT_TIMEOUT)
             rec["sent"] = r.returncode == 0

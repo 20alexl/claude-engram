@@ -64,6 +64,7 @@ def _git(project_dir: str, *args: str) -> str:
             capture_output=True,
             text=True,
             timeout=3,
+            stdin=subprocess.DEVNULL,  # never inherit a stdio server's pipe (repo_state)
         )
         return r.stdout.strip() if r.returncode == 0 else ""
     except Exception:

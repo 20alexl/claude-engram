@@ -191,6 +191,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Engram says so once at the first context reading, with the number for that model (`/autocompact 150k` on 200K). For unattended launches set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window in the launch environment instead; the env var beats the setting.
 
+### Gotcha: `context(checkpoint_save)` through the MCP server runs for minutes
+
+**Symptom:** Claude Code shows the call as still running (its MCP log: "Tool 'context' still running (210s elapsed)"), the model gets "Connection closed", and yet the checkpoint IS in the ring afterwards. Reconnecting the server (`/mcp`) clears it until the next save.
+
+**Cause:** The save runs one git call (`repo_state.head`) for the commit stamp. Inside a stdio MCP server the git child inherited the server's stdin — the JSON-RPC pipe from Claude Code — and stalled for the whole git timeout; the same handler takes 40 ms in-process. Measured by driving a fresh server over stdio with the MCP client library: 4.0 s per save with a project path, 0.0 s without one.
+
+**Fix (0.8.33):** every `subprocess` call in the package passes `stdin=subprocess.DEVNULL` (a smoke test guards the rule). To see git from inside a long-lived process, set `CLAUDE_ENGRAM_GIT_TRACE=<file>`: one line per call with cwd, exit code and seconds.
+
 ### Gotcha: the `CHECKPOINT NOW` call never came, and after the auto compaction the checkpoint was not shown
 
 **Symptom:** The heads-up arrived, the model banked a checkpoint, and then the session compacted with no `CHECKPOINT NOW` in between. After the compaction the session-start banner showed rules and mistakes but not the checkpoint the model had just written; the model resumed from Claude Code's own summary. (Seen on the engram build session itself, 2026-09-10: heads-up at 651K, compaction at 717,578 against a 750K setting.)
