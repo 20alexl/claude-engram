@@ -34,7 +34,7 @@ from typing import Optional
 
 from claude_engram import project_config
 
-PACK_VERSION = 4  # 4: detectors on the rules that need one
+PACK_VERSION = 5  # 4: detectors on the rules that need one; 5: the code tier
 
 # Detectors (hooks/compliance.py) for the pack rules that can be watched by
 # a regex. Hand-written, shipped with the rule; a project's own rule that
@@ -168,7 +168,78 @@ WORKFLOW_RULES: list[dict] = [
     },
 ]
 
-RULES: list[dict] = UNIVERSAL_RULES + WORKFLOW_RULES
+# How code is written. Distilled from the author's most refined project
+# rulebook (shape, correctness) plus the two standing preferences that
+# recur across their projects: performance from the start, both OSes.
+CODE_RULES: list[dict] = [
+    {
+        "content": "One function, one purpose. If it does a second thing it becomes two functions; the tell is the word 'and' in the name or in the sentence you would use to describe it. No massive files or scripts: break things down by purpose.",
+        "reason": "A file that holds everything touching one topic is a file nobody can hold in their head, and an agent editing it has the same problem with less warning.",
+        "anchors": ["one function, one purpose", "massive files"],
+    },
+    {
+        "content": "Names are semantically accurate: a file, folder, variable or function is named for what it does now, never a category that means nothing (utils, helpers, manager, handler, data2). A hard-to-name thing usually does more than one job. Comments explain why, not what.",
+        "reason": "The code says what; a comment earns its place by recording the reason, the constraint, or the thing that was tried and did not work.",
+        "anchors": ["semantically accurate", "why, not what"],
+    },
+    {
+        "content": "Nothing left lying around: no commented-out code, no dead branches, no scaffolding from an abandoned approach, no TODO that outlived the person who wrote it.",
+        "reason": "Git remembers the old version; the file does not have to.",
+        "anchors": ["lying around", "commented-out code"],
+    },
+    {
+        "content": "Verify before you claim: run it and quote what it printed. Not 'this should work', not 'tests pass' -- the output, from having watched it. A green typecheck is not a green build, and a green build is not a correct answer.",
+        "reason": "The failure mode is not a crash; it is a number that looks fine and is wrong.",
+        "anchors": ["quote what it printed", "green typecheck"],
+    },
+    {
+        "content": "Never swallow an error on the decision path: no bare except, no catch that logs and continues, no fallback to a default that looks reasonable. Fail loudly.",
+        "reason": "A silent exception inside a check is indistinguishable from a check that passed.",
+        "anchors": ["swallow an error", "bare except"],
+    },
+    {
+        "content": "Same inputs, same outputs: no wall-clock reads and no unseeded randomness anywhere a decision is made.",
+        "reason": "A run you cannot reproduce is an anecdote, and a disagreement between two runs you cannot reproduce is unresolvable.",
+        "anchors": ["same inputs, same outputs", "unseeded randomness"],
+    },
+    {
+        "content": "Prefer the real thing to a stand-in. Do not write mocks that return what you expect; where a substitute is genuinely needed it is a real implementation of the seam driven by real data (a simulator, a replay of captured responses). A simulator is not a mock; a mock is a thing that agrees with you.",
+        "reason": "A hand-written stand-in encodes your belief about how the other side behaves, and that belief is the single most likely thing to be wrong.",
+        "anchors": ["real thing to a stand-in", "mock is a thing that agrees"],
+    },
+    {
+        "content": "Secrets never appear in code, a commit, a log line, or a pull request body. Not once, not temporarily, not in a branch you plan to rebase.",
+        "reason": "Git remembers, and a key that has been committed is a key that has been rotated.",
+        "anchors": ["secrets never appear"],
+    },
+    {
+        "content": "Build for performance from the start: batching, indexes, caching tiers and bounded memory on day one, sized for the real scale, never 'make it work, then make it fast'.",
+        "reason": "The slow version is the one that ships; performance deferred is performance never added.",
+        "anchors": ["performance from the start", "make it fast"],
+    },
+    {
+        "content": "Code runs on both Windows and Linux: pathlib everywhere, no shell-specific assumptions, and a fallback for any platform-only primitive (sockets, file watching, compilation).",
+        "reason": "Every project here is developed on one OS and run on the other.",
+        "anchors": ["both Windows and Linux", "pathlib everywhere"],
+    },
+    {
+        "content": "Pick the fast path on purpose: the right data structure and algorithm first (a set or dict over a scan, an index over a full read, a vectorized operation over a Python loop, approximate nearest neighbours over brute force at scale), then the library known to be fastest for the job, not the one that came to mind first. An O(n^2) that 'works' is a bug at real scale.",
+        "reason": "The obvious approach is usually the slow one, and it is the one that gets shipped if nobody chooses.",
+        "anchors": ["fast path on purpose", "fastest for the job"],
+    },
+    {
+        "content": "Never do work twice: cache what is pure and expensive, stream what does not fit in memory, batch what round-trips, run in parallel what is independent. The hot path reads no file, takes no lock and makes no call it does not need.",
+        "reason": "Repeated work is the commonest performance bug and the easiest to avoid at design time.",
+        "anchors": ["work twice", "hot path"],
+    },
+    {
+        "content": "Smart over busy: the shortest correct solution wins. Measure before optimizing and optimize what the profile names, not what looks slow; keep the measurement beside the change.",
+        "reason": "Optimization by intuition makes code longer and no faster; a number from a profiler survives review.",
+        "anchors": ["smart over busy", "what the profile names"],
+    },
+]
+
+RULES: list[dict] = UNIVERSAL_RULES + WORKFLOW_RULES + CODE_RULES
 
 STRUCTURE_MARKERS = (".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod", "CLAUDE.md", "setup.py", "Makefile")
 LEARNING_FILES = ("ERRORS.md", "LEARNINGS.md")
@@ -274,7 +345,7 @@ def _attach_detector(store, project_dir: str, rule_id: str, detector: dict) -> b
     return False
 
 
-def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = True) -> dict:
+def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = True, include_code: bool = True) -> dict:
     """Add the pack's rules the project does not already have in substance.
     Returns {"added": [...], "skipped": [...], "already_seeded": bool}."""
     report: dict = {"added": [], "skipped": [], "already_seeded": False}
@@ -289,7 +360,7 @@ def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = T
     except Exception:
         return report
     report["detectors_attached"] = []
-    rules = UNIVERSAL_RULES + (WORKFLOW_RULES if include_workflow else [])
+    rules = UNIVERSAL_RULES + (WORKFLOW_RULES if include_workflow else []) + (CODE_RULES if include_code else [])
     for rule in rules:
         covering = [
             e
@@ -346,6 +417,23 @@ _WORKFLOW_MD = """## Workflow
 - **Record.** Errors and fixes in `.learnings/ERRORS.md`, patterns in `.learnings/LEARNINGS.md`, a daily note in `session-logs/`, written when it happens. Every markdown document carries the nav header.
 """
 
+_CODE_MD = """## Code
+
+- **One function, one purpose.** If it does a second thing it becomes two functions; the tell is the word "and". No massive files or scripts: break things down by purpose.
+- **Names are semantically accurate.** Named for what it does now; never `utils`, `helpers`, `manager`, `handler`, `data2`. Comments explain why, not what.
+- **Nothing left lying around.** No commented-out code, dead branches, abandoned scaffolding, or stale `TODO`s. Git remembers the old version.
+- **Verify before you claim.** Run it and quote what it printed. A green typecheck is not a green build; a green build is not a correct answer.
+- **Never swallow an error on the decision path.** No bare `except`, no catch-and-continue, no reasonable-looking default. Fail loudly.
+- **Same inputs, same outputs.** No wall-clock reads or unseeded randomness where a decision is made.
+- **Prefer the real thing to a stand-in.** No mocks that return what you expect; a substitute is a real implementation of the seam driven by real data. A simulator is not a mock; a mock is a thing that agrees with you.
+- **Secrets never appear** in code, a commit, a log line, or a pull request body.
+- **Performance from the start.** Batching, indexes, caching tiers and bounded memory on day one, at the real scale. Never "make it work, then make it fast".
+- **Both Windows and Linux.** `pathlib` everywhere, no shell-specific assumptions, a fallback for any platform-only primitive.
+- **Pick the fast path on purpose.** The right data structure and algorithm first (a set or dict over a scan, an index over a full read, a vectorized operation over a loop, ANN over brute force at scale), then the library known to be fastest for the job. An O(n²) that "works" is a bug at real scale.
+- **Never do work twice.** Cache what is pure and expensive, stream what does not fit, batch what round-trips, parallelize what is independent. The hot path reads no file, takes no lock and makes no call it does not need.
+- **Smart over busy.** The shortest correct solution wins. Measure before optimizing and optimize what the profile names, not what looks slow; keep the measurement beside the change.
+"""
+
 
 def _claude_md(project: str, today: str) -> str:
     return _header("readme", project, f"TODO - one line describing {project}.", today) + (
@@ -354,6 +442,8 @@ def _claude_md(project: str, today: str) -> str:
         "## Testing\n```bash\n# (add test commands)\n```\n\n"
         "## Structure\n- `.learnings/` — Errors and learnings\n- `session-logs/` — Daily session logs\n\n"
         + _WORKFLOW_MD
+        + "\n"
+        + _CODE_MD
     )
 
 
@@ -421,7 +511,11 @@ def run_at_session_start(project_dir: str) -> list[str]:
                 "Project structure created: " + ", ".join(created) + ' (turn off with "structure": false in .engram/config.json)'
             )
     if project_config.enabled(cfg, "default_rules") and is_project_dir(project_dir):
-        rep = seed_rules(project_dir, include_workflow=project_config.enabled(cfg, "workflow_rules"))
+        rep = seed_rules(
+            project_dir,
+            include_workflow=project_config.enabled(cfg, "workflow_rules"),
+            include_code=project_config.enabled(cfg, "code_rules"),
+        )
         if rep["added"]:
             lines.append(
                 f"Default rules seeded: {len(rep['added'])} added, {len(rep['skipped'])} already covered "

@@ -533,6 +533,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
         "compliance": compliance,
         "end_reason": str(run.get("end_reason") or ""),
         "failures": [f for f in (run.get("failures") or []) if isinstance(f, dict)],
+        "alerts": [a for a in (state.get("alerts") or []) if isinstance(a, dict)],
         "not_measured": not_measured,
         "transcript_path": str(transcript_path) if transcript_path else "",
     }
@@ -715,6 +716,14 @@ def render_md(r: dict) -> str:
         lines.append(
             f"- turns: {tn.get('good', 0)} with effect · {tn.get('noeffect', 0)} without · {tn.get('neutral', 0)} neutral"
         )
+        h = st.get("halted")
+        if isinstance(h, dict):
+            lines.append(
+                f"- **HALTED** at turn {h.get('turn', '?')} (strike {h.get('strikes', '?')}, autonomy mode): "
+                f"{h.get('denied', 0)} tool call(s) denied afterwards"
+            )
+        elif st.get("autonomy"):
+            lines.append("- autonomy mode: halt armed at the strike cap, never reached")
         evs = st.get("events") or []
         if evs:
             lines.append("")
@@ -767,6 +776,21 @@ def render_md(r: dict) -> str:
                 lines.append(
                     f"| {m.get('turn', '?')} | {m.get('verdict', '?')}{sub} | [{m.get('rule_id', '')}] {m.get('what', '')} | {m.get('tool', '')} | {str(m.get('input', '')).replace('|', '/')[:100]} |"
                 )
+        lines.append("")
+
+    al = r.get("alerts") or []
+    if al:
+        lines.append(f"## Alerts ({len(al)})")
+        lines.append("")
+        lines.append("| At | Kind | Sent | Message |")
+        lines.append("|---|---|---|---|")
+        for a in al[-20:]:
+            try:
+                at_s = time.strftime("%H:%M", time.localtime(float(a.get("at") or 0)))
+            except Exception:
+                at_s = "?"
+            sent = "yes" if a.get("sent") else f"no ({str(a.get('detail', ''))[:40].replace('|', '/')})"
+            lines.append(f"| {at_s} | {a.get('kind', '')} | {sent} | {str(a.get('message', '')).replace('|', '/')[:120]} |")
         lines.append("")
 
     lines.append("## Not measured")

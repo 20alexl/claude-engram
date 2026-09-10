@@ -294,6 +294,10 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_COMPLIANCE` | on | `off` disables detector matching and the compliance section (or `"compliance": false` in `.engram/config.json`) |
 | `CLAUDE_ENGRAM_BUDGET_FIVE_HOUR_PCT` | `90` | Percent of the 5-hour usage window at which the once-per-window budget nudge fires (subscription sessions) |
 | `CLAUDE_ENGRAM_BUDGET_SEVEN_DAY_PCT` | `95` | Same for the 7-day window |
+| `CLAUDE_ENGRAM_AUTONOMY` | off | `1` arms autonomy mode: the strike-cap halt and the alerts. The launcher sets it for its child |
+| `CLAUDE_ENGRAM_ALERT_COMMAND` | — | Shell command for out-of-session alerts; `{message}` is replaced (shell-quoted) or the message arrives on stdin. Also `"alert_command"` in `.engram/config.json` |
+| `CLAUDE_ENGRAM_RESUME_SLACK` | `90` | Seconds the launcher waits past a usage window's reset before resuming |
+| `CLAUDE_ENGRAM_CODE_RULES` | on | `off` keeps the pack's code tier out of a project (or `"code_rules": false`) |
 | `CLAUDE_ENGRAM_ROTATION` | unset | `0` disables rotation planning; `auto` applies at session end (overrides `.engram/config.json`) |
 | `CLAUDE_ENGRAM_DEFAULT_RULES` | unset | `0` skips seeding the default rule pack |
 | `CLAUDE_ENGRAM_STRUCTURE` | unset | `0` skips creating the project scaffold |

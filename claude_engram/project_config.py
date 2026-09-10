@@ -26,8 +26,10 @@ DEFAULTS: dict[str, Any] = {
     "rotation": True,
     "default_rules": True,
     "workflow_rules": True,
+    "code_rules": True,
     "structure": True,
     "compliance": True,  # rules with detectors matched against tool calls
+    "alert_command": "",  # shell command for out-of-session alerts; {message} is replaced
     "rotation_log_days": 30,
     "rotation_learn_days": 90,  # ERRORS.md: dated fixes age out
     "rotation_learnings_days": 0,  # LEARNINGS.md: patterns don't; 0 = cap only
@@ -38,6 +40,7 @@ _ENV = {
     "rotation": "CLAUDE_ENGRAM_ROTATION",
     "default_rules": "CLAUDE_ENGRAM_DEFAULT_RULES",
     "workflow_rules": "CLAUDE_ENGRAM_WORKFLOW_RULES",
+    "code_rules": "CLAUDE_ENGRAM_CODE_RULES",
     "structure": "CLAUDE_ENGRAM_STRUCTURE",
     "compliance": "CLAUDE_ENGRAM_COMPLIANCE",
 }

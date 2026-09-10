@@ -207,6 +207,22 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Upgrade. Each loaded file carries a disk stamp; reads reload a copy the disk moved past, the manifest is re-read when another writer extended it, a stale project this process never touched is not written, and a mutation on a stale base merges by entry id. If you are on an older version, use one writer per session.
 
+### Gotcha: an unattended run says "engram halt" on every tool call
+
+**Symptom:** In a run launched with autonomy mode on, every tool call comes back denied with `engram halt: 3 strikes …`, and the run ends a few turns later with the goal still set.
+
+**Cause:** That is the design working. The run used tools for the whole strike ladder without changing a file, a test status or a commit — the overnight failure autonomy mode exists for — so engram starved it: every tool denied except PushNotification, ToolSearch and the checkpoint call. With no tool use the goal's own stall rule closes the loop; the launcher's turn cap is the backstop.
+
+**Fix:** Read the run report's Stalls section and the checkpoint the model left, decide what the run was missing, and either change the task or lift the halt with `python -m claude_engram.hooks.stall release <session_id>` (strikes reset) and resume the session. A halt that fires on a healthy run means the effect detector missed how the work lands — a script writing files under a name it does not recognise, say — and the fix is the detector, not the cap.
+
+### Gotcha: PushNotification "wasn't delivered" on a headless run
+
+**Symptom:** The halted model calls PushNotification, the transcript says it was not delivered (Remote Control inactive), and nothing reached your phone.
+
+**Cause:** PushNotification is the model's tool: a desktop notification, and a phone push only when Remote Control is connected. A `claude -p` process has no desktop session to notify, and hooks cannot call the tool at all (verified).
+
+**Fix:** Configure `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command`) with the thing that reaches you — an ntfy topic, a webhook, a mail command — and `{message}` where the text goes. Every alert is recorded in the run report either way, so a missing command shows as `sent: no (no alert_command configured)`.
+
 ### Gotcha: `claude -p "/goal …"` from Git Bash sets no goal
 
 **Symptom:** A headless goal run answers like a normal prompt, the transcript has no `goal_status` entries, and no run report is written.

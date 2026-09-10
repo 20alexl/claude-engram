@@ -1,9 +1,23 @@
 ---
 name: engram
-description: Claude Engram persistent memory — quick reference for all MCP tools and automatic hook behaviors. Use when you need to remember how to store, search, or manage memories, or query session history.
+description: Claude Engram persistent memory — quick reference for all MCP tools and automatic hook behaviors, plus the unattended-run commands (/engram run, status, release, report). Use when you need to remember how to store, search, or manage memories, query session history, or launch and supervise an unattended run.
+argument-hint: "[run <goal> | status <session> | release <session> | report <session>]"
 ---
 
 # Claude Engram — Quick Reference
+
+## Slash commands (`/engram <subcommand>`)
+
+The text after `/engram` is the subcommand. Do exactly this, nothing more:
+
+- **`run <goal>`** — launch an unattended, supervised run of `<goal>` as a SEPARATE headless session (this session is not the run). Run in the background so this session stays free:
+  `Bash(run_in_background=true)`: `<engram venv python> -m claude_engram.run --project "<cwd>" --goal "<goal>"` — add `--model <alias>`, `--max-turns N`, `--prompt "<task text>"`, `--alert-command "<cmd with {message}>"` when given. The launcher prints the session id, the compaction point it set (75% of the model's window), the manifest path; on exit the report path. Relay the session id and say the run reports when it ends. Never start a second run for the same goal.
+- **`status [<session>]`** — `python -m claude_engram.hooks.stall status <session>` (strikes, halted, alerts) plus `session_mine(run_report, session_id=<session>)` when the run has ended. Without a session id, list `.engram/runs/*.manifest.json` newest first and use the newest.
+- **`release <session>`** — a person is lifting a halt: `python -m claude_engram.hooks.stall release <session>`, then say tools are allowed again and strikes are reset. Only on the user's word.
+- **`report [<session>]`** — `session_mine(run_report, session_id=<session>)` and summarize: outcome, turns, cost, stalls, compliance matches, alerts, how it ended.
+- Anything else, or no subcommand: this quick reference.
+
+Requirements the launcher enforces, not you: `claude` on PATH; a project directory (the run's cwd); permissions `bypassPermissions` by default because nobody is there to answer a prompt.
 
 ## Automatic (hooks, zero invocation)
 - Edit/error/decision tracking, loop warnings, compaction survival

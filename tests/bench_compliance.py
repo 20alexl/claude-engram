@@ -252,7 +252,7 @@ def test_pack_seed(tmp):
     check("a rule with nothing to watch has no detector", plain and plain[0].detector is None)
     mp = dp._marker_path(str(proj))
     marker = json.loads(mp.read_text(encoding="utf-8")) if mp and mp.is_file() else {}
-    check("marker at pack version 4", marker.get("version") == dp.PACK_VERSION == 4)
+    check("marker at the current pack version (>= 4, detectors)", marker.get("version") == dp.PACK_VERSION >= 4)
     rep2 = dp.seed_rules(str(proj))
     check("a second seed is a no-op", rep2.get("already_seeded") is True)
 

@@ -168,6 +168,7 @@ _HOOK_EVENTS = {
     "tool_failure_json",
     "post_batch_json",
     "pre_bash_json",
+    "pre_tool_json",
 }
 
 # Every model call runs on ONE long-lived thread, never on the ephemeral

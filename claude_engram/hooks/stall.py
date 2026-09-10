@@ -410,6 +410,11 @@ def close_turn(state: dict, turn_no: int, project_dir: str = "", fingerprint=tre
     st = stall_state(state)
     turn = st.get("turn") or _fresh_turn()
     st["turn"] = _fresh_turn()
+    if isinstance(st.get("halted"), dict):
+        # The ladder is done its job; turns after the halt (denied calls,
+        # the closing notification) are not more strikes.
+        st["turns"]["neutral"] = int(st["turns"].get("neutral", 0)) + 1
+        return "halted"
     stall_turns = _env_int("CLAUDE_ENGRAM_STALL_TURNS", STALL_TURNS)
     decay_k = _env_int("CLAUDE_ENGRAM_STALL_DECAY", DECAY_GOOD_TURNS)
     cap = _env_int("CLAUDE_ENGRAM_STRIKE_CAP", STRIKE_CAP)
@@ -531,6 +536,94 @@ def nudge(state: dict, bearings: Optional[list[str]] = None) -> tuple[str, bool]
     return strike_text(int(p.get("strike", 1)), int(p.get("turns", STALL_TURNS)), st, bearings), True
 
 
+# ---------------------------------------------------------------------------
+# The halt (autonomy mode only)
+# ---------------------------------------------------------------------------
+#
+# At the cap, in autonomy mode, engram STARVES the run: PreToolUse denies
+# every tool call. A deny ends the turn; with no tool use, /goal's own stall
+# rule ("no tool use for several turns") closes the loop and leaves the goal
+# set. Engram never answers the Stop hook -- hooks merge most-restrictive, so
+# a /goal block would out-vote it anyway. Two calls stay allowed so the model
+# can leave a record: engram's checkpoint_save and PushNotification.
+
+# ToolSearch stays open too: on the newest models PushNotification is a
+# deferred tool whose schema must be loaded before it can be called (seen on
+# the first live halt run, 2026-09-10).
+HALT_ALLOWED_TOOLS = frozenset({"PushNotification", "mcp__claude-engram__context", "ToolSearch"})
+
+
+def autonomy_on() -> bool:
+    """The /engram run launcher sets CLAUDE_ENGRAM_AUTONOMY=1 for the
+    session; a person can set it by hand for an unattended interactive run."""
+    return os.environ.get("CLAUDE_ENGRAM_AUTONOMY", "").strip().lower() in ("1", "on", "true", "yes")
+
+
+def maybe_halt(state: dict, turn_no: int) -> bool:
+    """After close_turn: at the cap, in autonomy mode, arm the halt. Returns
+    True when the halt was armed this call."""
+    if not autonomy_on():
+        return False
+    st = stall_state(state)
+    cap = _env_int("CLAUDE_ENGRAM_STRIKE_CAP", STRIKE_CAP)
+    if int(st.get("strikes", 0)) < cap or st.get("halted"):
+        return False
+    st["halted"] = {"at": time.time(), "turn": int(turn_no), "strikes": int(st["strikes"]), "denied": 0}
+    _event(st, turn_no, "halt", f"strike cap {cap} in autonomy mode")
+    return True
+
+
+def halted(state: dict) -> Optional[dict]:
+    h = stall_state(state).get("halted")
+    return h if isinstance(h, dict) else None
+
+
+def release(state: dict, reason: str = "released") -> bool:
+    """Lift the halt (CLI, or a person at the terminal). Strikes reset to
+    zero: a release is a human judgment that the run may continue."""
+    st = stall_state(state)
+    if not st.get("halted"):
+        return False
+    _event(st, int(st["halted"].get("turn", 0)), "release", reason)
+    st["halted"] = None
+    st["strikes"] = 0
+    st["noeffect_streak"] = 0
+    st["good_streak"] = 0
+    return True
+
+
+def deny_reason(state: dict, tool_name: str) -> str:
+    h = halted(state) or {}
+    return (
+        f"engram halt: {h.get('strikes', STRIKE_CAP)} strikes -- no file, test or commit changed "
+        f"for {h.get('strikes', STRIKE_CAP) * _env_int('CLAUDE_ENGRAM_STALL_TURNS', STALL_TURNS)} turns "
+        f"(halted at turn {h.get('turn', '?')}). Every tool call is denied until a person releases "
+        f"the run (`python -m claude_engram.hooks.stall release <session_id>`). Two calls stay open: "
+        f"context(checkpoint_save) to bank where things stand, and PushNotification to say so. "
+        f"Denied: {tool_name}."
+    )
+
+
+def halt_text(state: dict, session_id: str = "") -> str:
+    """Injected once when the halt arms: what to do with the two open calls."""
+    h = halted(state) or {}
+    sid = f" Session {session_id}." if session_id else ""
+    return (
+        f"<engram-halt>HALTED at strike {h.get('strikes', STRIKE_CAP)} (turn {h.get('turn', '?')}): "
+        "tool use without effect for the whole ladder, in autonomy mode. From here every tool call "
+        "is denied except two. Do these, in order, then stop: (1) context(checkpoint_save) with the "
+        "task, what the last real change was, what has been blocking since, and what a person should "
+        "decide; (2) PushNotification with one line under 200 characters: what stalled and what you "
+        f"need. Then end the turn with no further tool calls.{sid}</engram-halt>"
+    )
+
+
+def note_denied(state: dict) -> None:
+    h = halted(state)
+    if h is not None:
+        h["denied"] = int(h.get("denied", 0)) + 1
+
+
 def summary(state: dict) -> dict:
     """For the run report."""
     st = stall_state(state)
@@ -541,4 +634,39 @@ def summary(state: dict) -> dict:
         "events": list(st.get("events") or []),
         "last_change_at": float(st.get("last_change_at") or 0.0),
         "last_effects": list(st.get("last_effects") or []),
+        "halted": dict(st["halted"]) if isinstance(st.get("halted"), dict) else None,
+        "autonomy": autonomy_on(),
     }
+
+
+# ---------------------------------------------------------------------------
+# CLI: python -m claude_engram.hooks.stall status|release <session_id>
+# ---------------------------------------------------------------------------
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    import json
+    import sys
+
+    args = list(sys.argv[1:] if argv is None else argv)
+    if len(args) < 2 or args[0] not in ("status", "release"):
+        print("usage: python -m claude_engram.hooks.stall status|release <session_id>")
+        return 2
+    op, sid = args[0], args[1]
+    from claude_engram.hooks import remind
+
+    remind._session_id = sid
+    state = remind.load_state()
+    if op == "status":
+        print(json.dumps(summary(state), indent=2, default=str))
+        return 0
+    if release(state, reason=f"released by {os.environ.get('USERNAME') or os.environ.get('USER') or 'operator'} via CLI"):
+        remind.save_state(state)
+        print(f"released: session {sid} may use tools again (strikes reset)")
+        return 0
+    print(f"session {sid} was not halted")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

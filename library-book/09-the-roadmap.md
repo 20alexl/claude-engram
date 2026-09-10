@@ -48,6 +48,17 @@
 | Memory store freshness across processes (disk stamps, stale-skip, merge-by-id) | Stable | v0.8.22 |
 | Rules compliance (hand-written detectors, per-rule coverage and health, verdict by permission mode) | Stable | v0.8.23 |
 | Usage budget (5-hour / 7-day windows mirrored, once-per-window nudge, StopFailure record) | Stable | v0.8.24 |
+| Autonomy mode: strike-cap halt, out-of-session alerts, the run launcher with limit-aware resume, `/engram run` | Stable | v0.8.25 |
+| Code tier in the default pack (shape, correctness, performance, both OSes) | Stable | v0.8.25 |
+
+## Done / Shipped (v0.8.25)
+
+| Feature | Notes |
+|---------|-------|
+| The halt | In autonomy mode the strike cap denies every tool call (PushNotification, ToolSearch and the checkpoint call excepted) with a reason naming the release command; the goal's stall rule closes the loop; `python -m claude_engram.hooks.stall release <session>` lifts it. Live-verified on a Sonnet run built to stall. |
+| Alerts | Halt, API failure, waiting-on-a-person, launcher paused/done: one line through the owner's `alert_command`, recorded in the run report whether sent or not. |
+| The launcher | `python -m claude_engram.run` / `/engram run <goal>`: manifest, chosen session id, 75% compaction window for the model, hard turn cap, park hint, resume after a usage-limit exit, run report, closing alert. `--dry-run` prints the plan. |
+| Code tier | Thirteen rules in the author's rulebook wording: one function one purpose, semantic names, nothing left lying around, verify by quoting output, never swallow errors, same inputs same outputs, the real thing over a stand-in, no secrets, performance from the start, both OSes, the fast path on purpose, never do work twice, smart over busy. `## Code` in the scaffolded `CLAUDE.md`; `"code_rules": false` opts out. |
 
 ## Done / Shipped (v0.8.24)
 

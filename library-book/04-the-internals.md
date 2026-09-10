@@ -172,6 +172,22 @@ Storage: ~/.claude_engram/
 - `summary(state, project_memory)` feeds the run report's "Rules compliance" section
 - The pack (`default_pack.py`) ships `DESTRUCTIVE_DETECTOR`, `KILL_BY_NAME_DETECTOR` and `OUTBOUND_DETECTOR` on the rules that need them; `seed_rules` attaches a pack detector to a project's own covering rule that lacks one, walking up to the ancestor project that owns the rule id. `add_rule` does the same for a similar existing rule
 
+### Autonomy Mode (`hooks/stall.py` §halt, `alerts.py`, `run.py`)
+
+**What it does:** Makes an unattended `/goal` run safe to leave: a run that keeps using tools and changing nothing is starved, not argued with; anything that needs a person is said out loud, out of the session; a usage-limit death is resumed when the window resets.
+
+**Why it's separate:** Hooks merge most-restrictive, so a `/goal` block on Stop would out-vote anything engram said there. The only lever that ends a turn against the loop's will is a PreToolUse deny, and the only channel that reaches a person when the session is dead is a process outside it. So the halt lives in the deny hook, the alerts in a command the owner configures, and the resume in a launcher process.
+
+**Key internals:**
+- `autonomy_on()` — `CLAUDE_ENGRAM_AUTONOMY=1`, set by the launcher for the child process (a person can set it by hand). Off, the strike cap is a loud warning and nothing here runs
+- `maybe_halt(state, turn)` — called right after `close_turn()` in the Stop branch; arms `state["stall"]["halted"] = {at, turn, strikes, denied}` once at the cap and logs a `halt` event; the Stop branch stages `pending_halt` and sends the halt alert
+- `_hook_pre_tool` (PreToolUse, matcher `""`, daemon-served) — one state read; not halted: no output. Halted: `permissionDecision: deny` with `deny_reason()` (names the release CLI and the two open calls) for every tool except `HALT_ALLOWED_TOOLS` = PushNotification, `mcp__claude-engram__context`, ToolSearch (PushNotification is deferred on the newest models and needs its schema loaded — seen on the first live halt). `note_denied()` counts. `close_turn()` returns `halted` afterwards, so denied attempts are not more strikes
+- `halt_text()` rides `_with_pressure()` once (`pending_halt`): checkpoint, then notify, then stop
+- `release(state)` — lifts the halt, resets strikes, logs a `release` event; `python -m claude_engram.hooks.stall release <session_id>` (and `status`)
+- `alerts.send(message, project_dir, kind, state, command)` — runs `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command` passed explicitly, since the launcher's env is not the child's) with `{message}` shell-quoted or on stdin; 15 s timeout; the record `{at, kind, message, sent, detail}` lands in `state["alerts"]` either way. Callers: the halt, `_hook_stop_failure` (autonomy only), `_hook_notification` (`agent_needs_input`, `permission_prompt`, `idle_prompt`, autonomy only), the launcher (`paused`, `done`/`failed`)
+- `run.py` — `model_window()` (haiku 200K, else 1M, `--context-window` wins) → `compaction_env()` 75% → `build_env()` (autonomy, window, `MSYS_NO_PATHCONV`, the nested-session identity stripped) → `build_prompt()` (`/goal` line, task, `PARK_HINT`) → `build_cmd()` (`claude -p <prompt> --session-id <uuid> --output-format json --permission-mode bypassPermissions [--model] [--max-turns]`). After each exit: `session_state()`; a halt ends the loop; `resume_decision()` resumes only a `rate_limit` failure with a known reset inside six hours, after `reset + slack` (`CLAUDE_ENGRAM_RESUME_SLACK`), with `claude -p --resume <uuid> "Continue."` up to `--max-resumes`. Then `run_report.write_report()` and the closing alert. `--dry-run` prints the plan; `--claude-bin x.py` runs a stand-in under the interpreter (the bench)
+- The skill's `/engram run|status|release|report` subcommands wrap these; `run` launches in the background so the interactive session stays free
+
 ### Run Report (`run_report.py`)
 
 **What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.

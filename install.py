@@ -165,6 +165,7 @@ def get_hooks_config():
         "tool_failure_json",
         "post_batch_json",
         "pre_bash_json",
+        "pre_tool_json",
     }
 
     def _hook(hook_type, timeout=1000, status=None):
@@ -197,7 +198,10 @@ def get_hooks_config():
                 },
                 {"matcher": "Read", "hooks": [_hook("pre_read_json")]},
                 {"matcher": "Bash|PowerShell", "hooks": [_hook("pre_bash_json")]},
+                # Every tool: the autonomy-mode halt (a no-op read when nothing is halted).
+                {"matcher": "", "hooks": [_hook("pre_tool_json")]},
             ],
+            "Notification": [{"matcher": "", "hooks": [_hook("notification_json")]}],
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},
                 {"matcher": "Edit|Write", "hooks": [_hook("post_edit_json")]},

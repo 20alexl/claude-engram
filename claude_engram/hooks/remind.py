@@ -2750,6 +2750,14 @@ def _with_pressure(result: str, project_dir: str) -> str:
         s_text, s_changed = _stall.nudge(state, bearings)
         if s_text:
             text = f"{text}\n{s_text}" if text else s_text
+        # The halt's instructions, once, at the first injection point after
+        # it armed (the Stop hook that armed it cannot inject).
+        _sst = _stall.stall_state(state)
+        if _sst.get("pending_halt") and _stall.halted(state):
+            _sst["pending_halt"] = False
+            s_changed = True
+            h_text = _stall.halt_text(state, _session_id)
+            text = f"{text}\n{h_text}" if text else h_text
         if changed or s_changed:
             save_state(state)
     except Exception:
@@ -2847,6 +2855,70 @@ def _hook_pre_bash(project_dir: str) -> None:
         pass
 
 
+def _hook_pre_tool(project_dir: str) -> None:
+    """PreToolUse on every tool: the halt. Fast path when nothing is halted
+    (one state read, no output). Halted: deny everything but the two calls
+    that let the model leave a record; the reason is shown to the model."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        from claude_engram.hooks import stall as _stall
+
+        state = load_state()
+        if not _stall.halted(state):
+            return
+        tool_name = str(data.get("tool_name") or "")
+        if tool_name in _stall.HALT_ALLOWED_TOOLS:
+            return
+        _stall.note_denied(state)
+        save_state(state)
+        print(
+            json_module.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": _stall.deny_reason(state, tool_name),
+                    }
+                }
+            )
+        )
+    except Exception:
+        pass
+
+
+def _hook_notification(project_dir: str) -> None:
+    """Notification: in autonomy mode, a run waiting on a person is the
+    alert that saves a night -- permission prompt, needs input, idle."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        from claude_engram.hooks import stall as _stall
+
+        if not _stall.autonomy_on():
+            return
+        kind = str(data.get("notification_type") or data.get("type") or "").strip()
+        if kind not in ("agent_needs_input", "permission_prompt", "idle_prompt"):
+            return
+        from claude_engram import alerts as _alerts
+
+        state = load_state()
+        msg = str(data.get("message") or "")[:120]
+        text = f"run {_session_id[:8]} waiting on you: {kind}" + (f" -- {msg}" if msg else "")
+        _alerts.send(text, project_dir, kind="needs_input", state=state)
+        save_state(state)
+    except Exception:
+        pass
+
+
 def _hook_stop_failure(project_dir: str) -> None:
     """StopFailure: the turn ended on an API error (rate_limit, overloaded,
     billing_error, max_output_tokens, ...). Output is ignored by Claude Code;
@@ -2882,6 +2954,27 @@ def _hook_stop_failure(project_dir: str) -> None:
             pass
         run["failures"] = (list(run.get("failures") or []) + [rec])[-20:]
         run["last_failure"] = rec
+        # Autonomy mode: the session may be dead after this; say so out of
+        # band. The launcher decides whether a resume makes sense.
+        try:
+            from claude_engram.hooks import stall as _stall
+
+            if _stall.autonomy_on():
+                from claude_engram import alerts as _alerts
+
+                reset = ""
+                if rec.get("error_type") == "rate_limit" and rec.get("five_hour_resets_at"):
+                    reset = " -- 5h window resets " + time.strftime(
+                        "%H:%M", time.localtime(float(rec["five_hour_resets_at"]))
+                    )
+                _alerts.send(
+                    f"run {_session_id[:8]} stopped: {rec['error_type']}{reset}",
+                    project_dir,
+                    kind="failure",
+                    state=state,
+                )
+        except Exception:
+            pass
         save_state(state)
     except Exception:
         pass
@@ -3151,6 +3244,21 @@ def _hook_session_start(project_dir: str) -> None:
             _no_sl = _cp.session_start_text(project_dir)
             if _no_sl:
                 lines.append(_no_sl)
+            # Autonomy mode is announced, never silent: the halt is armed
+            # and alerts go where the owner pointed them (or nowhere).
+            try:
+                from claude_engram.hooks import stall as _stall
+                from claude_engram import alerts as _alerts
+
+                if _stall.autonomy_on():
+                    _cap = _stall._env_int("CLAUDE_ENGRAM_STRIKE_CAP", _stall.STRIKE_CAP)
+                    _where = "configured" if _alerts.alert_command(project_dir) else "NOT configured (recorded only)"
+                    lines.append(
+                        f"AUTONOMY MODE: halt armed at strike {_cap} (every tool denied until released); "
+                        f"alert command {_where}. Park on Monitor/ScheduleWakeup rather than polling."
+                    )
+            except Exception:
+                pass
         except Exception:
             pass
         # The default pack (rules + structure) on a fresh start only, and a
@@ -4012,6 +4120,24 @@ def main():
                                 _cp.pressure_state(_st).get("stops_total", 0)
                             )
                             _stall.close_turn(_st, _turn_no, project_dir)
+                            # Autonomy mode: at the cap, arm the halt, stage
+                            # its text for the next injection point, and
+                            # alert out of the session (hooks/stall.py §halt).
+                            if _stall.maybe_halt(_st, _turn_no):
+                                _stall.stall_state(_st)["pending_halt"] = True
+                                try:
+                                    from claude_engram import alerts as _alerts
+
+                                    _alerts.send(
+                                        f"run {_session_id[:8]} halted: no progress "
+                                        f"{_stall.stall_state(_st)['strikes']}x, every tool denied; "
+                                        "release with python -m claude_engram.hooks.stall release",
+                                        project_dir,
+                                        kind="halt",
+                                        state=_st,
+                                    )
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                         save_state(_st)
@@ -4235,6 +4361,12 @@ def main():
 
     elif hook_type == "stop_failure_json":
         _hook_stop_failure(project_dir)
+
+    elif hook_type == "pre_tool_json":
+        _hook_pre_tool(project_dir)
+
+    elif hook_type == "notification_json":
+        _hook_notification(project_dir)
 
     elif hook_type == "post_milestone_json":
         _hook_post_milestone()

@@ -292,15 +292,21 @@ def test_default_pack(tmp):
     rules_after = [r.content for r in MemoryStore().get_rules(str(sub))]
     check("added rules live in the sub-project store", any("Never kill processes by image name" in r for r in rules_after))
     check("workflow tier seeded too (plan before code, gates, delegation)", any(r.startswith("Plan before code") for r in rules_after) and any("gate written before the work" in r for r in rules_after) and any(r.startswith("Delegate by size") for r in rules_after))
-    check("pack = universal + workflow", len(dp.RULES) == len(dp.UNIVERSAL_RULES) + len(dp.WORKFLOW_RULES) and len(dp.WORKFLOW_RULES) >= 6)
+    check("pack = universal + workflow + code", len(dp.RULES) == len(dp.UNIVERSAL_RULES) + len(dp.WORKFLOW_RULES) + len(dp.CODE_RULES) and len(dp.WORKFLOW_RULES) >= 6 and len(dp.CODE_RULES) >= 10)
+    check("code tier seeded (one function one purpose, no swallowed errors, fast path, performance from the start, both OSes)",
+          any(r.startswith("One function, one purpose") for r in rules_after) and any("swallow an error" in r for r in rules_after)
+          and any(r.startswith("Pick the fast path") for r in rules_after) and any(r.startswith("Build for performance") for r in rules_after)
+          and any(r.startswith("Code runs on both Windows and Linux") for r in rules_after))
+    check("code rules carry anchors for the dedup", all(r.get("anchors") for r in dp.CODE_RULES))
     # Workflow tier can be turned off on its own.
     wf_off = tmp / "ws" / "wf-off"
     (wf_off / ".git").mkdir(parents=True)
     (wf_off / ".engram").mkdir()
-    (wf_off / ".engram" / "config.json").write_text(json.dumps({"workflow_rules": False, "structure": False}), encoding="utf-8")
+    (wf_off / ".engram" / "config.json").write_text(json.dumps({"workflow_rules": False, "code_rules": False, "structure": False}), encoding="utf-8")
     dp.run_at_session_start(str(wf_off))
     wf_rules = [r.content for r in MemoryStore().get_rules(str(wf_off))]
     check("workflow_rules=false: universal seeded, workflow not", any("Never kill processes" in r for r in wf_rules) and not any(r.startswith("Plan before code") for r in wf_rules))
+    check("code_rules=false: code tier not seeded", not any(r.startswith("One function, one purpose") for r in wf_rules))
     rep2 = dp.seed_rules(str(sub))
     check("second seed is a no-op (marker)", rep2["already_seeded"] and rep2["added"] == [])
     rules_again = [r.content for r in MemoryStore().get_rules(str(sub))]
