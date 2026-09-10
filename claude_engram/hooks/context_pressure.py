@@ -472,11 +472,13 @@ def _ring_manual_after(project_dir: str, t: float) -> bool:
         return False
 
 
-def stage_milestone(state: dict, quote: str, kind: str = "claim") -> None:
+def stage_milestone(state: dict, quote: str, kind: str = "claim", since: float = 0.0) -> None:
     """Remember that a unit closed without a deliberate checkpoint; the next
-    injection point asks for one. The newest claim wins."""
+    injection point asks for one. The newest claim wins. ``since`` is the
+    start of the turn that made the claim: a checkpoint saved anywhere in
+    that turn -- before the closing sentence, the usual order -- answers it."""
     ps = pressure_state(state)
-    ps["milestone_pending"] = {"quote": quote[:160], "kind": kind, "at": time.time()}
+    ps["milestone_pending"] = {"quote": quote[:160], "kind": kind, "at": time.time(), "since": float(since or 0.0)}
 
 
 def note_stop(state: dict, last_message: str = "") -> None:
@@ -500,7 +502,7 @@ def note_stop(state: dict, last_message: str = "") -> None:
     except Exception:
         return
     if claimed:
-        stage_milestone(state, quote, "claim")
+        stage_milestone(state, quote, "claim", since=prev_stop)
         # A completion claim is a unit boundary; the fallback cadence counts
         # turns with neither a checkpoint nor a claim.
         ps["stops_since_checkpoint"] = 0
@@ -756,15 +758,19 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
         ps["milestone_pending"] = None
         changed = True
         claim_at = float(mp.get("at") or 0.0)
-        answered = float(ps.get("last_manual_checkpoint_at") or 0.0) > claim_at
+        # The turn that made the claim started at ``since``; the usual order
+        # is save first, closing sentence last, so a save anywhere in that
+        # turn answers the claim.
+        window_start = float(mp.get("since") or 0.0) or claim_at
+        answered = float(ps.get("last_manual_checkpoint_at") or 0.0) > window_start
         if not answered:
             # The state flag is set by checkpoint_save in THIS session's
             # process; a save made from another process (a script, the MCP
             # server under a different session id) reaches the ring but not
             # the flag. The ring is the record, so read it: a manual entry
-            # newer than the claim answers the nudge. (Two false nudges on
-            # 2026-09-10 came from exactly that.)
-            answered = _ring_manual_after(project_dir, claim_at)
+            # newer than the turn's start answers the nudge. (Three false
+            # nudges on 2026-09-10 came from exactly that.)
+            answered = _ring_manual_after(project_dir, window_start)
         if not answered:
             from claude_engram.hooks.milestones import milestone_text
 

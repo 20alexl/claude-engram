@@ -512,6 +512,33 @@ def test_milestones(cp):
     finally:
         _remind.get_handoff_data = _orig
     check("an automatic entry does not (only a deliberate save counts)", "Step 5 complete" in t)
+    # The usual order inside one turn: save first, closing sentence last. A
+    # ring entry written after the previous stop but BEFORE the claim answers
+    # it (the third false nudge of 2026-09-10 was exactly this ordering).
+    time.sleep(0.01)
+    cp.note_stop(state)  # previous stop = the turn's start
+    time.sleep(0.01)
+    saved_at = time.time()  # the save, mid-turn
+    time.sleep(0.01)
+    cp.note_stop(state, "Step 6 complete.")  # the claim, at the turn's end
+    check("the claim carries the turn's start", state["pressure"]["milestone_pending"]["since"] > 0)
+    _remind.get_handoff_data = lambda p="": {"kind": "manual", "created": saved_at}
+    try:
+        t, _ = cp.nudge(state, sid, "E:/ws/proj")
+    finally:
+        _remind.get_handoff_data = _orig
+    check("a save earlier in the same turn answers the claim", t == "")
+    time.sleep(0.01)
+    cp.note_stop(state)
+    turn_start = time.time()
+    time.sleep(0.01)
+    cp.note_stop(state, "Step 7 complete.")
+    _remind.get_handoff_data = lambda p="": {"kind": "manual", "created": turn_start - 5}
+    try:
+        t, _ = cp.nudge(state, sid, "E:/ws/proj")
+    finally:
+        _remind.get_handoff_data = _orig
+    check("a save from BEFORE the turn does not", "Step 7 complete" in t)
     # Task tools path stages with kind=task.
     cp.stage_milestone(state, "Implement user authentication", "task")
     t, _ = cp.nudge(state, sid)
