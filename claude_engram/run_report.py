@@ -529,7 +529,10 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
         "ended_at": _iso(ended),
         "wall_seconds": int(max(0.0, ended - started)) if started else 0,
         "turns": turns,
-        "prompts": int(state.get("prompts_this_session") or 0) or tr["prompts"],
+        # The transcript, scoped to the run, is the truth for prompts; the
+        # state's counter resets on a startup-source SessionStart (a live
+        # report said "prompts 2" for a day-long run).
+        "prompts": tr["prompts"] or int(state.get("prompts_this_session") or 0),
         "tokens": {
             "final_input": mirror.get("total_input_tokens"),
             "context_window": mirror.get("context_window_size"),

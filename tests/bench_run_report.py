@@ -136,7 +136,7 @@ def main():
         check("branch: transcript's when the project has no git", r["branch"] == "feat/x")
         check("permission mode + start commit from the run block", r["permission_mode"] == "auto" and r["start_commit"] == "abc1234")
         check("turns from Stop count", r["turns"] == 2)
-        check("prompts from state", r["prompts"] == 3)
+        check("prompts from the transcript (scoped to the run), the state's counter only as a fallback", r["prompts"] == 1)
         check("wall time from session start", 7100 <= r["wall_seconds"] <= 7300)
         check("final tokens + cost from the mirror", r["tokens"]["final_input"] == 300000 and r["tokens"]["cost_usd"] == 4.2)
         c = r["compactions"]

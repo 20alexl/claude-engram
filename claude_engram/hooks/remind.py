@@ -2799,6 +2799,13 @@ def _goal_bracket(state: dict, data: dict, project_dir: str, turn: bool) -> None
         from claude_engram.hooks import autorun as _ar
 
         tp = str((data or {}).get("transcript_path") or "")
+        # The cwd under Claude Code is often the workspace root; the session's
+        # edited files name the sub-project the run is about (the first live
+        # goal run filed its manifest and report under the workspace root).
+        try:
+            project_dir = _resolve_session_project(project_dir, list(state.get("files_edited_this_session") or []))
+        except Exception:
+            pass
         ev = _ar.observe(state, tp, project_dir, turn=turn)
         if turn or ev:
             save_state(state)

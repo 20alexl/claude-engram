@@ -154,8 +154,15 @@ def scan_goal(transcript_path: str, tail_bytes: int = TAIL_BYTES) -> dict:
                 out["active"], out["ended"] = False, "failed"
             continue
         if rec.get("type") == "user":
+            # A slash command is a user record whose content is a plain
+            # string. A tool_result (a list) that echoes the same text -- a
+            # test fixture read back, a transcript grep -- is not a command;
+            # seen 2026-09-10 when the bench's fixture text sat inside a
+            # Write's tool_use in the live transcript.
             content = (rec.get("message") or {}).get("content")
-            text = content if isinstance(content, str) else json.dumps(content or "")
+            if not isinstance(content, str):
+                continue
+            text = content
             if "<command-name>/goal</command-name>" not in text:
                 continue
             m = _ARGS_RE.search(text)

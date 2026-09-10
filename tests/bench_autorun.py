@@ -108,6 +108,11 @@ def test_scan(ar, tmp):
         check("every clear alias clears", True)
     _write(t, rec_command("clear", 1), rec_sentinel("g", 2))
     check("a clear BEFORE the sentinel does not end it", ar.scan_goal(str(t))["active"] is True)
+    # A tool_result echoing the command text (a fixture read back) is a list,
+    # not a slash command.
+    echo = json.dumps({"type": "user", "timestamp": _ts(3), "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x", "content": "<command-name>/goal</command-name>\n<command-args>clear</command-args>"}]}})
+    _write(t, rec_sentinel("g", 2), echo)
+    check("a tool_result echoing '/goal clear' does NOT clear the goal", ar.scan_goal(str(t))["active"] is True)
     _write(t, rec_sentinel("first", 2), rec_verdict("first", 3, True), rec_sentinel("second", 5))
     s = ar.scan_goal(str(t))
     check("a second goal after a met first: the last goal is active", s["active"] and s["condition"] == "second" and s["set_at"] == _ts(5) and s["verdicts"] == 0)
