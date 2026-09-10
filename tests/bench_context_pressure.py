@@ -55,7 +55,8 @@ def _clean_env():
     for k in (
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
         "CLAUDE_ENGRAM_HEADSUP_FRACTION",
-        "CLAUDE_ENGRAM_CHECKPOINT_FRACTION",
+        "CLAUDE_ENGRAM_OUTPUT_RESERVE",
+        "CLAUDE_ENGRAM_CHECKPOINT_MARGIN",
         "CLAUDE_ENGRAM_CHECKPOINT_CADENCE",
     ):
         os.environ.pop(k, None)
@@ -135,19 +136,26 @@ def test_compaction_point(cp, tmp):
 def test_thresholds(cp):
     print("thresholds sit below the point:")
     _clean_env()
+    # Auto-compaction fires BELOW the setting: measured 717,578 pre-compaction
+    # tokens against a 750K setting (2026-09-10), i.e. the output reserve.
     th = cp.thresholds(1_000_000, 750_000)
+    check("1M/750K: trigger at 718K (setting minus the 32K reserve)", th["trigger_at"] == 718_000)
+    check("1M/750K: checkpoint at 698K (20K above the trigger)", th["checkpoint_at"] == 698_000)
     check("1M/750K: heads-up at 650K", th["headsup_at"] == 650_000)
-    check("1M/750K: checkpoint at 720K", th["checkpoint_at"] == 720_000)
+    check("the measured compaction (717,578) sits ABOVE the checkpoint band", th["checkpoint_at"] < 717_578 < th["trigger_at"] + 1_000)
     th = cp.thresholds(1_000_000, 967_000)
     check("1M default: heads-up at 867K", th["headsup_at"] == 867_000)
-    check("1M default: checkpoint at 937K", th["checkpoint_at"] == 937_000)
+    check("1M default: checkpoint at 915K", th["checkpoint_at"] == 915_000)
     th = cp.thresholds(200_000, 200_000)
-    check("200K: heads-up at 180K", th["headsup_at"] == 180_000)
-    check("200K: checkpoint at 190K (5%, not 3%)", th["checkpoint_at"] == 190_000)
-    os.environ["CLAUDE_ENGRAM_CHECKPOINT_FRACTION"] = "0.02"
-    check("checkpoint fraction env override", cp.thresholds(1_000_000, 750_000)["checkpoint_at"] == 730_000)
-    os.environ["CLAUDE_ENGRAM_CHECKPOINT_FRACTION"] = "9"  # nonsense -> default
-    check("checkpoint fraction garbage -> default", cp.thresholds(1_000_000, 750_000)["checkpoint_at"] == 720_000)
+    check("200K: trigger at 168K, checkpoint at 158K (10K margin)", th["trigger_at"] == 168_000 and th["checkpoint_at"] == 158_000)
+    check("200K: heads-up pulled under the checkpoint band", th["headsup_at"] == 148_000 and th["headsup_at"] < th["checkpoint_at"])
+    os.environ["CLAUDE_ENGRAM_OUTPUT_RESERVE"] = "40000"
+    check("output reserve env override", cp.thresholds(1_000_000, 750_000)["trigger_at"] == 710_000)
+    os.environ["CLAUDE_ENGRAM_CHECKPOINT_MARGIN"] = "30000"
+    check("checkpoint margin env override", cp.thresholds(1_000_000, 750_000)["checkpoint_at"] == 680_000)
+    os.environ["CLAUDE_ENGRAM_OUTPUT_RESERVE"] = "junk"  # nonsense -> default
+    os.environ["CLAUDE_ENGRAM_CHECKPOINT_MARGIN"] = "-5"
+    check("garbage env -> defaults", cp.thresholds(1_000_000, 750_000)["checkpoint_at"] == 698_000)
     _clean_env()
 
 
@@ -208,19 +216,19 @@ def test_nudge_sequence(cp):
     cp.record_statusline(_payload(sid, 660_000))
     t, ch = cp.nudge(state, sid)
     check("heads-up fires once", "Context pressure" in t and "Compaction #1 is coming" in t and ch)
-    check("heads-up names the checkpoint point", "~720K" in t)
+    check("heads-up names the checkpoint point", "~698K" in t)
     t2, ch2 = cp.nudge(state, sid)
     check("heads-up does not repeat", t2 == "" and not ch2)
 
-    cp.record_statusline(_payload(sid, 725_000))
+    cp.record_statusline(_payload(sid, 700_000))
     t, ch = cp.nudge(state, sid)
     check("checkpoint-now fires", t.startswith("<engram-context>CHECKPOINT NOW") and ch)
-    check("checkpoint-now says the distance", "25K tokens to the compaction point (750K)" in t)
+    check("checkpoint-now says the distance to the trigger", "18K tokens to the auto-compaction trigger (~718K; the 750K setting minus the output reserve)" in t)
     t2, _ = cp.nudge(state, sid)
     check("checkpoint-now does not repeat", t2 == "")
     check("checkpoint-now text names the tool call", "context(checkpoint_save)" in t)
 
-    # Compaction. The mirror still holds 725K until the statusline re-runs.
+    # Compaction. The mirror still holds 700K until the statusline re-runs.
     time.sleep(0.02)
     cp.note_compaction(state)
     a = cp.current_assessment(state, sid)
@@ -228,7 +236,7 @@ def test_nudge_sequence(cp):
     t, ch = cp.nudge(state, sid)
     check("no false checkpoint-now right after compaction", t == "")
     r = cp.rhythm_text(state, sid)
-    check("rhythm line after compaction", r.startswith("Compaction #1.") and "checkpoint at ~720K" in r and "compaction at ~750K (env)" in r)
+    check("rhythm line after compaction", r.startswith("Compaction #1.") and "checkpoint at ~698K" in r and "auto-compaction at ~718K (the 750K env setting minus the output reserve)" in r)
 
     # Fresh reading in the new cycle.
     time.sleep(0.02)
@@ -639,6 +647,98 @@ def test_stop_failure(tmp):
     check("install registers StopFailure", '"StopFailure"' in inst and "stop_failure_json" in inst)
 
 
+_SEED_SRC = '''
+import time, sys
+from claude_engram.hooks import remind
+from claude_engram import handoff_store as hs
+
+project = sys.argv[1]
+dirs = [d for d in (remind._project_hash_dir(project), remind._global_handoff_dir()) if d]
+hs.write_handoff(
+    {"kind": "manual", "task_description": "Autonomy build: 0.8.28 committed, live test next",
+     "summary": "Autonomy build: 0.8.28 committed, live test next",
+     "current_step": "reply to the user", "pending_steps": ["live test", "one push"],
+     "project_path": project, "files_involved": ["autorun.py"], "created": time.time(),
+     "task_id": "task_replay_1", "goal": "the stack is pushed once"},
+    dirs,
+)
+'''
+
+
+def test_compaction_reinjection(tmp):
+    """Replay of the 2026-09-10 auto compaction (session 4f414c78, 1M Fable,
+    autoCompactWindow 750K): the heads-up fired at 651K, the checkpoint band
+    (then 720K) never did because Claude Code compacted at 717,578, and the
+    checkpoint banked nine minutes earlier never reached the model because
+    PostCompact printed plain stdout and SessionStart(compact) skipped it."""
+    print("the auto compaction, replayed:")
+    from claude_engram.hooks import context_pressure as cp
+
+    _clean_env()
+    os.environ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "750000"
+    sid = "s-replay-0910"
+    state: dict = {"last_session_start": time.time()}
+    cp.record_statusline(_payload(sid, 651_000))
+    t, _ = cp.nudge(state, sid)
+    check("651K: the heads-up (as observed live)", "Compaction #1 is coming" in t)
+    cp.record_statusline(_payload(sid, 700_000))
+    t, _ = cp.nudge(state, sid)
+    check("700K: CHECKPOINT NOW fires before the measured compaction point", t.startswith("<engram-context>CHECKPOINT NOW"))
+    cp.record_statusline(_payload(sid, 717_578))
+    a = cp.current_assessment(state, sid)
+    check("717,578 (the measured pre-compaction size) is inside the checkpoint band", a["band"] == "checkpoint" and a["checkpoint_at"] < 717_578)
+    t, _ = cp.nudge(state, sid)
+    check("no second call at 717K (once per cycle)", t == "")
+
+    # PostCompact through the real hook: structured output, since plain stdout
+    # never enters the model's context.
+    proj = tmp / "replay-proj"
+    proj.mkdir(parents=True, exist_ok=True)
+    env = dict(
+        os.environ,
+        CLAUDE_ENGRAM_DIR=os.environ["CLAUDE_ENGRAM_DIR"],
+        CLAUDE_PROJECT_DIR=str(proj),
+        CLAUDE_ENGRAM_LIVE_MINE="0",
+        CLAUDE_ENGRAM_NO_DAEMON="1",
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "claude_engram.hooks.remind", "post_compact_json"],
+        input=json.dumps({"session_id": sid, "cwd": str(proj), "hook_event_name": "PostCompact",
+                          "trigger": "auto", "compact_summary": ""}),
+        capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120,
+    )
+    try:
+        hso = json.loads(r.stdout)["hookSpecificOutput"]
+    except Exception:
+        hso = {}
+    check("PostCompact emits hookSpecificOutput JSON (was plain text)", hso.get("hookEventName") == "PostCompact")
+    ctx = hso.get("additionalContext", "")
+    check("PostCompact context carries the rhythm with the measured trigger", "Compaction #1. Rhythm" in ctx and "checkpoint at ~698K" in ctx and "auto-compaction at ~718K" in ctx)
+    st = json.loads((Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
+    check("the compaction opened cycle 1 in the state", int((st.get("pressure") or {}).get("cycle", 0)) == 1)
+
+    # SessionStart(compact) through the real hook: the checkpoint banked
+    # before the compaction is shown to the model again.
+    seed = Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "_seed_replay.py"
+    seed.write_text(_SEED_SRC, encoding="utf-8")
+    s = subprocess.run([sys.executable, str(seed), str(proj)], capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120)
+    check("seed wrote a manual checkpoint into the project ring", s.returncode == 0)
+    r = subprocess.run(
+        [sys.executable, "-m", "claude_engram.hooks.remind", "session_start_json"],
+        input=json.dumps({"session_id": sid, "source": "compact", "cwd": str(proj), "hook_event_name": "SessionStart"}),
+        # cwd=ROOT, not proj: the hook spawns background mining with its cwd,
+        # and on Windows that child holds the temp dir past teardown.
+        capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120,
+    )
+    try:
+        ctx2 = json.loads(r.stdout)["hookSpecificOutput"].get("additionalContext", "")
+    except Exception:
+        ctx2 = ""
+    check("SessionStart(compact) shows the banked checkpoint (was skipped)", "CHECKPOINT [manual" in ctx2 and "task_replay_1" in ctx2 and "0.8.28 committed" in ctx2)
+    check("... with its goal and next steps", "Goal: the stack is pushed once" in ctx2 and "Pending: 2 steps" in ctx2)
+    _clean_env()
+
+
 def main():
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -658,6 +758,7 @@ def main():
         test_source_guards()
         test_milestones(cp)
         test_provenance(tmp)
+        test_compaction_reinjection(tmp)
         test_budget(cp, tmp)
         test_stop_failure(tmp)
 

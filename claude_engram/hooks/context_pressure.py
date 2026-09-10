@@ -54,8 +54,16 @@ DEFAULT_COMPACT_1M = 967_000
 SMALL_WINDOW = 200_000
 
 HEADSUP_FRACTION = 0.10  # of the window, before the point
-CHECKPOINT_FRACTION = 0.03
-CHECKPOINT_FRACTION_SMALL = 0.05  # windows <= 200K: 3% is only 6K tokens
+# Auto-compaction does not fire AT the configured number: Claude Code keeps
+# room for the model's output first. Measured 2026-09-10 on a 1M Fable
+# session with `autoCompactWindow` 750K: the auto compaction's own record
+# (`compactMetadata.preTokens`) read 717,578 -- ~32K under the setting, the
+# size of the maximum output. A "3% out" band (30K on 1M, 10K on 200K) sat
+# inside that reserve and never fired; so the last band is an absolute
+# distance above the measured trigger, not a fraction of the window.
+OUTPUT_RESERVE = 32_000
+CHECKPOINT_MARGIN = 20_000  # above the trigger: room for one checkpoint call
+CHECKPOINT_MARGIN_SMALL = 10_000  # windows <= 200K
 # Fallback only. The real trigger is the model's own "step done" (see
 # milestones.py); this fires when a run goes this long with NEITHER a
 # deliberate checkpoint NOR a completion claim -- which is closer to a stall
@@ -341,13 +349,26 @@ def _env_int(name: str, default: int) -> int:
 
 
 def thresholds(window: int, point: int) -> dict:
-    """Token counts at which each nudge fires, as distances below the point."""
-    ck_default = CHECKPOINT_FRACTION_SMALL if window <= SMALL_WINDOW else CHECKPOINT_FRACTION
+    """Token counts at which each nudge fires.
+
+    ``trigger_at`` is where auto-compaction actually fires: the configured
+    point minus the output reserve (see OUTPUT_RESERVE). The checkpoint band
+    sits a fixed margin above that trigger; the heads-up sits a fraction of
+    the window below the point and is pulled under the checkpoint band when
+    a small window would otherwise put it above."""
+    reserve = _env_int("CLAUDE_ENGRAM_OUTPUT_RESERVE", OUTPUT_RESERVE)
+    margin_default = CHECKPOINT_MARGIN_SMALL if window <= SMALL_WINDOW else CHECKPOINT_MARGIN
+    margin = _env_int("CLAUDE_ENGRAM_CHECKPOINT_MARGIN", margin_default)
     hu = _env_float("CLAUDE_ENGRAM_HEADSUP_FRACTION", HEADSUP_FRACTION)
-    ck = _env_float("CLAUDE_ENGRAM_CHECKPOINT_FRACTION", ck_default)
+    trigger_at = int(point - reserve)
+    checkpoint_at = int(trigger_at - margin)
+    headsup_at = int(point - hu * window)
+    if headsup_at >= checkpoint_at:
+        headsup_at = int(checkpoint_at - hu * window / 2)
     return {
-        "headsup_at": int(point - hu * window),
-        "checkpoint_at": int(point - ck * window),
+        "headsup_at": headsup_at,
+        "checkpoint_at": checkpoint_at,
+        "trigger_at": trigger_at,
     }
 
 
@@ -524,13 +545,14 @@ def headsup_text(a: dict, cycle: int) -> str:
 
 
 def checkpoint_text(a: dict) -> str:
+    left = max(0, int(a["trigger_at"]) - int(a["used"]))
     return (
         "<engram-context>CHECKPOINT NOW: "
-        f"{_k(a['distance'])} tokens to the compaction point ({_k(a['point'])}). "
+        f"{_k(left)} tokens to the auto-compaction trigger (~{_k(a['trigger_at'])}; "
+        f"the {_k(a['point'])} setting minus the output reserve). "
         "Call context(checkpoint_save) with task_description, current_step, "
         "completed_steps, pending_steps, files_involved, handoff_warnings and a "
-        "handoff_summary, then continue. Auto-compaction fires at "
-        f"~{_k(a['point'])}; PreCompact's automatic entry is only a floor."
+        "handoff_summary, then continue. PreCompact's automatic entry is only a floor."
         "</engram-context>"
     )
 
@@ -760,7 +782,8 @@ def rhythm_text(state: dict, session_id: str, project_dir: str = "") -> str:
     return (
         f"Compaction #{cycle}. Rhythm: heads-up at ~{_k(th['headsup_at'])} "
         f"({_pct(th['headsup_at'], window)}), checkpoint at ~{_k(th['checkpoint_at'])}, "
-        f"compaction at ~{_k(point)} ({source}{capped}). Plan work in units that finish "
+        f"auto-compaction at ~{_k(th['trigger_at'])} (the {_k(point)} {source} setting "
+        f"minus the output reserve{capped}). Plan work in units that finish "
         "before the checkpoint call."
     )
 

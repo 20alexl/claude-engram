@@ -3083,11 +3083,18 @@ def _hook_post_compact(project_dir: str) -> None:
         )
         mistakes = get_past_mistakes(project_memory)
 
+        # The rules, the mistakes and the restored checkpoint are re-injected
+        # by the SessionStart(compact) banner, which fires for every
+        # compaction as well; this hook opens the new pressure cycle and
+        # states the rhythm. Both must reach the model as
+        # hookSpecificOutput.additionalContext: plain stdout on exit 0 is
+        # shown to the person, never added to the context (hooks reference).
+        # Through 0.8.28 this printed plain text on the belief that PostCompact
+        # had no structured output, so after every AUTO compaction the whole
+        # banner was lost (a manual /compact only looked fine because the
+        # terminal echoed the command's output into the user turn).
         lines = []
         lines.append("Context compacted. Rules and key context re-injected.")
-        # New compaction cycle: clear the nudge latches and restate the
-        # rhythm, so after the first compaction the model plans around
-        # the next one (hooks/context_pressure).
         try:
             from claude_engram.hooks import context_pressure as _cp
 
@@ -3098,28 +3105,11 @@ def _hook_post_compact(project_dir: str) -> None:
         except Exception:
             pass
         if rules:
-            lines.append(f"Rules ({len(rules)}):")
-            for r in rules[:5]:
-                lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
-        if mistakes:
-            lines.append(
-                f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
-            )
+            lines.append(f"Rules ({len(rules)}) and past mistakes ({len(mistakes)}) follow in the session-start banner.")
 
-        # Show auto-saved handoff context
+        # For the run report: which entry this compaction restored.
         handoff = get_handoff_data(project_dir)
         if handoff:
-            decisions = handoff.get("decisions", [])
-            files = handoff.get("files_in_progress", [])
-            if files:
-                lines.append(
-                    f"Files in progress: {', '.join(Path(f).name for f in files[:5])}"
-                )
-            if decisions:
-                lines.append(
-                    f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}"
-                )
-            # For the run report: which entry this compaction restored.
             try:
                 from claude_engram.hooks import context_pressure as _cp2
 
@@ -3129,9 +3119,16 @@ def _hook_post_compact(project_dir: str) -> None:
             except Exception:
                 pass
 
-        # PostCompact has no hookSpecificOutput in Claude Code's schema.
-        # Print as plain stdout — Claude Code shows this as hook output.
-        print("\n".join(lines))
+        print(
+            json_module.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostCompact",
+                        "additionalContext": "\n".join(lines),
+                    }
+                }
+            )
+        )
     except Exception:
         pass
 
@@ -3232,7 +3229,7 @@ def _hook_session_start(project_dir: str) -> None:
         # this session is about — the pooled "last session" may belong
         # to a different concurrent session in a different project.
         resume_files = []
-        if source == "resume":
+        if source in ("resume", "compact"):
             try:
                 resume_files = list(
                     load_state().get("files_edited_this_session", [])
@@ -3336,17 +3333,21 @@ def _hook_session_start(project_dir: str) -> None:
         #   fresh   -> unknowable which sub-project comes next; prefer the
         #              newest MANUAL across the workspace subtree (a labeled
         #              breadcrumb), else the plain walk-up result.
-        #   compact -> PostCompact handles re-injection; skip.
+        #   compact -> same as resume: this session's own files name the
+        #              ring. Through 0.8.28 this branch was skipped on the
+        #              belief that PostCompact re-injected the checkpoint;
+        #              PostCompact's plain stdout never reached the model,
+        #              so after every auto compaction the checkpoint the
+        #              model had just banked was not shown to it.
         restored = {}
-        if source != "compact":
-            if resume_files:
-                restored = get_handoff_data(
-                    _resolve_session_project(project_dir, resume_files)
-                )
-            if not restored:
-                restored = _subtree_manual_handoff(project_dir)
-            if not restored:
-                restored = get_handoff_data(project_dir)
+        if resume_files:
+            restored = get_handoff_data(
+                _resolve_session_project(project_dir, resume_files)
+            )
+        if not restored:
+            restored = _subtree_manual_handoff(project_dir)
+        if not restored:
+            restored = get_handoff_data(project_dir)
         if restored:
             lines.extend(_format_restored_context(restored))
 

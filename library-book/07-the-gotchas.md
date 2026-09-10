@@ -191,6 +191,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Engram says so once at the first context reading, with the number for that model (`/autocompact 150k` on 200K). For unattended launches set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window in the launch environment instead; the env var beats the setting.
 
+### Gotcha: the `CHECKPOINT NOW` call never came, and after the auto compaction the checkpoint was not shown
+
+**Symptom:** The heads-up arrived, the model banked a checkpoint, and then the session compacted with no `CHECKPOINT NOW` in between. After the compaction the session-start banner showed rules and mistakes but not the checkpoint the model had just written; the model resumed from Claude Code's own summary. (Seen on the engram build session itself, 2026-09-10: heads-up at 651K, compaction at 717,578 against a 750K setting.)
+
+**Cause:** Two. Auto-compaction fires below the configured number — Claude Code keeps room for the model's output first, ~32K — so a band placed "3% out" (30K on a 1M window) sat inside that reserve and could not fire; the 5% band on a 200K window (10K) is inside it too. And `PostCompact` printed plain stdout on the belief that the hook had no structured output; per the hooks reference plain stdout on exit 0 is shown to the person, never added to Claude's context, while `hookSpecificOutput.additionalContext` is. A manual `/compact` looked fine only because the terminal echoed the command's output into the user turn. The SessionStart(compact) banner, which does reach the model, skipped the restored checkpoint because "PostCompact handles it."
+
+**Fix (0.8.29):** The last band is an absolute distance above the measured trigger (`OUTPUT_RESERVE` 32K, `CHECKPOINT_MARGIN` 20K; 10K on ≤ 200K windows), so on 750K it fires at ~698K, before the 717K compaction. PostCompact emits `additionalContext`. SessionStart(compact) shows the banked checkpoint with its goal and the repo's movement since. `bench_context_pressure` replays the session's numbers through the real hooks.
+
 ### Gotcha: a stall strike after a few research turns
 
 **Symptom:** `<engram-stall>Strike 1 of 3: 3 turns with tool use and no effect` while you were legitimately reading code before deciding.
