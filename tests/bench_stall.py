@@ -265,10 +265,35 @@ def test_test_status(st):
         return st.close_turn(state, turn, "", fingerprint=_no_fp)
 
     check("first verdict is a status change (unknown -> fail)", run(1, "FAILED: 2") == "good")
-    check("same verdict again is no effect", run(2, "FAILED: 2") == "noeffect")
-    check("same verdict a third time is no effect", run(3, "FAILED: 2") == "noeffect")
+    check("same command, same verdict again is no effect (re-run and hope)", run(2, "FAILED: 2") == "noeffect")
+    check("same a third time is no effect", run(3, "FAILED: 2") == "noeffect")
     check("a flip to pass is progress", run(4, "ALL PASS") == "good")
-    check("pass again is no effect", run(5, "ALL PASS") == "noeffect")
+    check("pass again, same command, is no effect", run(5, "ALL PASS") == "noeffect")
+    print("verification is neutral, not circling:")
+    other = {"command": "venv/Scripts/python.exe tests/bench_other.py"}
+    st.note_tool(state, "Bash", other, {"stdout": "ALL PASS"})
+    check("a different test run with the same status is neutral", st.close_turn(state, 6, "", fingerprint=_no_fp) == "neutral")
+    third = {"command": "venv/Scripts/python.exe -m pytest tests/ -q"}
+    st.note_tool(state, "Bash", third, {"stdout": "40 passed"})
+    check("a third different suite is neutral too", st.close_turn(state, 7, "", fingerprint=_no_fp) == "neutral")
+    check(
+        "no strike from verification turns; the no-effect streak is untouched (1 from turn 5)",
+        st.stall_state(state)["strikes"] == 0 and st.stall_state(state)["noeffect_streak"] == 1,
+    )
+    st.note_tool(state, "Bash", third, {"stdout": "40 passed"})
+    check("repeating the last one is no effect again", st.close_turn(state, 8, "", fingerprint=_no_fp) == "noeffect")
+    st.note_tool(state, "Bash", third, {"stdout": "40 passed"})
+    check("and a third repeat completes the strike", st.close_turn(state, 9, "", fingerprint=_no_fp) == "noeffect" and st.stall_state(state)["strikes"] == 1)
+    st.note_tool(state, "Bash", {"command": "venv/Scripts/python.exe -m pytest tests/slow -q"}, {"stdout": "collecting ... (no verdict in tail)"})
+    check("a long suite with no readable verdict is still a distinct run (neutral)", st.close_turn(state, 10, "", fingerprint=_no_fp) == "neutral")
+    print("test invocation vs a read that mentions tests:")
+    check("cat goal-test/out.txt is not a test", st._looks_like_test("cat scratchpad/goal-test/out.txt") is False)
+    check("grep in tests/ is not a test", st._looks_like_test("grep -rn foo tests/") is False)
+    check("python tests/bench_x.py is", st._looks_like_test("venv/scripts/python.exe tests/bench_x.py 2>&1 | tail -1") is True)
+    check("python -m pytest is", st._looks_like_test("python -m pytest -q") is True)
+    check("cargo test is", st._looks_like_test("cargo test --release") is True)
+    check("npm test is", st._looks_like_test("npm test") is True)
+    check("a test after cd is", st._looks_like_test("cd /e/x && .venv/scripts/python.exe -m pytest") is True)
 
 
 def test_fingerprint(st):

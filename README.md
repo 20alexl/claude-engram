@@ -158,7 +158,9 @@ The setting is a token count, not a fraction, and it is capped at the model's wi
 |---|---|
 | A file changed (Edit/Write/NotebookEdit, a mutating shell command, or the git working tree moved), a test status flipped, a commit landed, work was delegated to an agent | Good |
 | Tools were used and none of that happened | No effect |
-| No tools at all, or the turn parked on a wait primitive (Monitor, ScheduleWakeup, a cron, a background task) | Neutral: touches nothing |
+| No tools at all; the turn parked on a wait primitive (Monitor, ScheduleWakeup, a cron, a background task); or it only ran tests that were not a repeat of the last run | Neutral: touches nothing |
+
+Turns, not time: a four-hour foreground command is one turn, so a long run or a long suite never trips the ladder on duration. Verification is neutral (three different benches in three turns is not circling); the same test command with the same verdict again is the re-run-and-hope pattern and counts as no effect.
 
 Three consecutive no-effect turns are one strike. Strike 1 is a warning that names the pattern and asks for a wait primitive instead of polling. Strike 2 re-injects the latest checkpoint and the rules and asks for a bearings check (task, last real change, blocker, different action). Strike 3 is the cap; in autonomy mode it becomes the halt. **Strikes decay rather than reset**: five consecutive good turns remove one, repeatedly, down to zero. A hard reset would let one edited line wipe a pattern of stalls; no decay would halt an eight-hour run over three stalls spread across it. Every increment and decrement is an event with its turn number in the run report. Tune with `CLAUDE_ENGRAM_STALL_TURNS`, `CLAUDE_ENGRAM_STALL_DECAY`, `CLAUDE_ENGRAM_STRIKE_CAP`.
 

@@ -13,10 +13,15 @@ what it changed:
               from the last reading), a test's pass/fail status flipped, a
               commit landed, or work was delegated to an agent.
 * no-effect -- tools were used and none of that happened.
-* neutral  -- no tools at all (a plain answer; ``/goal``'s territory), or
-              the turn parked on a wait primitive (Monitor, ScheduleWakeup,
-              a cron, a task-output wait). Parking is the healthy pattern
-              when a goal waits on scheduled work; it is not a stall.
+* neutral  -- no tools at all (a plain answer; ``/goal``'s territory), the
+              turn parked on a wait primitive (Monitor, ScheduleWakeup,
+              a cron, a task-output wait), or it only ran tests that were
+              not a repeat of the last run (verification). Parking is the
+              healthy pattern when a goal waits on scheduled work; a long
+              suite or three different benches in a row is not a stall.
+              The same test command with the same verdict again IS one.
+
+Turns, not time: a four-hour foreground command is one turn.
 
 Neutral turns are transparent: they touch neither streak.
 
@@ -195,10 +200,29 @@ def bash_mutates(command: str) -> bool:
     return False
 
 
+_RUNNERS = re.compile(
+    r"^(?:pytest|py\.test|unittest|jest|mocha|vitest|tox|nox|cargo\s+test|go\s+test|"
+    r"make\s+test|npm\s+(?:run\s+)?test|pnpm\s+test|yarn\s+test|dotnet\s+test|ctest)\b"
+)
+_PY_TEST = re.compile(
+    r"^[\w.\\/-]*python[\w.]*(?:\.exe)?\s+(?:-m\s+(?:pytest|unittest)\b|"
+    r"\S*(?:tests?[\\/]\S*\.py|bench_\w+\.py|test_\w+\.py|\w+_test\.py)\b)"
+)
+
+
 def _looks_like_test(low: str) -> bool:
-    return bool(
-        re.search(r"\bpytest\b|\bunittest\b|tests?[\\/]|\bbench_|_test\.py\b|test_\w+\.py\b", low)
-    )
+    """Is this a test INVOCATION? Judged on what runs, never on what a read
+    mentions: `cat goal-test/out.txt` is not a test, `python tests/x.py` is."""
+    for seg in _SEGMENT.split(low):
+        seg = seg.strip()
+        while True:
+            m = re.match(r"^(?:[a-z_][a-z0-9_]*=\S*\s+|sudo\s+)", seg)
+            if not m:
+                break
+            seg = seg[m.end() :]
+        if _RUNNERS.search(seg) or _PY_TEST.search(seg):
+            return True
+    return False
 
 
 def _response_text(resp: Any) -> str:
@@ -262,7 +286,7 @@ def classify_tool(name: str, tool_input: Any, response: Any) -> str:
             return "park"
         if _response_failed(response):
             return "none"
-        if test_outcome(cmd, response) is not None:
+        if _looks_like_test(cmd.lower()):
             return "test"
         if re.search(r"\bgit\s+commit\b", cmd):
             return "commit"
@@ -315,8 +339,9 @@ def note_tool(state: dict, name: str, tool_input: Any = None, response: Any = No
         turn.setdefault("effects", []).append("delegate")
     elif kind == "test":
         cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
-        turn["test_passed"] = test_outcome(cmd, response)
-        turn.setdefault("effects", []).append("test-run")
+        passed = test_outcome(cmd, response)
+        turn["test_passed"] = passed
+        turn.setdefault("test_runs", []).append([" ".join(cmd.split())[:300], passed])
     elif kind in ("file", "commit", "record"):
         turn.setdefault("effects", []).append(kind)
     return kind
@@ -394,13 +419,27 @@ def close_turn(state: dict, turn_no: int, project_dir: str = "", fingerprint=tre
         return "neutral"
 
     effects = list(turn.get("effects") or [])
-    # A test run counts as progress only when the status flipped.
+    # A test run is progress when the status flipped. Otherwise it is
+    # verification, which is neither progress nor circling -- unless it is
+    # the SAME command with the SAME verdict as the last run, which is the
+    # re-run-and-hope pattern and counts like any other no-effect turn. So a
+    # long suite, or three different benches in three turns, never strike.
     tp = turn.get("test_passed")
-    if tp is not None:
-        if st.get("last_test_passed") != tp:
+    runs = [tuple(r) for r in (turn.get("test_runs") or []) if isinstance(r, (list, tuple)) and len(r) == 2]
+    verification = False
+    if runs:
+        if tp is not None and st.get("last_test_passed") != tp:
             effects.append("test-status")
-        st["last_test_passed"] = tp
-    effects = [e for e in effects if e != "test-run"]
+        if tp is not None:
+            st["last_test_passed"] = tp
+        last_key = st.get("last_test_key")
+        last_key = tuple(last_key) if isinstance(last_key, (list, tuple)) else None
+        if any(r != last_key for r in runs):
+            verification = True
+        st["last_test_key"] = list(runs[-1])
+    if not effects and verification:
+        st["turns"]["neutral"] = int(st["turns"].get("neutral", 0)) + 1
+        return "neutral"
 
     if not effects:
         fp = fingerprint(project_dir) if callable(fingerprint) else None
