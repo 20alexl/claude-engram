@@ -215,6 +215,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Read the run report's Stalls section and the checkpoint the model left, decide what the run was missing, and either change the task or lift the halt with `python -m claude_engram.hooks.stall release <session_id>` (strikes reset) and resume the session. A halt that fires on a healthy run means the effect detector missed how the work lands — a script writing files under a name it does not recognise, say — and the fix is the detector, not the cap.
 
+### Gotcha: an unattended run gets "refused by rule" on a push or a delete
+
+**Symptom:** In a launcher run, `git push`, `rm -rf`, `taskkill /IM …` or `gh pr create` comes back `engram: refused by rule [..] …`, while the same command in your own session only shows the rule.
+
+**Cause:** The detector on that rule carries `unattended: deny`. In your session Claude Code's permission prompt, or you at the terminal, is the ask; in a launcher run nobody can answer, so an ask-first rule cannot be asked and the call is refused instead of recorded. The pack's destructive, kill-by-name and leaves-the-machine detectors ship this way.
+
+**Fix:** That is the intended stop. The model is told to bank what it needs approved in a checkpoint, notify, and continue with allowed work. If a rule should only record in unattended runs, set its detector's `unattended` to `record` with `memory(set_detector)`; if a run genuinely needs to push, give it a rule-free way (a script the owner reviewed) or do that step yourself afterwards.
+
 ### Gotcha: PushNotification "wasn't delivered" on a headless run
 
 **Symptom:** The halted model calls PushNotification, the transcript says it was not delivered (Remote Control inactive), and nothing reached your phone.

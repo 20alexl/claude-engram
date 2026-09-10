@@ -598,9 +598,10 @@ def deny_reason(state: dict, tool_name: str) -> str:
         f"engram halt: {h.get('strikes', STRIKE_CAP)} strikes -- no file, test or commit changed "
         f"for {h.get('strikes', STRIKE_CAP) * _env_int('CLAUDE_ENGRAM_STALL_TURNS', STALL_TURNS)} turns "
         f"(halted at turn {h.get('turn', '?')}). Every tool call is denied until a person releases "
-        f"the run (`python -m claude_engram.hooks.stall release <session_id>`). Two calls stay open: "
-        f"context(checkpoint_save) to bank where things stand, and PushNotification to say so. "
-        f"Denied: {tool_name}."
+        f"the run (`python -m claude_engram.hooks.stall release <session_id>`). Do this now, in order: "
+        f"FIRST context(checkpoint_save) -- the task, the last real change, what has been blocking, "
+        f"what a person must decide; it is the record they will read. THEN PushNotification with one "
+        f"line under 200 characters. Then stop. Nothing else is allowed. Denied: {tool_name}."
     )
 
 

@@ -50,6 +50,15 @@
 | Usage budget (5-hour / 7-day windows mirrored, once-per-window nudge, StopFailure record) | Stable | v0.8.24 |
 | Autonomy mode: strike-cap halt, out-of-session alerts, the run launcher with limit-aware resume, `/engram run` | Stable | v0.8.25 |
 | Code tier in the default pack (shape, correctness, performance, both OSes) | Stable | v0.8.25 |
+| Checkpoint provenance: commit + goal on every checkpoint, staleness line on every restore | Stable | v0.8.26 |
+
+## Done / Shipped (v0.8.26)
+
+| Feature | Notes |
+|---------|-------|
+| Checkpoint provenance | `save_checkpoint` stamps the repo's commit and the active `/goal`; restore and the session-start banner print the goal and "Since this checkpoint: N commits, M files changed -- incl. …" (or that the commit is not in this history). The launcher primes the goal before launch. |
+| Halt wording | The deny reason now orders the record: checkpoint first, then the notification, then stop. |
+| Unattended = deny | A detector marked `unattended: deny` refuses a matching shell command in autonomy mode with the rule as the reason; the pack's ask-first detectors carry it (pack version 6, older ones upgraded on re-seed). Attended sessions are only shown the rule. |
 
 ## Done / Shipped (v0.8.25)
 

@@ -134,6 +134,8 @@ Each fires once per compaction cycle. After a compaction the PostCompact banner 
 
 **Milestones are the model's call.** The other moment a checkpoint belongs is when a unit of work closes, and the model is the one who knows. The rule in the skill says: when you judge a phase, step, or part of a plan done, checkpoint before you say so. Engram reads the model's final message at Stop; a completion claim ("Phase 1 built", "step 3 done, next is X", "all 60 checks pass") with no deliberate checkpoint behind it gets one nudge at the next opportunity, quoting the sentence. Questions, negations and future tense never fire ("is step 3 done?", "not done yet", "once the tests pass"). After ExitPlanMode it asks for the approved plan to be banked with its steps as `pending_steps`, so every later "done" maps onto that list. On models that have Claude Code's task tools, a task marked completed is the same signal stated structurally. Nothing is ever written for the model, and commits are not a trigger.
 
+**What a checkpoint carries, and what a restore says.** Every deliberate checkpoint records the commit the repo stood at and the active `/goal` condition, if any. A restore, whether the session-start banner or `context(checkpoint_restore)`, prints the goal and one staleness line: how many commits and files changed since the checkpoint was saved, naming the checkpoint's own files among them, or that its commit is not in this history. A handoff carries the last session's framing; that line is what the model reads before acting on it.
+
 **Setup**, one of:
 
 - No statusline yet — use engram's. It prints `Fable 5.1 | ctx 660K/1000K | compact at 750K (90K left) | $1.25 | proj`:
@@ -179,7 +181,9 @@ memory(add_rule, content="Never push without asking", detector={"tools": ["Bash"
 memory(set_detector, memory_id=<rule id>, detector={...})   # {} clears
 ```
 
-The default pack ships detectors on the rules that need one: destructive shell commands (recursive or forced deletes, hard resets, force-push, DROP and TRUNCATE, disk formats, kills), kill by image name, and anything that leaves the machine (push, pull request, publish, outbound POST). A project whose own rule already covers that ground adopts the pack detector if it has none. `"compliance": false` in `.engram/config.json` or `CLAUDE_ENGRAM_COMPLIANCE=off` turns the trail off; re-run `python install.py` to register the shell PreToolUse hook.
+A detector may say what to do when nobody is at the prompt: `"unattended": "deny"`. In autonomy mode (the launcher's runs) a matching shell command is then refused with the rule as the reason, and the model is told to record what it needs approved, notify, and continue with allowed work. An attended session, even in bypass mode, is never refused, only shown the rule.
+
+The default pack ships detectors on the rules that need one, all marked deny unattended: destructive shell commands (recursive or forced deletes, hard resets, force-push, DROP and TRUNCATE, disk formats, kills), kill by image name, and anything that leaves the machine (push, pull request, publish, outbound POST). A project whose own rule already covers that ground adopts the pack detector if it has none. `"compliance": false` in `.engram/config.json` or `CLAUDE_ENGRAM_COMPLIANCE=off` turns the trail off; re-run `python install.py` to register the shell PreToolUse hook.
 
 ## Autonomy mode
 

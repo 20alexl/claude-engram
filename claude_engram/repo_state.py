@@ -1,0 +1,103 @@
+"""
+Where the repo and the run stand, for a checkpoint to record and a restore
+to compare against.
+
+A restored checkpoint carries the last session's framing. Before acting on
+it the model should know how far the repo moved since: commits landed,
+files changed, and whether the files the checkpoint names are among them.
+That is one git call at save time (the commit) and two at restore time
+(bounded, best effort, silent when there is no repo).
+
+The active /goal is the other thing a checkpoint should carry: a resumed
+session then reads the condition it is working toward without re-mining
+the transcript.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+from typing import Optional
+
+_GIT_TIMEOUT = 4.0
+
+
+def _git(args: list[str], cwd: str) -> Optional[str]:
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+        )
+    except Exception:
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def head(project_dir: str) -> str:
+    """Short HEAD sha, or '' outside a repo."""
+    if not project_dir or not Path(project_dir).is_dir():
+        return ""
+    out = _git(["rev-parse", "--short", "HEAD"], project_dir)
+    return (out or "").strip()
+
+
+def since(commit: str, project_dir: str, files: Optional[list[str]] = None) -> Optional[dict]:
+    """How the repo moved since ``commit``:
+    {commits, files_changed, touched (checkpoint files among them), missing}.
+    None outside a repo or with no commit to compare."""
+    if not commit or not project_dir or not Path(project_dir).is_dir():
+        return None
+    if _git(["cat-file", "-e", f"{commit}^{{commit}}"], project_dir) is None:
+        return {"commits": 0, "files_changed": 0, "touched": [], "missing": True}
+    count = (_git(["rev-list", "--count", f"{commit}..HEAD"], project_dir) or "0").strip()
+    names = _git(["diff", "--name-only", f"{commit}..HEAD"], project_dir) or ""
+    changed = [n.strip().replace("\\", "/") for n in names.splitlines() if n.strip()]
+    touched: list[str] = []
+    for f in files or []:
+        fp = str(f).replace("\\", "/")
+        base = fp.rsplit("/", 1)[-1]
+        if any(c == fp or c.endswith("/" + base) or fp.endswith("/" + c) or c == base for c in changed):
+            touched.append(base)
+    try:
+        n = int(count)
+    except ValueError:
+        n = 0
+    return {"commits": n, "files_changed": len(changed), "touched": touched, "missing": False}
+
+
+def since_text(info: Optional[dict]) -> str:
+    """One line for a banner, or '' when there is nothing to say."""
+    if not info:
+        return ""
+    if info.get("missing"):
+        return "Since this checkpoint: its commit is not in this history (rewritten or another clone)"
+    n, f = int(info.get("commits", 0)), int(info.get("files_changed", 0))
+    if not n and not f:
+        return "Since this checkpoint: no commits"
+    line = f"Since this checkpoint: {n} commit{'s' if n != 1 else ''}, {f} file{'s' if f != 1 else ''} changed"
+    if info.get("touched"):
+        line += " -- incl. " + ", ".join(info["touched"][:4])
+    return line
+
+
+def goal_for_session(state: dict) -> str:
+    """The active /goal condition: what the launcher recorded, else the last
+    sentinel in the session's transcript (verified shape, run_report)."""
+    _run = state.get("run")
+    run: dict = _run if isinstance(_run, dict) else {}
+    goal = str(run.get("goal") or "").strip()
+    if goal:
+        return goal
+    tp = str(run.get("transcript_path") or "")
+    if not tp or not Path(tp).is_file():
+        return ""
+    try:
+        from claude_engram.run_report import _read_transcript
+
+        tr = _read_transcript(Path(tp), str(state.get("session_id") or ""))
+        return str(tr.get("goal_text") or "").strip()
+    except Exception:
+        return ""

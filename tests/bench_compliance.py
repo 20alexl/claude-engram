@@ -334,6 +334,70 @@ def test_end_to_end(tmp):
     os.environ.pop("CLAUDE_ENGRAM_DIR", None)
 
 
+def test_unattended_deny(c, tmp):
+    print("unattended = deny (autonomy mode only):")
+    os.environ.pop("CLAUDE_ENGRAM_AUTONOMY", None)
+    d = c.normalize_detector({"command": "x", "unattended": "DENY"})
+    check("unattended is normalized", d is not None and d["unattended"] == "deny")
+    check("an unknown value is dropped", "unattended" not in (c.normalize_detector({"command": "x", "unattended": "maybe"}) or {}))
+    compiled, _ = c.compile_detector({"command": "x"})
+    check("default policy is record", compiled is not None and compiled["unattended"] == "record")
+    from claude_engram import default_pack as dp
+
+    check("the pack's ask-first detectors deny unattended", all(x["unattended"] == "deny" for x in (dp.DESTRUCTIVE_DETECTOR, dp.KILL_BY_NAME_DETECTOR, dp.OUTBOUND_DETECTOR)))
+    pm = _pm([{"id": "r1", "category": "rule", "content": "No rm", "detector": {"tools": ["Bash"], "command": r"\brm\b", "unattended": "deny"}},
+              {"id": "r2", "category": "rule", "content": "Log pushes", "detector": {"tools": ["Bash"], "command": r"git push"}}])
+    rules = c.rules_with_detectors(pm)
+    hits = c.match_call(rules, "Bash", {"command": "rm -rf x && git push"})
+    check("hits carry the policy", {h["rule_id"]: h["unattended"] for h in hits} == {"r1": "deny", "r2": "record"})
+    check("outside autonomy mode nothing is denied, even in bypass mode", c.should_deny(hits, "bypassPermissions") == [])
+    os.environ["CLAUDE_ENGRAM_AUTONOMY"] = "1"
+    denied = c.should_deny(hits, "bypassPermissions")
+    check("in autonomy mode the deny-marked rule refuses, the record-marked one does not", [h["rule_id"] for h in denied] == ["r1"])
+    t = c.deny_text(denied)
+    check("the reason names the rule and says what to do instead", "refused by rule [r1]" in t and "checkpoint_save" in t and "PushNotification" in t and "Do not work around it" in t)
+    os.environ.pop("CLAUDE_ENGRAM_AUTONOMY", None)
+    print("seed upgrades an older pack-shaped detector:")
+    os.environ["CLAUDE_ENGRAM_DIR"] = str(tmp / "store-upgrade")
+    from claude_engram.tools.memory import MemoryStore
+
+    proj = tmp / "proj-upgrade"
+    (proj / ".git").mkdir(parents=True, exist_ok=True)
+    s = MemoryStore(str(tmp / "store-upgrade"))
+    s.remember_project(str(proj), summary="u")
+    old = {k: v for k, v in dp.DESTRUCTIVE_DETECTOR.items() if k != "unattended"}
+    ok, msg = s.add_rule(str(proj), "Don't run destructive commands without asking. trash > rm.", reason="mine", detector=old)
+    rid = msg.split("id=")[-1].strip()
+    dp.seed_rules(str(proj))
+    r = next(x for x in MemoryStore(str(tmp / "store-upgrade")).get_rules(str(proj)) if x.id == rid)
+    check("the existing detector gained unattended=deny and kept its regex", (r.detector or {}).get("unattended") == "deny" and (r.detector or {}).get("command") == old["command"])
+    os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+    print("end to end: the shell hook refuses in autonomy mode:")
+    store = tmp / "store-deny"
+    projd = tmp / "proj-deny"
+    projd.mkdir(parents=True, exist_ok=True)
+    os.environ["CLAUDE_ENGRAM_DIR"] = str(store)
+    s2 = MemoryStore(str(store))
+    s2.remember_project(str(projd), summary="d")
+    s2.add_rule(str(projd), "Never push without asking", reason="bench", detector={"tools": ["Bash"], "command": r"\bgit\s+push\b", "unattended": "deny", "note": "push"})
+    sid = "s-deny-e2e"
+    base = {"session_id": sid, "cwd": str(projd), "hook_event_name": "PreToolUse", "tool_name": "Bash", "permission_mode": "bypassPermissions", "tool_input": {"command": "git push origin main"}}
+    env = dict(os.environ, CLAUDE_ENGRAM_DIR=str(store), CLAUDE_PROJECT_DIR=str(projd), CLAUDE_ENGRAM_LIVE_MINE="0")
+    r = _hook("pre_bash_json", dict(base, tool_use_id="d1"), env)
+    check("attended (no autonomy): injected, not refused", "engram-rule" in r.stdout and "permissionDecision" not in r.stdout)
+    env_a = dict(env, CLAUDE_ENGRAM_AUTONOMY="1")
+    r = _hook("pre_bash_json", dict(base, tool_use_id="d2"), env_a)
+    out = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
+    hso = out.get("hookSpecificOutput", {})
+    check("autonomy: the push is refused with the rule as the reason", hso.get("permissionDecision") == "deny" and "refused by rule" in hso.get("permissionDecisionReason", ""))
+    st = json.loads((store / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
+    verdicts = {m["tool_use_id"]: m["verdict"] for m in st["compliance"]["matches"]}
+    check("the trail records the permission-mode verdict for the attended call and denied for the refused one", verdicts.get("d1") == "unattended" and verdicts.get("d2") == "denied")
+    r = _hook("pre_bash_json", dict(base, tool_use_id="d3", tool_input={"command": "git status"}), env_a)
+    check("a clean command in autonomy mode is untouched", r.stdout.strip() == "")
+    os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+
+
 def test_source_guards():
     print("source guards:")
     inst = (ROOT / "install.py").read_text(encoding="utf-8")
@@ -363,6 +427,7 @@ def main():
         test_pack_seed(tmp)
         test_opt_out(c, tmp)
         test_end_to_end(tmp)
+        test_unattended_deny(c, tmp)
         test_source_guards()
     print()
     if _fails:

@@ -130,6 +130,22 @@ class ContextGuard:
             "handoff_context_needed": checkpoint.handoff_context_needed,
             "handoff_warnings": checkpoint.handoff_warnings,
         }
+        # Where the repo and the run stood (repo_state): the commit lets a
+        # restore say how far the repo moved since; the goal lets a resumed
+        # session read what it was working toward. Both files get it.
+        try:
+            from claude_engram import repo_state as _rs
+
+            _commit = _rs.head(project_path) if project_path else ""
+            if _commit:
+                checkpoint_data["commit"] = _commit
+            from claude_engram.hooks import remind as _remind
+
+            _goal = _rs.goal_for_session(_remind.load_state())
+            if _goal:
+                checkpoint_data["goal"] = _goal[:500]
+        except Exception:
+            pass
 
         # Write atomically via temp-then-rename
         temp_file = checkpoint_file.with_suffix(".json.tmp")
@@ -419,6 +435,19 @@ class ContextGuard:
         summary_lines = [f"**{'Task' if _has_task_state else 'Handoff'}:** {headline}"]
         if _from:
             summary_lines.append(f"**From:** {_from} · {age_hours:.1f}h ago")
+        if data.get("goal"):
+            summary_lines.append(f"**Goal:** {data['goal']}")
+        # Staleness: how far the repo moved since this was saved. A handoff
+        # carries the last session's framing; the model reads this before it.
+        try:
+            from claude_engram import repo_state as _rs
+
+            _pp = data.get("project_path") or (data.get("metadata") or {}).get("project_path") or project_path or ""
+            _since = _rs.since_text(_rs.since(str(data.get("commit") or ""), str(_pp), data.get("files_in_progress") or data.get("files_involved") or []))
+            if _since:
+                summary_lines.append(f"**{_since}**")
+        except Exception:
+            pass
         if data.get("current_step"):
             summary_lines.append(f"**Current step:** {data['current_step']}")
         if _completed or _pending:

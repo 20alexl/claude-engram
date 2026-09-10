@@ -77,6 +77,12 @@ def normalize_detector(d: Any) -> Optional[dict]:
     note = d.get("note")
     if isinstance(note, str) and note.strip():
         out["note"] = note.strip()[:200]
+    # What to do with a match when nobody is at the prompt (autonomy mode):
+    # "record" (default) or "deny" -- an ask-first rule cannot be asked, so
+    # the call is refused and the model must stop and say what it needs.
+    un = str(d.get("unattended") or "").strip().lower()
+    if un in ("deny", "record"):
+        out["unattended"] = un
     if not any(k in out for k in ("command", "input", "paths")) and not out.get("tools"):
         return None
     return out
@@ -87,7 +93,12 @@ def compile_detector(d: Optional[dict]) -> tuple[Optional[dict], str]:
     d = normalize_detector(d)
     if not d:
         return None, "empty"
-    c: dict = {"tools": set(d.get("tools") or []), "paths": list(d.get("paths") or []), "note": d.get("note", "")}
+    c: dict = {
+        "tools": set(d.get("tools") or []),
+        "paths": list(d.get("paths") or []),
+        "note": d.get("note", ""),
+        "unattended": d.get("unattended", "record"),
+    }
     for key in ("command", "input"):
         if key in d:
             try:
@@ -184,8 +195,45 @@ def match_call(rules: list[dict], tool_name: str, tool_input: Any) -> list[dict]
             continue
         what = call_matches(c, tool_name, tool_input)
         if what:
-            hits.append({"rule_id": r["id"], "rule": r["content"], "what": what, "note": c.get("note", "")})
+            hits.append(
+                {
+                    "rule_id": r["id"],
+                    "rule": r["content"],
+                    "what": what,
+                    "note": c.get("note", ""),
+                    "unattended": c.get("unattended", "record"),
+                }
+            )
     return hits
+
+
+def should_deny(hits: list[dict], permission_mode: str) -> list[dict]:
+    """The hits that refuse the call: detectors marked ``unattended: deny``,
+    in autonomy mode only. A person's own bypass-mode session is attended --
+    they are at the terminal and see the rule injected -- so the permission
+    mode alone never denies; only the launcher's flag does."""
+    try:
+        from claude_engram.hooks.stall import autonomy_on
+    except Exception:  # pragma: no cover
+        return []
+    if not autonomy_on():
+        return []
+    return [h for h in hits if h.get("unattended") == "deny"]
+
+
+def deny_text(denied: list[dict]) -> str:
+    """The reason the model sees for a refused call."""
+    if not denied:
+        return ""
+    h = denied[0]
+    more = f" (+{len(denied) - 1} more rule{'s' if len(denied) > 2 else ''})" if len(denied) > 1 else ""
+    return (
+        f"engram: refused by rule [{h['rule_id']}] {h['rule'][:200]} -- {h['what']}{more}. "
+        "This run is unattended: nobody can approve an ask-first action, so it is not taken. "
+        "Do not work around it. Bank a context(checkpoint_save) that says what you need "
+        "approved and why, send a PushNotification, and continue with work the rules allow "
+        "or stop."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +314,7 @@ def record(
             "mode": permission_mode or "",
             "verdict": v,
             "subagent": bool(agent_id),
+            "unattended": h.get("unattended", "record"),
         }
         new.append(rec)
         hh = st["health"].setdefault(h["rule_id"], {"ok": True, "error": "", "hits": 0})

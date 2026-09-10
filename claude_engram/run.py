@@ -155,6 +155,28 @@ def write_manifest(project_dir: str, session_id: str, data: dict) -> Optional[Pa
         return None
 
 
+def prime_state(session_id: str, goal: str, manifest_path: str = "") -> None:
+    """Before launch: record the goal and the manifest in the session's
+    state so every checkpoint the run saves carries the goal, and the run
+    report can name the manifest. SessionStart keeps the run block."""
+    try:
+        from claude_engram.hooks import remind
+
+        remind._session_id = session_id
+        state = remind.load_state()
+        _run = state.get("run")
+        run: dict = _run if isinstance(_run, dict) else {}
+        if goal.strip():
+            run["goal"] = goal.strip()[:500]
+        if manifest_path:
+            run["manifest"] = manifest_path
+        run["launcher"] = True
+        state["run"] = run
+        remind.save_state(state)
+    except Exception:
+        pass
+
+
 def session_state(session_id: str) -> dict:
     try:
         from claude_engram.hooks import remind
@@ -264,6 +286,7 @@ def launch(args: argparse.Namespace) -> int:
     mp = write_manifest(project_dir, session_id, manifest)
     if mp:
         print(f"  manifest     {mp}")
+    prime_state(session_id, args.goal or "", str(mp) if mp else "")
 
     resumes = 0
     exit_code = 1

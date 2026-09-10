@@ -188,6 +188,18 @@ Storage: ~/.claude_engram/
 - `run.py` — `model_window()` (haiku 200K, else 1M, `--context-window` wins) → `compaction_env()` 75% → `build_env()` (autonomy, window, `MSYS_NO_PATHCONV`, the nested-session identity stripped) → `build_prompt()` (`/goal` line, task, `PARK_HINT`) → `build_cmd()` (`claude -p <prompt> --session-id <uuid> --output-format json --permission-mode bypassPermissions [--model] [--max-turns]`). After each exit: `session_state()`; a halt ends the loop; `resume_decision()` resumes only a `rate_limit` failure with a known reset inside six hours, after `reset + slack` (`CLAUDE_ENGRAM_RESUME_SLACK`), with `claude -p --resume <uuid> "Continue."` up to `--max-resumes`. Then `run_report.write_report()` and the closing alert. `--dry-run` prints the plan; `--claude-bin x.py` runs a stand-in under the interpreter (the bench)
 - The skill's `/engram run|status|release|report` subcommands wrap these; `run` launches in the background so the interactive session stays free
 
+### Checkpoint Provenance (`repo_state.py`)
+
+**What it does:** Stamps every deliberate checkpoint with where the repo stood (the commit) and what the run was working toward (the `/goal` condition), and has every restore say how far the repo moved since.
+
+**Why it's separate:** A handoff carries the last session's framing, and four sessions once inherited the same tunnel from one. The cheapest antidote is a line the model reads before the handoff: two commits and one file since, or nothing moved. It is git, not memory, so it lives beside the store rather than in it.
+
+**Key internals:**
+- `head(project)` — short HEAD sha at save time; `since(commit, project, files)` — `rev-list --count` and `diff --name-only` from that commit, the checkpoint's own files matched among the changed ones; a commit `cat-file` cannot find is reported as missing (rewritten history, another clone); no repo → `None`. Both bounded by a 4 s timeout, both silent on failure
+- `since_text()` — the one banner line, four shapes
+- `goal_for_session(state)` — the launcher's `run.goal` first (it is primed before launch and survives SessionStart), else the transcript's last `goal_status` sentinel via `run_report._read_transcript`, else `''`
+- `save_checkpoint` writes `commit` and `goal` into the task file and the ring entry; `restore_checkpoint` and the session-start banner print `Goal:` and the staleness line; older entries without the fields print neither
+
 ### Run Report (`run_report.py`)
 
 **What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.

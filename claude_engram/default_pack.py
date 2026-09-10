@@ -34,7 +34,7 @@ from typing import Optional
 
 from claude_engram import project_config
 
-PACK_VERSION = 5  # 4: detectors on the rules that need one; 5: the code tier
+PACK_VERSION = 6  # 4: detectors on the rules that need one; 5: the code tier; 6: unattended=deny on the ask-first detectors
 
 # Detectors (hooks/compliance.py) for the pack rules that can be watched by
 # a regex. Hand-written, shipped with the rule; a project's own rule that
@@ -53,11 +53,13 @@ DESTRUCTIVE_DETECTOR = {
         r"|\btaskkill\b|\bStop-Process\b|\bpkill\b|\bkillall\b|\bkill\s+-9\b"
     ),
     "note": "destructive shell: recursive/forced delete, hard reset, force-push, DROP/TRUNCATE, disk format, kill",
+    "unattended": "deny",  # an ask-first rule cannot be asked when nobody is there
 }
 KILL_BY_NAME_DETECTOR = {
     "tools": ["Bash", "PowerShell"],
     "command": r"\btaskkill\b[^|;\n]*/IM\b|\bStop-Process\b[^|;\n]*-Name\b|\bpkill\b|\bkillall\b|\bkill\s+-9\s+\$\(pgrep",
     "note": "kill by image or process name",
+    "unattended": "deny",
 }
 OUTBOUND_DETECTOR = {
     "tools": ["Bash", "PowerShell"],
@@ -67,6 +69,7 @@ OUTBOUND_DETECTOR = {
         r"|\bcurl\b[^|;\n]*(?:-X\s*(?:POST|PUT|PATCH|DELETE)|--data\b|-d\s)"
     ),
     "note": "leaves the machine: push, pull request, publish, outbound POST",
+    "unattended": "deny",
 }
 
 # The workspace rules, in the words they are written in there.
@@ -373,8 +376,21 @@ def seed_rules(project_dir: str, force: bool = False, include_workflow: bool = T
             # ships a detector and the covering rule has none, it adopts it.
             det = rule.get("detector")
             for e in covering:
-                if det and not e.get("detector") and e.get("id"):
+                if not det or not e.get("id"):
+                    continue
+                have = e.get("detector")
+                if not have:
                     if _attach_detector(store, project_dir, str(e["id"]), det):
+                        report["detectors_attached"].append(str(e["id"]))
+                elif (
+                    isinstance(have, dict)
+                    and have.get("note") == det.get("note")
+                    and det.get("unattended")
+                    and have.get("unattended") != det.get("unattended")
+                ):
+                    # A pack-shaped detector from an earlier pack version:
+                    # carry the newer policy onto it, keep everything else.
+                    if _attach_detector(store, project_dir, str(e["id"]), {**have, "unattended": det["unattended"]}):
                         report["detectors_attached"].append(str(e["id"]))
             continue
         try:

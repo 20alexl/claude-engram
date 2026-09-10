@@ -821,6 +821,18 @@ def _format_restored_context(entry: dict) -> list[str]:
         out.append(
             "  Warnings: " + "; ".join(_truncate(w, 60) for w in entry["warnings"][:3])
         )
+    if entry.get("goal"):
+        out.append(f"  Goal: {_truncate(str(entry['goal']), 100)}")
+    # Staleness (repo_state): the handoff carries the last session's framing;
+    # say how far the repo moved since it was written.
+    try:
+        from claude_engram import repo_state as _rs
+
+        _since = _rs.since_text(_rs.since(str(entry.get("commit") or ""), str(_pp), files))
+        if _since:
+            out.append("  " + _since)
+    except Exception:
+        pass
     return out
 
 
@@ -2832,11 +2844,33 @@ def _hook_pre_bash(project_dir: str) -> None:
         data = json_module.loads(stdin_data)
         tool_name = str(data.get("tool_name") or "Bash")
         new, state = _compliance_check(project_dir, data, tool_name, data.get("tool_input"))
+        from claude_engram.hooks import compliance as _cpl
+
+        # Autonomy mode: an ask-first rule cannot be asked, so a detector
+        # marked deny refuses the call (a deny ends nothing but this call;
+        # the reason tells the model to record what it needs and go on).
+        denied = _cpl.should_deny(new, str(data.get("permission_mode") or "")) if new else []
+        if denied and state is not None:
+            for m in state.get("compliance", {}).get("matches", [])[-len(new):]:
+                if m.get("rule_id") in {d["rule_id"] for d in denied}:
+                    m["verdict"] = "denied"
         if state is not None:
             save_state(state)
+        if denied:
+            print(
+                json_module.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": _cpl.deny_text(denied),
+                        }
+                    }
+                )
+            )
+            return
         if data.get("agent_id"):
             return  # recorded (flagged as a subagent's), never nudged
-        from claude_engram.hooks import compliance as _cpl
 
         result = _cpl.rule_text(new, str(data.get("permission_mode") or "")) if new else ""
         result = _with_pressure(result, project_dir)
