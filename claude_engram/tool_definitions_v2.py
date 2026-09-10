@@ -631,8 +631,9 @@ TOOL_DEFINITIONS = [
                         "cross_project",
                         "reflect",
                         "commitments",
+                        "run_report",
                     ],
-                    "description": "Operation to perform",
+                    "description": "Operation to perform. run_report: write and return this session's auditable run report (<project>/.engram/runs/) -- hook-captured facts only: commits, turns, files with edit counts, tests, errors, compactions with sizes and what each restored, checkpoints deliberate vs auto, goal text",
                 },
                 "project_path": {"type": "string", "description": "Project directory"},
                 "query": {

@@ -148,6 +148,18 @@ Without a statusline engram says so at session start, and only the cadence runs.
 
 For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper, leaves headroom against the overflow that ends a `/goal` run, and puts the checkpoint nudge a known distance below a number you chose.
 
+## Run report
+
+Every substantial session leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session>.md` plus a `.json` twin, written at SessionEnd or on demand with `session_mine(run_report)` / `python -m claude_engram.run_report --session <id>`. Every line is hook-captured or read from the transcript, never self-reported by the model:
+
+- goal text (from the `/goal` command), model, permission mode, branch, start → end commit
+- wall time, turns, prompts, context at end and cost
+- every compaction with trigger, before → after token sizes (from the transcript's own compaction record) and which checkpoint it restored
+- files touched with per-file edit counts; test runs, first and last status
+- errors grouped by signature, recurrences, and whether the miner already knew them
+- checkpoints written this session, deliberate vs automatic
+- what was **not** measured, listed rather than omitted (stall strikes and rules compliance arrive in later phases; goal evaluator verdicts are not parsed until their format is verified on a real run)
+
 ## Reindexing
 
 If search quality degrades or after a big update:

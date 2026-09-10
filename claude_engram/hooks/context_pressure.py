@@ -102,6 +102,7 @@ def record_statusline(data: dict) -> Optional[Path]:
         "used_percentage": ctx.get("used_percentage"),
         "model_id": model.get("id", "") or "",
         "model_name": model.get("display_name", "") or "",
+        "total_cost_usd": (data.get("cost") or {}).get("total_cost_usd"),
     }
     path = mirror_path(sid)
     try:
@@ -335,6 +336,7 @@ def note_stop(state: dict, last_message: str = "") -> None:
     path and nothing is staged."""
     ps = pressure_state(state)
     ps["stops_since_checkpoint"] = int(ps.get("stops_since_checkpoint", 0)) + 1
+    ps["stops_total"] = int(ps.get("stops_total", 0)) + 1
     prev_stop = float(ps.get("last_stop_at") or 0.0)
     ps["last_stop_at"] = time.time()
     if not last_message:
@@ -357,12 +359,33 @@ def note_stop(state: dict, last_message: str = "") -> None:
 def note_compaction(state: dict) -> None:
     """PostCompact: open a new cycle. Latches clear; a mirror written before
     this moment still shows the pre-compaction count and is ignored until the
-    statusline writes a fresh one."""
+    statusline writes a fresh one. Also appends a compaction record for the
+    run report (sizes come from the transcript's compact_boundary metadata;
+    this record adds the moment and, via note_restored, what was restored)."""
     ps = pressure_state(state)
     ps["cycle"] = int(ps.get("cycle", 0)) + 1
     ps["headsup_done"] = False
     ps["checkpoint_done"] = False
     ps["compacted_at"] = time.time()
+    comps = ps.get("compactions")
+    if not isinstance(comps, list):
+        comps = []
+    comps.append({"at": ps["compacted_at"], "cycle": ps["cycle"], "restored": None})
+    ps["compactions"] = comps[-50:]
+
+
+def note_restored(state: dict, entry: Optional[dict]) -> None:
+    """PostCompact re-injected this ring entry; pin it to the latest
+    compaction record so the report can say what each compaction restored."""
+    ps = pressure_state(state)
+    comps = ps.get("compactions")
+    if not isinstance(comps, list) or not comps or not isinstance(entry, dict):
+        return
+    comps[-1]["restored"] = {
+        "kind": entry.get("kind", "auto"),
+        "task_id": entry.get("task_id", ""),
+        "summary": str(entry.get("summary") or entry.get("task_description") or "")[:120],
+    }
 
 
 def current_assessment(state: dict, session_id: str, project_dir: str = "") -> dict:

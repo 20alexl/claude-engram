@@ -173,6 +173,15 @@ class ContextGuard:
         # restore From line, the session-start banner) keys provenance on it.
         if project_path:
             checkpoint_data["project_path"] = project_path
+        # Session provenance, like the auto entries: the run report lists
+        # this session's deliberate checkpoints by it.
+        try:
+            from claude_engram.hooks.remind import _session_id as _sid
+
+            if _sid:
+                checkpoint_data["session_id"] = _sid
+        except Exception:
+            pass
         checkpoint_data["summary"] = handoff_summary or task_description
         checkpoint_data["files_in_progress"] = checkpoint.files_involved
         checkpoint_data["next_steps"] = checkpoint.pending_steps

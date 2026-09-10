@@ -234,17 +234,54 @@ def _track_tool_duration(state: dict, tool_name: str, duration_ms: int):
     d["max_ms"] = max(d["max_ms"], duration_ms)
 
 
-def mark_session_started(project_dir: str):
-    """Mark that session_start was called - resets some counters."""
+def mark_session_started(
+    project_dir: str,
+    permission_mode: str = "",
+    transcript_path: str = "",
+    source: str = "startup",
+):
+    """Mark that session_start was called - resets some counters, and records
+    the run block the run report reads (start commit, permission mode, the
+    transcript path every hook input carries).
+
+    A compaction- or resume-triggered SessionStart is the SAME session
+    continuing (state is keyed by session id, so on resume this file is that
+    session's own): its edited-file list, prompt count and tool timings are
+    kept. Wiping them there made a long unattended run's report lose
+    everything before its last compaction, and resume events fire mid-session
+    on this machine (device follow-along), which reset the list unnoticed."""
     state = load_state()
+    continuing = source in ("compact", "resume")
     state["prompts_without_session"] = 0
-    state["prompts_this_session"] = 0  # Reset session prompt counter
     state["edits_without_session"] = 0
     state["checkpoint_reminded"] = False  # Reset checkpoint reminder flag
     state["last_session_start"] = time.time()
     state["active_project"] = project_dir
-    state["files_edited_this_session"] = []
-    state["tool_durations"] = {}
+    if not continuing:
+        state["prompts_this_session"] = 0  # Reset session prompt counter
+        state["files_edited_this_session"] = []
+        state["tool_durations"] = {}
+    _run_v = state.get("run")
+    run: dict = _run_v if isinstance(_run_v, dict) else {}
+    run.setdefault("started_at", state["last_session_start"])
+    if permission_mode:
+        run["permission_mode"] = permission_mode
+    if transcript_path:
+        run["transcript_path"] = transcript_path
+    if not run.get("start_commit"):
+        try:
+            import subprocess as _sp
+
+            r = _sp.run(
+                ["git", "--no-optional-locks", "-C", project_dir, "rev-parse", "--short", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            run["start_commit"] = r.stdout.strip() if r.returncode == 0 else ""
+        except Exception:
+            run["start_commit"] = ""
+    state["run"] = run
     _increment_tool_usage(state, "session_start")
     save_state(state)
 
@@ -2748,6 +2785,15 @@ def _hook_post_compact(project_dir: str) -> None:
                 lines.append(
                     f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}"
                 )
+            # For the run report: which entry this compaction restored.
+            try:
+                from claude_engram.hooks import context_pressure as _cp2
+
+                _st2 = load_state()
+                _cp2.note_restored(_st2, handoff)
+                save_state(_st2)
+            except Exception:
+                pass
 
         # PostCompact has no hookSpecificOutput in Claude Code's schema.
         # Print as plain stdout — Claude Code shows this as hook output.
@@ -2838,9 +2884,13 @@ def _hook_session_start(project_dir: str) -> None:
     try:
         stdin_data = _read_stdin_with_timeout(0.5)
         source = "startup"
+        _perm = ""
+        _transcript = ""
         if stdin_data:
             data = json_module.loads(stdin_data)
             source = data.get("source", "startup")
+            _perm = str(data.get("permission_mode", "") or "")
+            _transcript = str(data.get("transcript_path", "") or "")
 
         # Capture the resuming session's OWN edited files BEFORE
         # mark_session_started wipes the per-session list below. They
@@ -2857,7 +2907,12 @@ def _hook_session_start(project_dir: str) -> None:
                 resume_files = []
 
         # Auto-start claude_engram session
-        mark_session_started(project_dir)
+        mark_session_started(
+            project_dir,
+            permission_mode=_perm,
+            transcript_path=_transcript,
+            source=str(source or "startup"),
+        )
 
         # Apply pending data migrations: cheap steps inline (fast, idempotent),
         # heavy steps in a detached background process so the hook stays snappy.
@@ -3724,6 +3779,28 @@ def main():
             # Gather session summary before clearing state
             state = load_state()
             files_edited = state.get("files_edited_this_session", [])
+
+            # The run report: one auditable artifact per substantial session,
+            # written into the project the session actually worked in
+            # (<project>/.engram/runs/). Before mark_session_ended so the
+            # state it reads is the live one; the end reason is recorded first.
+            try:
+                from claude_engram import run_report as _rr
+
+                _run_v = state.get("run")
+                _run: dict = _run_v if isinstance(_run_v, dict) else {}
+                _run["end_reason"] = str(reason)
+                state["run"] = _run
+                state["last_session_end"] = time.time()
+                save_state(state)
+                if _rr.substantial(state):
+                    _rr.write_report(
+                        _session_id,
+                        _resolve_session_project(project_dir, files_edited),
+                        state,
+                    )
+            except Exception:
+                pass
 
             mark_session_ended()
 

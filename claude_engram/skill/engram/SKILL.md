@@ -58,6 +58,7 @@ description: Claude Engram persistent memory — quick reference for all MCP too
 - `session_mine(commitments, project_path="...")` — what you said you'd do THIS session and whether it's done; scans the LIVE transcript (deferred open-loops + recent in-flight). Run before asking the user "what next?" or on resume
 - `session_mine(search, query="...", kind="next-step")` — filter hits by kind: decision / next-step / error / narration
 - `session_mine(search, query="...", since="2026-04-01")` — temporal filtering
+- `session_mine(run_report, project_path="...")` — write and return this session's auditable run report (`<project>/.engram/runs/<date>-<session>.md` + `.json`): commits, turns, files with edit counts, tests, errors, compactions with sizes and what each restored, deliberate vs auto checkpoints, goal text, and what was not measured. Hook-captured facts only; SessionEnd writes the same file automatically for substantial sessions
 - `session_mine(reindex, mode="bootstrap", project_path="...")` — rebuild from history (shows results). On a large history this can exceed Claude Code's 2-minute MCP call limit and auto-continue in the background — the rebuild still finishes; re-run the query after it settles rather than re-triggering the rebuild
 
 ## Context Protection

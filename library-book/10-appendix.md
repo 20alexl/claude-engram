@@ -191,7 +191,7 @@ Category bonuses: `rule` +0.3, `mistake` +0.2.
 | `PostToolUse` | `ExitPlanMode\|TaskUpdate` | `post_milestone_json` | Plan approved → bank it with its steps pending; task completed → milestone nudge |
 | `PostToolUseFailure` | `""` | `tool_failure_json` | Auto-log errors from all tools |
 | `Stop` | `""` | `stop_json` | Save handoff with last message; read it for a "step done" claim (milestone) |
-| `SessionEnd` | `""` | `session_end_json` | Save session state, output summary |
+| `SessionEnd` | `""` | `session_end_json` | Save session state, write the run report (`.engram/runs/`), spawn the miner |
 | `SessionStart` | `""` | `session_start_json` | Load context, start scorer server |
 | `PreCompact` | `""` | `pre_compact_json` | Auto-save checkpoint |
 | `PostCompact` | `""` | `post_compact_json` | Re-inject rules/mistakes/decisions + the compaction rhythm |
@@ -246,6 +246,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.16 — 2026-09-09
+
+- **Run report.** Every substantial session now leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session8>.md` plus a `.json` twin, written at SessionEnd (an edit, a compaction, or five prompts qualifies) or on demand via `session_mine(run_report)` and `python -m claude_engram.run_report --session <id>`. Nothing in it is self-reported by the model.
+  - Sources: the per-session hook state (files with per-file edit counts, test runs and first/last status, prompts, the `run` block, the `pressure` block), the transcript (model, branch, `/goal` command text, tool errors, every `compact_boundary`), this session's ring entries, the statusline mirror (final tokens, cost — the mirror now records cost), git for the end commit, and `patterns.json` for which errors were already known.
+  - **Compaction sizes come from Claude Code itself.** The transcript's `compact_boundary` record carries `compactMetadata` with `trigger`, `preTokens`, `postTokens`, `cumulativeDroppedTokens` and `durationMs` — verified on a real transcript (33 boundaries in one session, e.g. `489107 → 28251`). The report joins each with what PostCompact restored, pinned to the compaction record by the hook.
+  - Provenance the hooks now record: SessionStart stores the start commit, the permission mode and the transcript path in a `run` block; SessionEnd stores the end reason and writes the report before clearing state; PostCompact pins the restored ring entry; Stop counts turns; manual `checkpoint_save` ring entries carry `session_id` like the auto entries always did.
+  - Honest gaps, listed in the report rather than omitted: stall strikes (Phase 4), rules compliance (Phase 5), goal evaluator verdicts (no local transcript has ever carried a `/goal` run, so the format is unverified and not guessed), a missing transcript or mirror. Automatic per-turn saves contend only for the ring's latest pointer, so deliberate checkpoints are the record and at most one auto is listed.
+- New `tests/bench_run_report.py`: collection from a seeded state + transcript + ring, the compaction join, error grouping and known-before matching, session scoping of checkpoints, rendering, atomic idempotent writes, the substantial gate, the CLI, and source guards on every hook that feeds the report.
 
 ### v0.8.15 — 2026-09-09
 

@@ -2357,6 +2357,26 @@ class Handlers:
                 )
             ]
 
+        elif operation == "run_report":
+            # On-demand run report for THIS session (the MCP server adopted
+            # the session id at startup); written to <project>/.engram/runs/
+            # and returned. SessionEnd writes the same artifact automatically.
+            from claude_engram import run_report as _rr
+            from claude_engram.hooks.remind import _session_id as _sid
+
+            if not _sid:
+                return [
+                    TextContent(
+                        type="text",
+                        text="No session id available to this server (older Claude Code?); run "
+                        "`python -m claude_engram.run_report --session <id> --project <dir>` instead.",
+                    )
+                ]
+            path = _rr.write_report(_sid, project_path)
+            body = _rr.render_md(_rr.collect(_sid, project_path))
+            head = f"Run report written: {path}\n\n" if path else "Run report could not be written; rendering only.\n\n"
+            return [TextContent(type="text", text=head + body)]
+
         elif operation == "reflect":
             # Two complementary views of how engram is doing: deterministic
             # injection precision (Cap 6, always available), plus LLM-synthesized

@@ -42,6 +42,15 @@
 | Idempotent version-stamped migrations | Stable | v0.5.0 |
 | Context-pressure checkpoint nudges (statusline mirror, distance to compaction) | Stable | v0.8.14 |
 | Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
+| Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
+
+## Done / Shipped (v0.8.16)
+
+| Feature | Notes |
+|---------|-------|
+| Run report | One auditable artifact per session in the repo (`.engram/runs/<date>-<session>.md` + `.json`), at SessionEnd for substantial sessions or on demand via `session_mine(run_report)` / the CLI. Joins the hook state, the transcript, the ring and the statusline mirror: commits, turns, files with edit counts, tests, errors grouped with known-before, compactions with Claude Code's own before/after sizes and what each restored, deliberate vs auto checkpoints, goal text. Lists what is not measured instead of omitting it. |
+| Compaction sizes from the transcript | The `compact_boundary` record carries `compactMetadata` (trigger, preTokens, postTokens, dropped, duration) — verified on a real transcript — so the report does not estimate. |
+| Provenance for the report | SessionStart records start commit, permission mode and transcript path; PostCompact pins the restored entry to its compaction; Stop counts turns; manual ring entries carry `session_id`. |
 
 ## Done / Shipped (v0.8.15)
 

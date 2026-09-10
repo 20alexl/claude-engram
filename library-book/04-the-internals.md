@@ -144,6 +144,18 @@ Storage: ~/.claude_engram/
 - Delivery is one turn late by construction and goes through the same `nudge()` slot as pressure; a pressure band outranks it, and a deliberate checkpoint that lands after the claim answers it silently
 - `PostToolUse` on `ExitPlanMode|TaskUpdate` (`post_milestone_json`, `_hook_post_milestone`) injects at once: bank the approved plan with its steps as `pending_steps`; a task marked `completed` is the same claim stated structurally. Claude Code leaves the task tools out on the newest models unless the user opts in, so that path is a bonus, not the design
 
+### Run Report (`run_report.py`)
+
+**What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.
+
+**Why it's separate:** It joins four stores that nothing else joins: the per-session hook state, the transcript, the checkpoint ring, and the statusline mirror. Keeping it out of `remind.py` keeps the hook fast and the report testable without hooks.
+
+**Key internals:**
+- `collect(session_id, project_dir, state)` — the hook state gives files with per-file edit counts (`loop.edit_counts`, joined case-insensitively), test runs and results, prompts, the `run` block written at SessionStart (start commit, permission mode, transcript path, end reason) and the `pressure` block (turns, compactions with what each restored). The transcript gives model, branch, `/goal` command text, tool errors (`is_error` blocks and error-string `toolUseResult`s) and every `compact_boundary` with its `compactMetadata` (trigger, preTokens, postTokens, dropped, duration) — the verified real shape, so compaction sizes come from Claude Code itself. The ring gives this session's entries by `session_id` (manual entries carry it since 0.8.16). The mirror gives final tokens and cost. `patterns.json` says which errors were already known
+- `not_measured` names what is absent rather than dropping it: stall strikes (Phase 4), rules compliance (Phase 5), goal evaluator verdicts (no local transcript has ever carried a `/goal` run, so the format is unverified and not guessed), a missing transcript or mirror
+- `render_md()` / `write_report()` — atomic writes, idempotent per run id; `substantial()` gates the automatic SessionEnd write (an edit, a compaction, or five prompts)
+- Automatic per-turn saves contend only for the ring's latest pointer, so the report lists deliberate checkpoints as the record and at most the one surviving auto
+
 ### Scorer/Hook Daemon (`hooks/scorer_server.py`)
 
 **What it does:** Persistent TCP server with two jobs: (1) keeps the embedding model loaded — decision scores and embeddings in ~5-25ms instead of ~500ms+ cold start; (2) runs high-frequency hook events in-process with warm imports, so a hook costs one round trip (~15-25ms in-daemon) instead of a full import chain.
