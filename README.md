@@ -190,14 +190,14 @@ The default pack ships detectors on the rules that need one, all marked deny una
 Engram does not invent a loop. `/goal` is the loop; engram brackets it so an unattended run cannot burn a night polling, cannot lose its record, and cannot die silently.
 
 ```text
-/engram run <goal> check: <command>      # in this session, like /goal or /loop; the person or Claude can invoke it
-/engram stop  ·  /engram done  ·  /engram status  ·  /engram report
+/goal <condition>                        # Claude Code's own loop; engram brackets it from the next stop
+/goal clear  ·  /engram status  ·  /engram report  ·  /engram release <session>
 python -m claude_engram.run --headless --goal "<goal>" --alert-command 'curl -s -d {message} https://ntfy.sh/<topic>'   # cron / overnight only
 ```
 
-`/engram run` works inside the session you are in. The skill calls `session_mine(run_start, goal, check, max_turns)`, which arms the run in the session state, and from the next stop engram's own Stop hook re-prompts with the goal until the run ends. Engram never judges the sentence: the **check command** is the truth, and the run ends when it exits 0. Without a check the run ends only when the model calls `session_mine(run_done, evidence)`, and the report says the end was self-declared. The other ends: the turn cap, the strike-cap halt, and `/engram stop`. While it runs, autonomy mode is on: ask-first rules refuse their commands, three no-effect strikes halt, alerts go out, the compaction point and the budget nudges do their work. You are watching the whole time and can interject or stop it like any session, and Claude may start one itself when the plan says to execute unattended and the goal is checkable.
+You type `/goal`, in the session you are in. A goal is set only from the keyboard: no flag, setting, hook output or tool call sets one, and Claude cannot type a slash command, so when a plan should run unattended Claude hands you the exact `/goal` line and waits. From the next stop engram sees the goal in the transcript and brackets it: autonomy mode is on for the goal's life, so ask-first rules refuse their commands, three no-effect strikes halt every tool, alerts go out, the goal is stamped into every checkpoint, and the compaction point and the budget nudges do their work. Engram cannot end a goal loop (hooks merge most-restrictive), so its turn cap arms the same halt and the alert asks you to `/goal clear`. Engram never judges the goal: Claude Code's evaluator does, reading what Claude surfaces in the conversation, so the goal is best written as something Claude's own output can demonstrate. The run ends when the evaluator says met (the goal clears itself), judges it impossible, or you clear it, and engram writes the run report with a "Goal run" section: goal, turns against the cap, verdicts, how it ended.
 
-Every run writes a manifest (goal, check, the rules in scope with their detectors, the start commit) and, at its end, an alert and the run report with an "Engram run" section: goal, check, turns, how it ended, and whether the end was self-declared.
+Every goal run writes a manifest (goal, the rules in scope with their detectors, the start commit) when it starts and an alert when it ends.
 
 For cron and overnight, outside any session, the launcher runs `claude -p` with the same supervision: it sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window, a hard `--max-turns`, the park instruction, and after a usage-limit exit sleeps until the window resets and resumes the same session. Cost is the same as any session: a Claude.ai plan pays with its usage windows, an API key or an enterprise provider pays per token; the `total_cost_usd` a headless run prints is Claude Code's own client-side estimate.
 

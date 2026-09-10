@@ -1,24 +1,23 @@
 """
-Benchmark: /engram run inside the session (hooks/autorun.py) -- engram's
-own loop, like /goal or /loop, invoked by the person or by Claude.
+Benchmark: the /goal bracket (hooks/autorun.py) -- engram around Claude
+Code's own goal loop. A goal is set only by typing /goal; engram watches the
+transcript and keeps the run record in step.
 
 What must hold:
-  1. start / stop / declare_done / summary over the session state; a
-     running run arms autonomy mode (stall.autonomy_on(state)) and is
-     replaced only after run_stop.
-  2. stop_decision: while the check fails it BLOCKS the stop with the
-     directive as the next prompt (goal, check exit and tail, turn count,
-     the park hint); it ends the run on check exit 0 (met), the turn cap
-     (capped), a halt (halted); without a check only run_done ends it
-     (self-declared).
-  3. run_check: exit code and output tail; a missing command is an error,
-     a timeout is reported, never raises.
-  4. End to end through the real Stop hook: a run armed in the state file,
-     a check that passes on its third call -> two blocks then a clean stop,
-     the end alert recorded, the run report written with the section.
-  5. The MCP handler ops (run_start / run_status / run_done / run_stop)
-     in-process, and the manifest they write.
-  6. Source guards and the docs' claim that the launcher is for cron only.
+  1. scan_goal reads the verified record shapes (headless Sonnet run,
+     Claude Code 2.1.268): the sentinel on set, not-met and met verdicts,
+     failed: true, the /goal clear command record, a second goal.
+  2. observe: running from the sentinel (autonomy on), turns counted at
+     Stop only, met / failed / cleared from the transcript, halted from the
+     strike cap, capped from the turn cap -- which arms the halt with its
+     reason, since engram cannot end a /goal loop.
+  3. The directive is staged once and delivered by _with_pressure.
+  4. End to end through the real hooks: a transcript file grows across
+     Stops; the manifest at the start, the alert and the report with the
+     "Goal run" section at the end; a Stop under a goal is never blocked
+     by engram.
+  5. The MCP op run_status; the removed ops are gone from the tool
+     definitions; the skill hands the person the /goal line.
 
 Run: venv/Scripts/python.exe tests/bench_autorun.py
 """
@@ -44,94 +43,156 @@ def check(name, cond):
 
 
 def _clean():
-    for k in ("CLAUDE_ENGRAM_AUTONOMY", "CLAUDE_ENGRAM_STALL_TURNS", "CLAUDE_ENGRAM_STRIKE_CAP", "CLAUDE_ENGRAM_ALERT_COMMAND"):
+    for k in ("CLAUDE_ENGRAM_AUTONOMY", "CLAUDE_ENGRAM_STALL_TURNS", "CLAUDE_ENGRAM_STRIKE_CAP", "CLAUDE_ENGRAM_ALERT_COMMAND", "CLAUDE_ENGRAM_GOAL_TURN_CAP"):
         os.environ.pop(k, None)
 
 
-def test_state(ar, st):
-    print("state machine:")
+# --- transcript records in the observed shapes -----------------------------
+
+def _ts(i: int) -> str:
+    return f"2026-09-10T22:46:{i:02d}.000Z"
+
+
+def rec_sentinel(cond: str, i: int) -> str:
+    return json.dumps({"type": "attachment", "timestamp": _ts(i), "attachment": {"type": "goal_status", "met": False, "sentinel": True, "condition": cond}})
+
+
+def rec_verdict(cond: str, i: int, met: bool, reason: str = "because", failed: bool = False) -> str:
+    att = {"type": "goal_status", "met": met, "condition": cond, "reason": reason, "iterations": 1, "durationMs": 900, "tokens": 1200}
+    if failed:
+        att["failed"] = True
+    return json.dumps({"type": "attachment", "timestamp": _ts(i), "attachment": att})
+
+
+def rec_command(args: str, i: int) -> str:
+    content = f"<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>{args}</command-args>"
+    return json.dumps({"type": "user", "timestamp": _ts(i), "message": {"role": "user", "content": content}})
+
+
+def rec_noise(i: int) -> str:
+    return json.dumps({"type": "assistant", "timestamp": _ts(i), "message": {"role": "assistant", "content": [{"type": "text", "text": "working; the goal is near"}]}})
+
+
+def _write(path: Path, *lines: str) -> str:
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    return str(path)
+
+
+def test_scan(ar, tmp):
+    print("scan_goal over the observed record shapes:")
+    t = tmp / "t1.jsonl"
+    check("no file: nothing seen", ar.scan_goal(str(tmp / "missing.jsonl"))["seen"] is False)
+    _write(t, rec_noise(1))
+    check("noise only: nothing seen", ar.scan_goal(str(t))["seen"] is False)
+    _write(t, rec_noise(1), rec_sentinel("tests pass", 2), rec_noise(3))
+    s = ar.scan_goal(str(t))
+    check("sentinel: seen, active, condition, set_at", s["seen"] and s["active"] and s["condition"] == "tests pass" and s["set_at"] == _ts(2) and s["ended"] is None)
+    _write(t, rec_sentinel("tests pass", 2), rec_verdict("tests pass", 4, False, "no test output yet"))
+    s = ar.scan_goal(str(t))
+    check("not-met verdict: still active, counted, reason kept", s["active"] and s["verdicts"] == 1 and s["last_reason"] == "no test output yet" and s["last_met"] is False)
+    _write(t, rec_sentinel("tests pass", 2), rec_verdict("tests pass", 4, False), rec_verdict("tests pass", 6, True, "pytest exited 0"))
+    s = ar.scan_goal(str(t))
+    check("met verdict: ended met, not active", s["ended"] == "met" and not s["active"] and s["verdicts"] == 2)
+    _write(t, rec_sentinel("fly", 2), rec_verdict("fly", 4, False, "impossible", failed=True))
+    s = ar.scan_goal(str(t))
+    check("failed: true -> ended failed", s["ended"] == "failed" and not s["active"])
+    _write(t, rec_sentinel("tests pass", 2), rec_verdict("tests pass", 4, False), rec_command("clear", 5))
+    s = ar.scan_goal(str(t))
+    check("/goal clear command record -> ended cleared", s["ended"] == "cleared" and not s["active"])
+    for w in ("stop", "off", "reset", "none", "cancel", "CLEAR"):
+        _write(t, rec_sentinel("g", 2), rec_command(w, 3))
+        if ar.scan_goal(str(t))["ended"] != "cleared":
+            check(f"alias {w} clears", False)
+            break
+    else:
+        check("every clear alias clears", True)
+    _write(t, rec_command("clear", 1), rec_sentinel("g", 2))
+    check("a clear BEFORE the sentinel does not end it", ar.scan_goal(str(t))["active"] is True)
+    _write(t, rec_sentinel("first", 2), rec_verdict("first", 3, True), rec_sentinel("second", 5))
+    s = ar.scan_goal(str(t))
+    check("a second goal after a met first: the last goal is active", s["active"] and s["condition"] == "second" and s["set_at"] == _ts(5) and s["verdicts"] == 0)
+    _write(t, rec_command("the file exists", 1), rec_noise(2))
+    check("a /goal <condition> command without a sentinel is not a goal (the sentinel is the record)", ar.scan_goal(str(t))["seen"] is False)
+    # The tail window: a sentinel outside it, a verdict inside.
+    big = tmp / "big.jsonl"
+    filler = json.dumps({"type": "assistant", "message": {"content": "x" * 5000}})
+    lines = [rec_sentinel("old goal", 1)] + [filler] * 30 + [rec_verdict("old goal", 40, False, "still going")]
+    _write(big, *lines)
+    s = ar.scan_goal(str(big), tail_bytes=20_000)
+    check("a verdict with its sentinel outside the tail still reads as an active goal", s["seen"] and s["active"] and s["condition"] == "old goal")
+
+
+def test_observe(ar, st, tmp):
+    print("observe: the run record follows the goal:")
     _clean()
-    state = {}
-    check("no run: not running, autonomy off", not ar.running(state) and not st.autonomy_on(state))
-    r = ar.start(state, "  tests pass  ", "pytest -q", 20, "/p")
-    check("start arms the run", r["ok"] and ar.running(state) and state["run"]["auto"]["goal"] == "tests pass" and state["run"]["auto"]["max_turns"] == 20)
-    check("the goal is also where checkpoints read it", state["run"]["goal"] == "tests pass")
-    check("a running run arms autonomy mode from the state alone", st.autonomy_on(state))
-    check("a second start is refused", ar.start(state, "other", "", 5, "/p")["ok"] is False)
-    check("start needs a goal", ar.start({}, "   ", "", 5, "/p")["ok"] is False)
-    check("default cap", ar.start({}, "g", "", 0, "/p")["auto"]["max_turns"] == ar.DEFAULT_MAX_TURNS)
-    r = ar.declare_done(state, "green")
-    check("declare with a check only records; the check decides", r["ok"] and ar.running(state) and state["run"]["auto"]["declared"]["evidence"] == "green")
-    r = ar.stop(state, "stopped", "person")
-    check("stop ends it and autonomy goes off", r["ok"] and not ar.running(state) and state["run"]["auto"]["status"] == "stopped" and not st.autonomy_on(state))
-    check("stop twice is refused", ar.stop(state)["ok"] is False)
-    check("after a stop a new run may start", ar.start(state, "again", "", 5, "/p")["ok"])
-    r = ar.declare_done(state, "I say so")
-    check("declare without a check ends the run as self-declared", r["ok"] and state["run"]["auto"]["status"] == "done" and state["run"]["auto"]["self_declared"] is True)
+    t = tmp / "t2.jsonl"
+    state: dict = {}
+    _write(t, rec_noise(1))
+    check("no goal: no event, no run, autonomy off", ar.observe(state, str(t), str(tmp), turn=True) is None and ar.auto(state) is None and not st.autonomy_on(state))
+    _write(t, rec_noise(1), rec_sentinel("tests pass", 2))
+    ev = ar.observe(state, str(t), str(tmp), turn=False)
+    a = ar.auto(state)
+    check("sentinel -> started, running, goal recorded, directive pending", ev and ev["event"] == "started" and a["status"] == "running" and a["goal"] == "tests pass" and a["pending_text"] is True)
+    check("the goal is where checkpoints read it", state["run"]["goal"] == "tests pass")
+    check("autonomy mode is on from the state alone", st.autonomy_on(state))
+    check("default cap", a["max_turns"] == ar.DEFAULT_TURN_CAP)
+    check("observe without a turn does not count", ar.observe(state, str(t), str(tmp), turn=False) is None and a["turns"] == 0)
+    check("a Stop counts a turn", ar.observe(state, str(t), str(tmp), turn=True) is None and a["turns"] == 1)
+    d = ar.take_pending_text(state)
+    check("the directive is handed out once, with the park hint and the cap", "Goal active" in d and "ScheduleWakeup" in d and "turn cap is 150" in d and ar.take_pending_text(state) == "")
+    _write(t, rec_sentinel("tests pass", 2), rec_verdict("tests pass", 4, False, "no output yet"))
+    check("a not-met verdict: still running, verdict counted", ar.observe(state, str(t), str(tmp), turn=True) is None and a["verdicts"] == 1 and a["last_reason"] == "no output yet")
+    _write(t, rec_sentinel("tests pass", 2), rec_verdict("tests pass", 4, False), rec_verdict("tests pass", 6, True, "pytest exited 0"))
+    ev = ar.observe(state, str(t), str(tmp), turn=True)
+    check("met verdict -> ended met, autonomy off", ev and ev["event"] == "ended" and a["status"] == "met" and "pytest exited 0" in a["why"] and not st.autonomy_on(state))
+    check("after the end the same goal does not restart", ar.observe(state, str(t), str(tmp), turn=True) is None and a["status"] == "met")
     s = ar.summary(state)
-    check("summary carries duration", s is not None and "duration_s" in s)
-    os.environ["CLAUDE_ENGRAM_AUTONOMY"] = "1"
-    check("the env var still arms autonomy (headless launcher)", st.autonomy_on({}))
-    _clean()
-
-
-def test_check(ar, tmp):
-    print("run_check:")
-    py = sys.executable
-    ok = ar.run_check(f'"{py}" -c "print(\'fine\')"', str(tmp))
-    check("exit 0 with the output tail", ok["rc"] == 0 and ok["out"] == "fine")
-    bad = ar.run_check(f'"{py}" -c "import sys; print(\'2 failed\'); sys.exit(1)"', str(tmp))
-    check("non-zero exit with the tail", bad["rc"] == 1 and "2 failed" in bad["out"])
-    check("no command is an error, not a pass", ar.run_check("", str(tmp))["error"] == "no check command" and ar.run_check("", str(tmp))["rc"] is None)
-    ar.CHECK_TIMEOUT = 1.0
-    slow = ar.run_check(f'"{py}" -c "import time; time.sleep(5)"', str(tmp))
-    check("a timeout is reported", "timed out" in slow["error"] and slow["rc"] is None)
-    ar.CHECK_TIMEOUT = 120.0
-
-
-def test_stop_decision(ar, tmp):
-    print("stop_decision:")
-    _clean()
-    py = sys.executable
-    counter = tmp / "count.txt"
-    counter.write_text("0", encoding="utf-8")
-    # A check that passes on its third call.
-    script = tmp / "check3.py"
-    script.write_text(
-        "import sys\np=sys.argv[1]\nn=int(open(p).read())+1\nopen(p,'w').write(str(n))\nprint('call', n)\nsys.exit(0 if n>=3 else 1)\n",
-        encoding="utf-8",
-    )
-    cmd = f'"{py}" "{script}" "{counter}"'
+    check("summary: duration, no pending flag", s and "duration_s" in s and "pending_text" not in s)
+    print("cleared / failed / replaced:")
     state = {}
-    ar.start(state, "done.txt has ok", cmd, 10, str(tmp))
-    d1 = ar.stop_decision(state, str(tmp))
-    check("first stop: blocked with the directive", d1 is not None and d1["decision"] == "block" and "Goal: done.txt has ok" in d1["reason"] and "exited 1" in d1["reason"] and "turn 1 of 10" in d1["reason"])
-    check("the directive carries the park hint and the deny note", "ScheduleWakeup" in d1["reason"] and "ask first" in d1["reason"])
-    d2 = ar.stop_decision(state, str(tmp))
-    check("second stop: still blocked, turn 2", d2 is not None and "turn 2 of 10" in d2["reason"] and "call 2" in d2["reason"])
-    d3 = ar.stop_decision(state, str(tmp))
-    check("third stop: the check passes, the turn may end, status met", d3 is None and state["run"]["auto"]["status"] == "met" and state["run"]["auto"]["turns"] == 3)
-    check("last check recorded", state["run"]["auto"]["last_check"]["rc"] == 0)
-    check("after the end, no more decisions", ar.stop_decision(state, str(tmp)) is None)
-    print("turn cap:")
+    _write(t, rec_sentinel("g", 2))
+    ar.observe(state, str(t), str(tmp))
+    _write(t, rec_sentinel("g", 2), rec_command("clear", 3))
+    ev = ar.observe(state, str(t), str(tmp))
+    check("/goal clear -> ended cleared", ev and ev["event"] == "ended" and ar.auto(state)["status"] == "cleared")
     state = {}
-    ar.start(state, "never", f'"{py}" -c "import sys; sys.exit(1)"', 2, str(tmp))
-    check("turn 1 blocks", ar.stop_decision(state, str(tmp)) is not None)
-    check("turn 2 hits the cap: not blocked, status capped", ar.stop_decision(state, str(tmp)) is None and state["run"]["auto"]["status"] == "capped")
-    print("halt:")
+    _write(t, rec_sentinel("fly", 2))
+    ar.observe(state, str(t), str(tmp))
+    _write(t, rec_sentinel("fly", 2), rec_verdict("fly", 3, False, "impossible", failed=True))
+    check("failed verdict -> ended failed", ar.observe(state, str(t), str(tmp))["event"] == "ended" and ar.auto(state)["status"] == "failed")
+    state = {}
+    _write(t, rec_sentinel("one", 2))
+    ar.observe(state, str(t), str(tmp))
+    _write(t, rec_sentinel("one", 2), rec_sentinel("two", 5))
+    ev = ar.observe(state, str(t), str(tmp))
+    check("a new goal replaces the running one: started again with the new goal", ev and ev["event"] == "started" and ar.auto(state)["goal"] == "two" and ev["replaced"]["status"] == "cleared")
+    print("halt and turn cap:")
     state = {"stall": {"halted": {"turn": 4, "strikes": 3, "denied": 0}}}
-    ar.start(state, "g", f'"{py}" -c "import sys; sys.exit(1)"', 10, str(tmp))
-    check("a halted session ends the run as halted, no block", ar.stop_decision(state, str(tmp)) is None and state["run"]["auto"]["status"] == "halted")
-    print("no check:")
+    _write(t, rec_sentinel("g", 2))
+    ar.observe(state, str(t), str(tmp))
+    ev = ar.observe(state, str(t), str(tmp), turn=True)
+    check("a strike-cap halt ends the run as halted", ev and ev["event"] == "ended" and ar.auto(state)["status"] == "halted")
+    os.environ["CLAUDE_ENGRAM_GOAL_TURN_CAP"] = "2"
     state = {}
-    ar.start(state, "g", "", 3, str(tmp))
-    d = ar.stop_decision(state, str(tmp))
-    check("without a check the stop is blocked and the directive asks for run_done", d is not None and "run_done" in d["reason"])
-    ar.declare_done(state, "proof")
-    check("run_done ends it (self-declared)", ar.stop_decision(state, str(tmp)) is None and state["run"]["auto"]["status"] == "done")
+    _write(t, rec_sentinel("never", 2))
+    ar.observe(state, str(t), str(tmp))
+    check("cap from the env", ar.auto(state)["max_turns"] == 2)
+    check("turn 1: nothing", ar.observe(state, str(t), str(tmp), turn=True) is None)
+    ev = ar.observe(state, str(t), str(tmp), turn=True)
+    h = st.halted(state)
+    check("turn 2: capped, and the halt is armed with its reason", ev and ev["event"] == "ended" and ar.auto(state)["status"] == "capped" and h and h.get("reason") == "turn cap" and state["stall"].get("pending_halt") is True)
+    check("the deny reason names the cap and /goal clear", "turn cap" in st.deny_reason(state, "Bash") and "/goal clear" in st.deny_reason(state, "Bash"))
+    check("the halt text names the cap", "turn cap" in st.halt_text(state, "s"))
+    _clean()
     print("alert texts:")
-    for status, needle in (("met", "met its goal"), ("done", "self-declared"), ("capped", "turn cap"), ("halted", "halted"), ("stopped", "stopped")):
-        check(f"{status} text", needle in ar.end_alert_text({"status": status, "turns": 3, "goal": "g", "max_turns": 5, "why": "stopped"}, "abcdef12"))
+    for status, needle in (("met", "goal met"), ("failed", "impossible"), ("cleared", "cleared"), ("capped", "/goal clear"), ("halted", "halted")):
+        check(f"{status} text", needle in ar.end_alert_text({"status": status, "turns": 3, "goal": "g", "max_turns": 5, "why": ""}, "abcdef12"))
+    print("turn cap from the project config:")
+    proj = tmp / "cfg-proj"
+    (proj / ".engram").mkdir(parents=True, exist_ok=True)
+    (proj / ".engram" / "config.json").write_text('{"goal_turn_cap": 7}', encoding="utf-8")
+    check("goal_turn_cap read from .engram/config.json", ar.turn_cap(str(proj)) == 7)
+    check("default without a file", ar.turn_cap(str(tmp / "nowhere")) == ar.DEFAULT_TURN_CAP)
 
 
 def _hook(hook_type, payload, env):
@@ -140,63 +201,72 @@ def _hook(hook_type, payload, env):
 
 
 def test_end_to_end(tmp):
-    print("end to end through the Stop hook:")
+    print("end to end through the real hooks:")
     _clean()
     store = tmp / "store-e2e"
     proj = tmp / "proj-e2e"
     proj.mkdir(parents=True, exist_ok=True)
     py = sys.executable
-    counter = tmp / "count-e2e.txt"
-    counter.write_text("0", encoding="utf-8")
-    script = tmp / "check3e.py"
-    script.write_text(
-        "import sys\np=sys.argv[1]\nn=int(open(p).read())+1\nopen(p,'w').write(str(n))\nprint('call', n)\nsys.exit(0 if n>=3 else 1)\n",
-        encoding="utf-8",
-    )
     sink = tmp / "alert_sink.py"
     sink.write_text("import sys\nopen(sys.argv[2],'a',encoding='utf-8').write(sys.argv[1].strip()+'\\n')\n", encoding="utf-8")
     log = tmp / "alerts-e2e.log"
-    sid = "s-autorun-e2e"
+    sid = "s-goal-e2e"
+    t = tmp / "transcript-e2e.jsonl"
     env = dict(os.environ, CLAUDE_ENGRAM_DIR=str(store), CLAUDE_PROJECT_DIR=str(proj), CLAUDE_ENGRAM_LIVE_MINE="0",
-               CLAUDE_ENGRAM_ALERT_COMMAND=f'"{py}" "{sink}" {{message}} "{log}"')
-    # Arm the run in the state file the way the MCP op does.
-    from claude_engram.hooks import remind, autorun as ar
+               CLAUDE_ENGRAM_NO_DAEMON="1", CLAUDE_ENGRAM_ALERT_COMMAND=f'"{py}" "{sink}" {{message}} "{log}"')
+    base = {"session_id": sid, "cwd": str(proj), "transcript_path": str(t), "hook_event_name": "Stop", "last_assistant_message": "Working on it.", "stop_hook_active": False}
 
-    os.environ["CLAUDE_ENGRAM_DIR"] = str(store)
-    remind._session_id = sid
-    st = remind.load_state()
-    ar.start(st, "count reaches three", f'"{py}" "{script}" "{counter}"', 10, str(proj))
-    remind.save_state(st)
-    stop = {"session_id": sid, "cwd": str(proj), "hook_event_name": "Stop", "last_assistant_message": "Working on it.", "stop_hook_active": False}
-    r1 = _hook("stop_json", stop, env)
-    out1 = json.loads(r1.stdout.strip().splitlines()[-1]) if r1.stdout.strip() else {}
-    check("stop 1: the hook blocks with the directive", r1.returncode == 0 and out1.get("decision") == "block" and "Goal: count reaches three" in out1.get("reason", ""))
-    r2 = _hook("stop_json", dict(stop, stop_hook_active=True), env)
-    out2 = json.loads(r2.stdout.strip().splitlines()[-1]) if r2.stdout.strip() else {}
-    check("stop 2: still blocked (stop_hook_active does not end a running run)", out2.get("decision") == "block" and "turn 2 of 10" in out2.get("reason", ""))
-    r3 = _hook("stop_json", dict(stop, stop_hook_active=True), env)
-    check("stop 3: the check passes, the stop is not blocked", r3.returncode == 0 and "block" not in r3.stdout)
-    state = json.loads((store / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
-    a = state["run"]["auto"]
-    check("state: met after 3 turns", a["status"] == "met" and a["turns"] == 3)
-    check("the end alert went out", log.exists() and "met its goal after 3 turns" in log.read_text(encoding="utf-8"))
+    def state():
+        return json.loads((store / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
+
+    _write(t, rec_noise(1))
+    r0 = _hook("stop_json", base, env)
+    check("a stop with no goal: exit 0, nothing blocked, no run", r0.returncode == 0 and "block" not in r0.stdout and not (state().get("run") or {}).get("auto"))
+    _write(t, rec_noise(1), rec_sentinel("count reaches three", 2))
+    r1 = _hook("stop_json", base, env)
+    a = state()["run"]["auto"]
+    check("stop under a fresh goal: never blocked by engram, run started, 1 turn", r1.returncode == 0 and "block" not in r1.stdout and a["status"] == "running" and a["turns"] == 1)
+    manifests = list((proj / ".engram" / "runs").glob("*.manifest.json"))
+    check("the manifest was written at the start (mode goal)", manifests and '"goal"' in manifests[0].read_text(encoding="utf-8") and '"mode": "goal"' in manifests[0].read_text(encoding="utf-8"))
+    # The directive rides the next injection point (a PostToolUse Bash here).
+    r_b = _hook("bash_json", {"session_id": sid, "cwd": str(proj), "hook_event_name": "PostToolUse", "tool_name": "Bash",
+                              "tool_input": {"command": "python -m pytest -q"}, "tool_response": {"stdout": "3 passed", "exit_code": 0}}, env)
+    check("the directive was injected once after the start", "<engram-goal>" in r_b.stdout and "ScheduleWakeup" in r_b.stdout)
+    check("... and its flag is cleared", state()["run"]["auto"]["pending_text"] is False)
+    _write(t, rec_noise(1), rec_sentinel("count reaches three", 2), rec_verdict("count reaches three", 3, False, "not yet"))
+    r2 = _hook("stop_json", dict(base, stop_hook_active=True), env)
+    check("stop 2 after a not-met verdict: still running, 2 turns, verdict counted", "block" not in r2.stdout and state()["run"]["auto"]["turns"] == 2 and state()["run"]["auto"]["verdicts"] == 1)
+    _write(t, rec_noise(1), rec_sentinel("count reaches three", 2), rec_verdict("count reaches three", 3, False), rec_verdict("count reaches three", 5, True, "the count printed 3"))
+    r3 = _hook("prompt_json", {"session_id": sid, "cwd": str(proj), "transcript_path": str(t), "hook_event_name": "UserPromptSubmit", "prompt": "thanks"}, env)
+    a = state()["run"]["auto"]
+    check("the met verdict is picked up at the next prompt: ended met", r3.returncode == 0 and a["status"] == "met" and "printed 3" in a["why"])
+    check("the end alert went out", log.exists() and "goal met in session s-goal-e" in log.read_text(encoding="utf-8"))
     reports = list((proj / ".engram" / "runs").glob("*.md"))
-    check("the run report was written at the end", bool(reports))
     md = reports[0].read_text(encoding="utf-8") if reports else ""
-    check("with the Engram run section", "## Engram run (met)" in md and "count reaches three" in md and "Turns:** 3 of 10" in md)
-    r4 = _hook("stop_json", stop, env)
-    check("after the end, stops are free", "block" not in r4.stdout)
-    os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+    check("the run report was written with the Goal run section", "## Goal run (met)" in md and "count reaches three" in md and "of the 150 cap" in md)
+    r4 = _hook("stop_json", dict(base), env)
+    check("after the end, stops stay free and the record stays met", "block" not in r4.stdout and state()["run"]["auto"]["status"] == "met")
+    print("SessionEnd closes a run whose verdict landed after the last stop:")
+    sid2 = "s-goal-end"
+    t2 = tmp / "transcript-end.jsonl"
+    env2 = dict(env)
+    base2 = dict(base, session_id=sid2, transcript_path=str(t2))
+    _write(t2, rec_sentinel("g2", 2))
+    _hook("stop_json", base2, env2)
+    _write(t2, rec_sentinel("g2", 2), rec_verdict("g2", 4, True, "done"))
+    _hook("session_end_json", {"session_id": sid2, "cwd": str(proj), "transcript_path": str(t2), "hook_event_name": "SessionEnd", "reason": "other"}, env2)
+    st2 = json.loads((store / "sessions" / f"{sid2}.json").read_text(encoding="utf-8"))
+    check("SessionEnd recorded the met end", (st2.get("run") or {}).get("auto", {}).get("status") == "met")
 
 
 def test_handler(tmp):
-    print("MCP ops in-process:")
+    print("MCP op in-process:")
     _clean()
     store = tmp / "store-handler"
     proj = tmp / "proj-handler"
     proj.mkdir(parents=True, exist_ok=True)
     os.environ["CLAUDE_ENGRAM_DIR"] = str(store)
-    from claude_engram.hooks import remind
+    from claude_engram.hooks import remind, autorun as ar
     from claude_engram.handlers import Handlers
 
     remind._session_id = "s-handler"
@@ -206,44 +276,47 @@ def test_handler(tmp):
         res = asyncio.run(h.handle_session_mine(op, {"project_path": str(proj), **kw}))
         return res[0].text
 
-    t = call("run_start", goal="tests green", check="pytest -q", max_turns=7)
-    check("run_start arms and explains the ends", "Run armed" in t and "pytest -q" in t and "7 turns" in t)
-    check("the manifest was written (mode in-session)", any('"in-session"' in p.read_text(encoding="utf-8") for p in (proj / ".engram" / "runs").glob("*.manifest.json")))
-    t = call("run_start", goal="again")
-    check("a second run_start is refused", "already running" in t)
     t = call("run_status")
-    check("run_status prints the run", '"status": "running"' in t and '"goal": "tests green"' in t)
-    t = call("run_done", evidence="all green")
-    check("run_done with a check only records", "check command decides" in t)
-    t = call("run_stop", evidence="enough")
-    check("run_stop ends it", "Run stopped" in t)
-    check("run_status after: stopped", '"status": "stopped"' in call("run_status"))
-    t = call("run_start", goal="no check here")
-    t = call("run_done", evidence="I looked")
-    check("run_done without a check ends it as self-declared", "self-declared" in t)
+    check("run_status with no goal says how a goal starts", "No goal run" in t and "/goal" in t)
+    st = remind.load_state()
+    tr = tmp / "transcript-handler.jsonl"
+    _write(tr, rec_sentinel("tests green", 2))
+    ar.observe(st, str(tr), str(proj))
+    remind.save_state(st)
+    t = call("run_status")
+    check("run_status prints the running goal", '"status": "running"' in t and '"goal": "tests green"' in t)
+    for op in ("run_start", "run_stop", "run_done"):
+        r = call(op, goal="x")
+        if "Unknown" not in r and "unknown" not in r and "not" not in r.lower():
+            check(f"{op} is gone", False)
+            break
+    else:
+        check("run_start / run_stop / run_done are gone", True)
     os.environ.pop("CLAUDE_ENGRAM_DIR", None)
 
 
 def test_source_guards():
     print("source guards:")
     remind = (ROOT / "claude_engram" / "hooks" / "remind.py").read_text(encoding="utf-8")
-    check("the Stop branch runs the loop and prints the block", "_ar.stop_decision(" in remind and "print(json_module.dumps(_block))" in remind)
-    check("autonomy_on takes the state everywhere it matters", remind.count("autonomy_on(state)") + remind.count("autonomy_on(load_state())") >= 3)
+    check("engram never blocks a Stop of its own", "stop_decision(" not in remind and '"decision": "block"' not in remind)
+    check("the bracket observes at Stop, UserPromptSubmit and SessionEnd", remind.count("_goal_bracket(") >= 3)
+    check("the directive rides _with_pressure", "take_pending_text(" in remind)
     td = (ROOT / "claude_engram" / "tool_definitions_v2.py").read_text(encoding="utf-8")
-    check("session_mine exposes run_start/run_stop/run_done/run_status", all(f'"{op}"' in td for op in ("run_start", "run_stop", "run_done", "run_status")))
+    check("session_mine keeps run_status only", '"run_status"' in td and not any(f'"{op}"' in td for op in ("run_start", "run_stop", "run_done")))
     skill = (ROOT / "claude_engram" / "skill" / "engram" / "SKILL.md").read_text(encoding="utf-8")
-    check("the skill's /engram run is in-session via run_start", "session_mine(run_start" in skill and "like `/goal` or `/loop`" in skill)
+    check("the skill hands the person the /goal line and never a loop of its own", "`/goal <the goal" in skill and "never a loop of your own" in skill and "run_start" not in skill)
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    check("README: you type /goal, engram brackets it", "You type `/goal`" in readme and "run_start" not in readme)
 
 
 def main():
     from claude_engram.hooks import autorun as ar
     from claude_engram.hooks import stall as st
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
         tmp = Path(td)
-        test_state(ar, st)
-        test_check(ar, tmp)
-        test_stop_decision(ar, tmp)
+        test_scan(ar, tmp)
+        test_observe(ar, st, tmp)
         test_end_to_end(tmp)
         test_handler(tmp)
         test_source_guards()

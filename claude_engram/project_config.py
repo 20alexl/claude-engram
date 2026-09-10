@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "structure": True,
     "compliance": True,  # rules with detectors matched against tool calls
     "alert_command": "",  # shell command for out-of-session alerts; {message} is replaced
+    "goal_turn_cap": 150,  # turns under a /goal before engram halts the run (a person then /goal clears)
     "rotation_log_days": 30,
     "rotation_learn_days": 90,  # ERRORS.md: dated fixes age out
     "rotation_learnings_days": 0,  # LEARNINGS.md: patterns don't; 0 = cap only
@@ -82,7 +83,7 @@ def load(project_dir: str) -> dict:
     r = cfg.get("rotation")
     if isinstance(r, str):
         cfg["rotation"] = "auto" if r.strip().lower() == "auto" else bool(r.strip().lower() in ("true", "1", "on", "yes"))
-    for k in ("rotation_log_days", "rotation_learn_days", "rotation_learnings_days", "rotation_learn_max_lines"):
+    for k in ("rotation_log_days", "rotation_learn_days", "rotation_learnings_days", "rotation_learn_max_lines", "goal_turn_cap"):
         try:
             cfg[k] = max(0 if k == "rotation_learnings_days" else 1, int(cfg[k]))
         except Exception:

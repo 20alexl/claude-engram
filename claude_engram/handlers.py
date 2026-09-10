@@ -2411,70 +2411,22 @@ class Handlers:
                 )
             ]
 
-        elif operation in ("run_start", "run_stop", "run_done", "run_status"):
-            # /engram run inside THIS session (hooks/autorun.py): arm, stop,
-            # declare, inspect. The Stop hook is the loop; this only writes
-            # the session state the hooks read.
+        elif operation == "run_status":
+            # The /goal bracket (hooks/autorun.py): the goal run as the hooks
+            # recorded it from the transcript. A goal is set only by typing
+            # /goal; there is no op to start or end one.
+            import json as _json
+
             from claude_engram.hooks import autorun as _ar
             from claude_engram.hooks import remind as _remind
 
             if not _remind._session_id:
-                return [TextContent(type="text", text="No session id available to this server (older Claude Code?): /engram run needs one.")]
+                return [TextContent(type="text", text="No session id available to this server (older Claude Code?).")]
             state = _remind.load_state()
-            if operation == "run_start":
-                goal = str(args.get("goal") or "").strip()
-                check = str(args.get("check") or "").strip()
-                res = _ar.start(state, goal, check, int(args.get("max_turns") or _ar.DEFAULT_MAX_TURNS), project_path)
-                if not res.get("ok"):
-                    return [TextContent(type="text", text=f"run_start: {res.get('why')}")]
-                _remind.save_state(state)
-                try:
-                    from claude_engram import run as _run
-
-                    _run.write_manifest(
-                        project_path,
-                        _remind._session_id,
-                        {
-                            "session_id": _remind._session_id,
-                            "project": project_path,
-                            "goal": goal,
-                            "check": check,
-                            "mode": "in-session",
-                            "max_turns": res["auto"]["max_turns"],
-                            "start_commit": _run._git_head(project_path),
-                            "started_at": res["auto"]["started_at"],
-                            "rules": _run._rules_snapshot(project_path),
-                        },
-                    )
-                except Exception:
-                    pass
-                how = f"the check `{check}` exits 0" if check else "you call session_mine(run_done, evidence=...) -- recorded as self-declared"
-                return [
-                    TextContent(
-                        type="text",
-                        text=(
-                            f"Run armed in this session (autonomy mode on): goal = {goal}\n"
-                            f"Ends when {how}, at {res['auto']['max_turns']} turns, at the strike-cap halt, or on session_mine(run_stop).\n"
-                            "From the next stop, engram re-prompts with the goal until then. Halt, alerts and unattended=deny are live: "
-                            "an ask-first rule refuses its command; park on Monitor/ScheduleWakeup rather than poll; checkpoint before declaring a step done.\n"
-                            "Start working toward the goal now."
-                        ),
-                    )
-                ]
-            if operation == "run_stop":
-                res = _ar.stop(state, "stopped", str(args.get("evidence") or args.get("query") or "stopped on request"))
-                _remind.save_state(state)
-                return [TextContent(type="text", text="Run stopped; autonomy mode off." if res.get("ok") else f"run_stop: {res.get('why')}")]
-            if operation == "run_done":
-                res = _ar.declare_done(state, str(args.get("evidence") or ""))
-                _remind.save_state(state)
-                if not res.get("ok"):
-                    return [TextContent(type="text", text=f"run_done: {res.get('why')}")]
-                return [TextContent(type="text", text=res.get("note") or "Run ended: declared done by the model (self-declared; the report says so).")]
-            import json as _json
-
             s = _ar.summary(state)
-            return [TextContent(type="text", text="No run in this session." if not s else _json.dumps(s, indent=2, default=str))]
+            if not s:
+                return [TextContent(type="text", text="No goal run in this session. A person types `/goal <condition>`; engram brackets it from the next stop.")]
+            return [TextContent(type="text", text=_json.dumps(s, indent=2, default=str))]
 
         elif operation == "run_report":
             # On-demand run report for THIS session (the MCP server adopted

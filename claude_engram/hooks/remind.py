@@ -2770,6 +2770,17 @@ def _with_pressure(result: str, project_dir: str) -> str:
             s_changed = True
             h_text = _stall.halt_text(state, _session_id)
             text = f"{text}\n{h_text}" if text else h_text
+        # The /goal bracket's directive, once, after the goal was first seen
+        # (hooks/autorun.py; the Stop hook that saw it cannot inject).
+        try:
+            from claude_engram.hooks import autorun as _ar
+
+            g_text = _ar.take_pending_text(state)
+            if g_text:
+                s_changed = True
+                text = f"{text}\n{g_text}" if text else g_text
+        except Exception:
+            pass
         if changed or s_changed:
             save_state(state)
     except Exception:
@@ -2777,6 +2788,59 @@ def _with_pressure(result: str, project_dir: str) -> str:
     if not text:
         return result
     return f"{result}\n{text}" if result else text
+
+
+def _goal_bracket(state: dict, data: dict, project_dir: str, turn: bool) -> None:
+    """The /goal bracket (hooks/autorun.py): bring the run record in step
+    with the transcript's goal at Stop (turn=True), UserPromptSubmit and
+    SessionEnd. A start writes the manifest; an end sends one alert and
+    writes the run report. Saves the state when anything changed."""
+    try:
+        from claude_engram.hooks import autorun as _ar
+
+        tp = str((data or {}).get("transcript_path") or "")
+        ev = _ar.observe(state, tp, project_dir, turn=turn)
+        if turn or ev:
+            save_state(state)
+        if not ev:
+            return
+        a = ev.get("auto") or {}
+        if ev.get("event") == "started":
+            try:
+                from claude_engram import run as _run
+
+                _run.write_manifest(
+                    project_dir,
+                    _session_id,
+                    {
+                        "session_id": _session_id,
+                        "project": project_dir,
+                        "goal": a.get("goal", ""),
+                        "mode": "goal",
+                        "max_turns": a.get("max_turns"),
+                        "start_commit": _run._git_head(project_dir),
+                        "started_at": a.get("started_at"),
+                        "rules": _run._rules_snapshot(project_dir),
+                    },
+                )
+            except Exception:
+                pass
+            return
+        try:
+            from claude_engram import alerts as _alerts
+
+            _alerts.send(_ar.end_alert_text(a, _session_id), project_dir, kind=str(a.get("status") or "ended"), state=state)
+            save_state(state)
+        except Exception:
+            pass
+        try:
+            from claude_engram import run_report as _rr
+
+            _rr.write_report(_session_id, project_dir, state)
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 def _stall_bearings(project_dir: str) -> list[str]:
@@ -4027,12 +4091,15 @@ def main():
         try:
             stdin_data = _read_stdin_with_timeout(0.5)
             prompt_text = ""
+            data = {}
             if stdin_data:
                 data = json_module.loads(stdin_data)
                 prompt_text = data.get("prompt", "")
 
             # Resolve project from recently edited files (not just cwd)
             state = load_state()
+            # A goal set or ended since the last stop (hooks/autorun.py).
+            _goal_bracket(state, data if isinstance(data, dict) else {}, project_dir, turn=False)
             recent_files = state.get("files_edited_this_session", []) or state.get(
                 "last_session_files", []
             )
@@ -4175,41 +4242,10 @@ def main():
                         except Exception:
                             pass
                         save_state(_st)
-                        # /engram run inside the session: engram's own loop
-                        # (hooks/autorun.py). While the run is running and
-                        # its check has not passed, block the stop with the
-                        # directive as the next prompt; otherwise the run
-                        # ends here with an alert and the report.
-                        try:
-                            from claude_engram.hooks import autorun as _ar
-
-                            if _ar.running(_st):
-                                _block = _ar.stop_decision(_st, project_dir)
-                                save_state(_st)
-                                if _block:
-                                    print(json_module.dumps(_block))
-                                else:
-                                    _a = _ar.auto(_st) or {}
-                                    try:
-                                        from claude_engram import alerts as _alerts
-
-                                        _alerts.send(
-                                            _ar.end_alert_text(_a, _session_id),
-                                            project_dir,
-                                            kind=str(_a.get("status") or "ended"),
-                                            state=_st,
-                                        )
-                                        save_state(_st)
-                                    except Exception:
-                                        pass
-                                    try:
-                                        from claude_engram import run_report as _rr
-
-                                        _rr.write_report(_session_id, project_dir, _st)
-                                    except Exception:
-                                        pass
-                        except Exception:
-                            pass
+                        # The /goal bracket (hooks/autorun.py): keep the run
+                        # record in step with the transcript's goal. Engram
+                        # never blocks a Stop of its own -- /goal is the loop.
+                        _goal_bracket(_st, data if isinstance(data, dict) else {}, project_dir, turn=True)
                     except Exception:
                         pass
 
@@ -4250,6 +4286,9 @@ def main():
                 _run: dict = _run_v if isinstance(_run_v, dict) else {}
                 _run["end_reason"] = str(reason)
                 state["run"] = _run
+                # A verdict that landed after the last Stop closes the goal
+                # run here (hooks/autorun.py).
+                _goal_bracket(state, data if isinstance(data, dict) else {}, project_dir, turn=False)
                 state["last_session_end"] = time.time()
                 save_state(state)
                 if _rr.substantial(state):

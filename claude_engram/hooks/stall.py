@@ -554,7 +554,7 @@ HALT_ALLOWED_TOOLS = frozenset({"PushNotification", "mcp__claude-engram__context
 
 
 def autonomy_on(state: Optional[dict] = None) -> bool:
-    """Autonomy mode: an in-session `/engram run` is running (session state,
+    """Autonomy mode: a /goal is active and bracketed (session state,
     hooks/autorun.py), or CLAUDE_ENGRAM_AUTONOMY=1 in the environment (the
     headless launcher, or a person arming a session by hand)."""
     from claude_engram.hooks.autorun import env_or_state_autonomy
@@ -595,13 +595,22 @@ def release(state: dict, reason: str = "released") -> bool:
     return True
 
 
+def _halt_cause(h: dict) -> str:
+    if h.get("reason") == "turn cap":
+        return f"the goal run's turn cap at turn {h.get('turn', '?')}, goal unmet"
+    return (
+        f"{h.get('strikes', STRIKE_CAP)} strikes -- no file, test or commit changed "
+        f"for {h.get('strikes', STRIKE_CAP) * _env_int('CLAUDE_ENGRAM_STALL_TURNS', STALL_TURNS)} turns "
+        f"(halted at turn {h.get('turn', '?')})"
+    )
+
+
 def deny_reason(state: dict, tool_name: str) -> str:
     h = halted(state) or {}
     return (
-        f"engram halt: {h.get('strikes', STRIKE_CAP)} strikes -- no file, test or commit changed "
-        f"for {h.get('strikes', STRIKE_CAP) * _env_int('CLAUDE_ENGRAM_STALL_TURNS', STALL_TURNS)} turns "
-        f"(halted at turn {h.get('turn', '?')}). Every tool call is denied until a person releases "
-        f"the run (`python -m claude_engram.hooks.stall release <session_id>`). Do this now, in order: "
+        f"engram halt: {_halt_cause(h)}. Every tool call is denied until a person releases "
+        f"the run (`python -m claude_engram.hooks.stall release <session_id>`, and `/goal clear` "
+        f"if a goal is active). Do this now, in order: "
         f"FIRST context(checkpoint_save) -- the task, the last real change, what has been blocking, "
         f"what a person must decide; it is the record they will read. THEN PushNotification with one "
         f"line under 200 characters. Then stop. Nothing else is allowed. Denied: {tool_name}."
@@ -613,8 +622,7 @@ def halt_text(state: dict, session_id: str = "") -> str:
     h = halted(state) or {}
     sid = f" Session {session_id}." if session_id else ""
     return (
-        f"<engram-halt>HALTED at strike {h.get('strikes', STRIKE_CAP)} (turn {h.get('turn', '?')}): "
-        "tool use without effect for the whole ladder, in autonomy mode. From here every tool call "
+        f"<engram-halt>HALTED: {_halt_cause(h)}, in autonomy mode. From here every tool call "
         "is denied except two. Do these, in order, then stop: (1) context(checkpoint_save) with the "
         "task, what the last real change was, what has been blocking since, and what a person should "
         "decide; (2) PushNotification with one line under 200 characters: what stalled and what you "

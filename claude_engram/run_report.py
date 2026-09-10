@@ -781,22 +781,18 @@ def render_md(r: dict) -> str:
 
     ar = r.get("autorun")
     if isinstance(ar, dict):
-        lines.append(f"## Engram run ({ar.get('status', '?')})")
+        lines.append(f"## Goal run ({ar.get('status', '?')})")
+        lines.append("")
+        lines.append("Engram's bracket around the session's /goal: the loop is Claude Code's, the record is the hooks'.")
         lines.append("")
         lines.append(f"- **Goal:** {str(ar.get('goal', '')).replace('|', '/')}")
-        lines.append(f"- **Check:** `{ar['check']}`" if ar.get("check") else "- **Check:** none (the end is self-declared)")
         lines.append(
-            f"- **Turns:** {ar.get('turns', 0)} of {ar.get('max_turns', '?')}"
+            f"- **Turns:** {ar.get('turns', 0)} of the {ar.get('max_turns', '?')} cap"
             + (f" · {ar['duration_s']} s" if ar.get("duration_s") is not None else "")
+            + f" · evaluator verdicts {ar.get('verdicts', 0)}"
         )
         if ar.get("why"):
-            lines.append(f"- **Ended:** {ar['why']}")
-        if ar.get("self_declared"):
-            lines.append("- **Self-declared:** the model declared the goal met; no check command verified it")
-        lc = ar.get("last_check")
-        if isinstance(lc, dict) and (lc.get("rc") is not None or lc.get("error")):
-            tail = str(lc.get("out") or lc.get("error") or "").replace("\n", " / ")[-200:]
-            lines.append(f"- **Last check:** exit {lc.get('rc')} {tail}".rstrip())
+            lines.append(f"- **Ended:** {str(ar['why']).replace('|', '/')}")
         lines.append("")
 
     al = r.get("alerts") or []
