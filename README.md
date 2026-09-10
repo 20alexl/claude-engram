@@ -160,7 +160,7 @@ Every substantial session leaves one auditable artifact in the repo: `<project>/
 - checkpoints written this session, deliberate vs automatic
 - what was **not** measured, listed rather than omitted (stall strikes and rules compliance arrive in later phases)
 
-Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. `/goal` and `/loop` do compose, with one condition seen in live tests: scheduled tasks fire only while the session is idle, and a goal idles only while it is parked on background work (a Monitor, a self-paced wakeup). Tell the model to wait on such a primitive instead of polling; a not-met verdict otherwise re-prompts at once and the model will do the loop's work itself.
+Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. `/goal` and `/loop` compose only when the goal is parked. Scheduled tasks fire while the session is idle, and a not-met goal re-prompts at once, so a goal with nothing to do burns turns and starves the loop (seen live: nine verdicts in two minutes, a cron fire lost). A goal idles while it waits on background work, a Monitor or a self-paced wakeup, and the loop fires then. Tell the model to park on such a primitive instead of polling.
 
 ## Reindexing
 
