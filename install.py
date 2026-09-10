@@ -198,6 +198,11 @@ def get_hooks_config():
             "PostToolUse": [
                 {"matcher": "Bash", "hooks": [_hook("bash_json")]},
                 {"matcher": "Edit|Write", "hooks": [_hook("post_edit_json")]},
+                # Unit boundaries: a plan approved, a task marked completed.
+                {
+                    "matcher": "ExitPlanMode|TaskUpdate",
+                    "hooks": [_hook("post_milestone_json")],
+                },
             ],
             "PostToolUseFailure": [
                 {"matcher": "", "hooks": [_hook("tool_failure_json")]}

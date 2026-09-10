@@ -41,6 +41,15 @@
 | Recurring error grouping by normalized signature | Stable | v0.5.0 |
 | Idempotent version-stamped migrations | Stable | v0.5.0 |
 | Context-pressure checkpoint nudges (statusline mirror, distance to compaction) | Stable | v0.8.14 |
+| Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
+
+## Done / Shipped (v0.8.15)
+
+| Feature | Notes |
+|---------|-------|
+| Milestone checkpoints, judged by the model | The 25-turn cadence stood in for a judgment only the model can make. Now the rule: checkpoint before you declare a step done. Engram reads the final message at Stop (`last_assistant_message`), classifies completion claims two-tier (regex near a unit noun; scorer margin for weak matches; negation/future/question rejected), and asks once at the next opportunity when no deliberate checkpoint followed. Never written for the model, never from commits. |
+| Plan and task boundaries | `PostToolUse` on `ExitPlanMode` asks for the approved plan to be banked with its steps pending; `TaskUpdate` completed is the same claim structurally (task tools are opt-in on the newest models). |
+| Cadence demoted | Fallback at 60 turns with neither a checkpoint nor a completed step; reworded as the stall signal it is. |
 
 ## Done / Shipped (v0.8.14)
 

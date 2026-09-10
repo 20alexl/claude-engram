@@ -106,6 +106,7 @@ context(
 - Bootstrap: first session on new project auto-mines existing history
 - Checkpoints/handoffs are durable: the history ring (last 20) holds DELIBERATE manual checkpoints only — per-turn autos contend just for the latest pointer, so they can never evict your saves; manual always wins the teaser (14-day freshness vs 48h for autos); the SessionStart teaser resolves the resumed session's own sub-project and labels entries `[kind, age, project, task_id]` so you can `checkpoint_restore(task_id=...)` exactly what was teased; retrieve any entry via `checkpoint_restore(index=N)` or browse with `checkpoint_list`
 - Checkpoints are per-project (multi-project workspaces don't clobber each other)
+- **Checkpoint when YOU judge a step done.** Before you declare a phase, step, or part of a plan finished, call `context(checkpoint_save)` — what closed, what is next. Engram reads your final message at Stop; a completion claim with no deliberate checkpoint behind it gets a nudge next turn (`<engram-context>Last turn you closed a step...`). After ExitPlanMode, bank the approved plan with its steps as `pending_steps`. Engram never writes the checkpoint for you and never triggers on commits
 - Subagents: memory injection and output are skipped (saves context), but file edits are still tracked
 - Ollama is optional: only `memory(consolidate)` and `session_mine(reflect)` insight synthesis use it (both background, both degrade silently); `scout_search` uses it when available. Everything else is LLM-free
 - No emojis in any output

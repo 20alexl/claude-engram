@@ -153,7 +153,7 @@ All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `int` | `1800` | Scorer server idle timeout (seconds) |
 | `CLAUDE_ENGRAM_HEADSUP_FRACTION` | `float` | `0.10` | Context-pressure heads-up, as a fraction of the window before the compaction point |
 | `CLAUDE_ENGRAM_CHECKPOINT_FRACTION` | `float` | `0.03` (`0.05` on ≤200K) | `CHECKPOINT NOW` nudge, as a fraction of the window before the compaction point |
-| `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `int` | `25` | Turns without a deliberate checkpoint before the cadence reminder |
+| `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `int` | `60` | Fallback: turns with neither a deliberate checkpoint nor a completed step before a reminder |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `int` | unset | Claude Code's own variable; engram reads it as the compaction point (else `autoCompactWindow`, else the model default) |
 
 ## Memory Categories
@@ -188,8 +188,9 @@ Category bonuses: `rule` +0.3, `mistake` +0.2.
 | `PreToolUse` | `Edit\|Write` | `pre_edit_json` | Inject memories, check loops/scope |
 | `PostToolUse` | `Bash` | `bash_json` | Track tests, detect search spirals |
 | `PostToolUse` | `Edit\|Write` | `post_edit_json` | Track edits, update loop counter |
+| `PostToolUse` | `ExitPlanMode\|TaskUpdate` | `post_milestone_json` | Plan approved → bank it with its steps pending; task completed → milestone nudge |
 | `PostToolUseFailure` | `""` | `tool_failure_json` | Auto-log errors from all tools |
-| `Stop` | `""` | `stop_json` | Save handoff with last message |
+| `Stop` | `""` | `stop_json` | Save handoff with last message; read it for a "step done" claim (milestone) |
 | `SessionEnd` | `""` | `session_end_json` | Save session state, output summary |
 | `SessionStart` | `""` | `session_start_json` | Load context, start scorer server |
 | `PreCompact` | `""` | `pre_compact_json` | Auto-save checkpoint |
@@ -245,6 +246,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.15 — 2026-09-09
+
+- **Milestones are the model's call.** The follow-up to 0.8.14's pressure nudges: the other moment a checkpoint belongs is when a unit of work closes, and the fixed 25-turn cadence was a stand-in for a judgment only the model can make. It is now the trigger. The rule in the skill and CLAUDE.md: when you judge a phase, step, or part of a plan done, `checkpoint_save` before you say so.
+  - Engram catches the misses. The Stop hook receives the model's final message verbatim (verified: `last_assistant_message` is the documented field for exactly this). `hooks/milestones.py` classifies it, two-tier like decision capture: a completion word near a unit noun in one sentence is a strong match (`Phase 1 is built`, `step 3 done`, `all 60 checks pass`, `that closes part A`); negation, partials, future markers and questions never fire (`not done yet`, `half done`, `when step 3 is complete`, `I'll mark the task complete`, `is phase 1 done?`); a weak match consults the scorer daemon against completion vs non-completion templates. Commit sentences are not a trigger by design.
+  - A claim with no deliberate checkpoint that turn is staged and asked for once at the next injection point, quoting the sentence. One turn late in an interactive session by construction: a Stop hook cannot add context to the turn that just ended, so the rule is the ideal path and the nudge is the miss-catcher. In a loop it lands at the next tool call. A checkpoint that lands after the claim answers it silently. Subagent stops are ignored.
+  - `ExitPlanMode` and `TaskUpdate` get a `PostToolUse` handler: a plan approval asks for the plan to be banked with its steps as `pending_steps`, so every later "done" maps onto that list; a task marked completed is the same claim stated structurally. Verified: Claude Code leaves the task tools out on Opus 4.8, Sonnet 5 and the Fable models unless the user opts in (`TaskCompleted` exists as a hook event but will not fire there), so that path is a bonus, not the design.
+  - The turn cadence is demoted to a fallback at 60, and reworded: that many turns with neither a checkpoint nor a completed step is closer to a stall signal than a save schedule. A completion claim resets it.
+- `bench_context_pressure` grows to 130 checks: 9 positive and 15 negative claims, a claim inside a long message, the semantic tier through a patched embed seam (margin, negative margin, scorer down), staging at Stop, delivery once, the ideal path (checkpoint the same turn stages nothing), silent answer, the task path, slot priority against a pressure band, and source guards on the Stop wiring, the new handler, the installer and the skill rule.
 
 ### v0.8.14 — 2026-09-09
 

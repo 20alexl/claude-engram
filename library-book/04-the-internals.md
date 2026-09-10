@@ -129,7 +129,20 @@ Storage: ~/.claude_engram/
 - `thresholds()` — heads-up at 10% of the window below the point, checkpoint at 3% (5% when the window is ≤ 200K, where 3% is only 6K tokens)
 - `nudge(state, session_id, project_dir)` — one text per call at most; each band latches in `state["pressure"]` so it fires once per compaction cycle; the cadence counter (`note_stop`, reset by `note_manual_checkpoint` from `checkpoint_save`) re-arms every 25 turns
 - `note_compaction()` opens a cycle and records the moment; a mirror with an older timestamp is ignored, because right after `/compact` the statusline still shows the pre-compaction count until the next API response
-- Delivery: `_with_pressure()` in `remind.py` wraps every main-session injection site (UserPromptSubmit, PreToolUse Edit/Write/Read, PostToolUse Bash/Edit/Write). PostToolUse matters most: an unattended `/goal` loop has no user prompts. The Stop hook only counts; it never injects (a Stop hook cannot add context, and engram never blocks there)
+- Delivery: `_with_pressure()` in `remind.py` wraps every main-session injection site (UserPromptSubmit, PreToolUse Edit/Write/Read, PostToolUse Bash/Edit/Write). PostToolUse matters most: an unattended `/goal` loop has no user prompts. The Stop hook only counts and reads; it never injects (a Stop hook cannot add context, and engram never blocks there)
+
+### Milestones (`hooks/milestones.py`)
+
+**What it does:** Treats the model's own "this step is done" as the checkpoint trigger, and asks for a deliberate checkpoint when one did not follow.
+
+**Why it's separate:** A checkpoint is a call the model makes; engram never writes one from a commit or a timer. But the judgment that a unit closed is visible: the Stop hook receives `last_assistant_message` verbatim, and that is the sentence where a step gets declared done.
+
+**Key internals:**
+- `classify_completion(text)` — two-tier like decision capture. Regex first: a completion word (`done`, `complete`, `finished`, `landed`, `closes`, `green`, `all N tests pass`...) near a unit noun (`phase`, `step`, `part`, `milestone`, `round`, `section`, `feature`, `module`...) in one sentence is a strong match. Negation, partials and future markers before the completion word (`not`, `half`, `when`, `once`, `will be`, `I'll mark`) and `yet` after it reject the sentence; a `?` rejects it outright. Commit sentences are not a trigger by design
+- A weak match (both words in the sentence, not adjacent) consults the semantic tier through the scorer daemon: cosine against completion vs non-completion templates, positive margin required. Scorer down: weak stays weak
+- `note_stop(state, last_message)` in `context_pressure` stages `milestone_pending` when a claim has no deliberate checkpoint this turn (compared against the previous Stop time). Subagent stops are ignored. A claim also resets the fallback counter: it is a unit boundary
+- Delivery is one turn late by construction and goes through the same `nudge()` slot as pressure; a pressure band outranks it, and a deliberate checkpoint that lands after the claim answers it silently
+- `PostToolUse` on `ExitPlanMode|TaskUpdate` (`post_milestone_json`, `_hook_post_milestone`) injects at once: bank the approved plan with its steps as `pending_steps`; a task marked `completed` is the same claim stated structurally. Claude Code leaves the task tools out on the newest models unless the user opts in, so that path is a bonus, not the design
 
 ### Scorer/Hook Daemon (`hooks/scorer_server.py`)
 

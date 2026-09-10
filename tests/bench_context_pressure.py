@@ -228,8 +228,9 @@ def test_nudge_sequence(cp):
 
 
 def test_cadence(cp):
-    print("cadence and the deliberate-save reset:")
+    print("fallback cadence and the deliberate-save reset:")
     _clean_env()
+    check("fallback cadence is a long fuse, not a schedule", cp.CADENCE_STOPS >= 50)
     os.environ["CLAUDE_ENGRAM_CHECKPOINT_CADENCE"] = "3"
     sid = "s-cadence"
     state: dict = {"last_session_start": time.time()}
@@ -240,13 +241,13 @@ def test_cadence(cp):
     check("below cadence: silent", t == "")
     cp.note_stop(state)
     t, ch = cp.nudge(state, sid)
-    check("at cadence: fires", "Checkpoint cadence: 3 turns" in t and ch)
+    check("at cadence: fires", "Checkpoint fallback: 3 turns" in t and ch)
     t, _ = cp.nudge(state, sid)
     check("cadence re-arms (counter reset), silent right after", t == "")
     for _ in range(3):
         cp.note_stop(state)
     t, _ = cp.nudge(state, sid)
-    check("fires again after another full cadence", "Checkpoint cadence" in t)
+    check("fires again after another full cadence", "Checkpoint fallback" in t)
     for _ in range(2):
         cp.note_stop(state)
     cp.note_manual_checkpoint(state)
@@ -321,6 +322,140 @@ def test_source_guards():
     check("checkpoint_save notes the deliberate save", "_cp.note_manual_checkpoint(" in guard_src)
 
 
+def test_milestones(cp):
+    print("milestones: the model's own 'step done' as the trigger:")
+    from claude_engram.hooks import milestones as ms
+
+    positives = [
+        "Phase 1 is built, verified, and committed locally.",
+        "Step 3 done. Next is the run report.",
+        "All 60 checks pass.",
+        "60/60 pass, pyright clean.",
+        "That closes part A of the plan.",
+        "The migration landed and tests are green.",
+        "Finished the refactor of the scorer module.",
+        "Phase 2 wrapped up; moving to phase 3.",
+        "Milestone reached: the report module is in place.",
+    ]
+    negatives = [
+        "Is phase 1 done?",
+        "Phase 2 is not done yet.",
+        "Step 4 is done so far, but the tests aren't.",
+        "When step 3 is complete I'll move on.",
+        "This will be done once the tests pass.",
+        "I'm still working on step 2.",
+        "Let me read the file.",
+        "Reading the plan section now.",
+        "Here is the plan for phase 2: build the report.",
+        "Done.",
+        "The feature is half done.",
+        "Waiting on you for the push.",
+        "Committed as f3a61b0.",
+        "I'll mark the task complete after you confirm.",
+        "The step needs to be verified before it is done.",
+    ]
+    for t in positives:
+        s, q = ms.classify_completion(t, use_semantic=False)
+        check(f"claim: {t[:48]!r}", s >= ms.THRESHOLD and bool(q))
+    for t in negatives:
+        s, _ = ms.classify_completion(t, use_semantic=False)
+        check(f"not a claim: {t[:48]!r}", s < ms.THRESHOLD)
+    # Sentence-level: a claim buried in a long message is still found, and
+    # the quote is the claiming sentence.
+    long = "I read three files and ran the bench.\n\nStep 2 is complete.\n\nNext I will look at the docs."
+    s, q = ms.classify_completion(long, use_semantic=False)
+    check("claim found inside a long message", s >= ms.THRESHOLD and q == "Step 2 is complete.")
+    # Commits are not a trigger by design.
+    s, _ = ms.classify_completion("Committed locally as f3a61b0, tree clean.", use_semantic=False)
+    check("a commit sentence is not a claim", s < ms.THRESHOLD)
+
+    # Semantic tier: a WEAK regex match passes only with a positive margin.
+    # unit noun + completion word in one sentence but far apart (outside the
+    # strong-match windows): the regex tier alone must not decide this.
+    weak = (
+        "The plan we agreed on this morning, with every one of its sub-items "
+        "and the extra tests you asked for, is I think done."
+    )
+    check("bench premise: that sentence is a WEAK regex match", ms._regex_tier(weak) == ms.WEAK)
+    s, _ = ms.classify_completion(weak, use_semantic=False)
+    check("weak match alone is not a claim", s < ms.THRESHOLD)
+    orig = ms._embed_batch
+
+    n_c, n_n = len(ms._COMPLETION_TEMPLATES), len(ms._NON_COMPLETION_TEMPLATES)
+
+    def near_completion(_texts):
+        # sentence close to the completion templates, far from the others
+        return [[1.0, 0.0]] + [[1.0, 0.1]] * n_c + [[0.0, 1.0]] * n_n
+
+    def near_non_completion(_texts):
+        return [[1.0, 0.0]] + [[0.0, 1.0]] * n_c + [[1.0, 0.0]] * n_n
+
+    try:
+        ms._embed_batch = near_completion
+        s, _ = ms.classify_completion(weak)
+        check("weak + semantic margin -> claim", s >= ms.THRESHOLD)
+        ms._embed_batch = near_non_completion
+        s, _ = ms.classify_completion(weak)
+        check("weak + negative margin -> not a claim", s < ms.THRESHOLD)
+        ms._embed_batch = lambda _texts: []
+        s, _ = ms.classify_completion(weak)
+        check("scorer down: weak stays weak", s < ms.THRESHOLD)
+    finally:
+        ms._embed_batch = orig
+
+    # Staging through the Stop hook and delivery at the next injection point.
+    _clean_env()
+    sid = "s-milestone"
+    state: dict = {"last_session_start": time.time()}
+    cp.record_statusline(_payload(sid, 100_000))
+    cp.note_stop(state, "Looking into the failing bench now.")
+    t, _ = cp.nudge(state, sid)
+    check("ordinary turn: nothing staged", t == "" and state["pressure"]["milestone_pending"] is None)
+    cp.note_stop(state, "Phase 1 is built and verified. Next is the run report.")
+    check("completion claim staged at Stop", isinstance(state["pressure"]["milestone_pending"], dict))
+    check("claim resets the fallback counter", state["pressure"]["stops_since_checkpoint"] == 0)
+    t, ch = cp.nudge(state, sid)
+    check("milestone nudge delivered once", "Last turn you closed a step" in t and "Phase 1 is built" in t and ch)
+    check("nudge names the call", "context(checkpoint_save)" in t)
+    t, _ = cp.nudge(state, sid)
+    check("not delivered twice", t == "")
+    # The ideal path: a deliberate checkpoint landed in the same turn.
+    time.sleep(0.01)
+    cp.note_manual_checkpoint(state)
+    cp.note_stop(state, "Step 2 done, checkpoint saved.")
+    check("claim with a checkpoint this turn: nothing staged", state["pressure"]["milestone_pending"] is None)
+    # A checkpoint that lands after the claim but before delivery answers it silently.
+    time.sleep(0.01)
+    cp.note_stop(state, "Step 3 complete.")
+    check("staged again", isinstance(state["pressure"]["milestone_pending"], dict))
+    time.sleep(0.01)
+    cp.note_manual_checkpoint(state)
+    t, _ = cp.nudge(state, sid)
+    check("checkpoint after the claim clears the nudge silently", t == "")
+    # Task tools path stages with kind=task.
+    cp.stage_milestone(state, "Implement user authentication", "task")
+    t, _ = cp.nudge(state, sid)
+    check("task-completed nudge", "You marked a task done" in t and "Implement user authentication" in t)
+    # Pressure band outranks the milestone in the same slot; the milestone waits.
+    os.environ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "750000"
+    cp.record_statusline(_payload(sid, 660_000))
+    cp.stage_milestone(state, "Round 4 closed", "claim")
+    t, _ = cp.nudge(state, sid)
+    check("heads-up wins the slot", "Context pressure" in t and "Round 4" not in t)
+    t, _ = cp.nudge(state, sid)
+    check("milestone delivered on the next slot", "Round 4 closed" in t)
+    _clean_env()
+    check("plan text asks to bank the plan's steps", "pending_steps" in ms.plan_text())
+
+    remind_src = (ROOT / "claude_engram" / "hooks" / "remind.py").read_text(encoding="utf-8")
+    check("Stop passes the final message to note_stop", "_cp.note_stop(_st, str(last_message or \"\"))" in remind_src)
+    check("post_milestone_json branch exists", 'hook_type == "post_milestone_json"' in remind_src and "def _hook_post_milestone" in remind_src)
+    install_src = (ROOT / "install.py").read_text(encoding="utf-8")
+    check("installer registers ExitPlanMode|TaskUpdate", '"ExitPlanMode|TaskUpdate"' in install_src and "post_milestone_json" in install_src)
+    skill_src = (ROOT / "claude_engram" / "skill" / "engram" / "SKILL.md").read_text(encoding="utf-8")
+    check("skill carries the rule: checkpoint when YOU judge a step done", "Checkpoint when YOU judge a step done" in skill_src)
+
+
 def test_provenance(tmp):
     print("restore provenance (From line) on a manual save:")
     from claude_engram.hooks import remind
@@ -375,6 +510,7 @@ def main():
         test_not_recording(cp, tmp)
         test_cli(tmp)
         test_source_guards()
+        test_milestones(cp)
         test_provenance(tmp)
 
     print()

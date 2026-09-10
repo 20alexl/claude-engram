@@ -56,7 +56,11 @@ SMALL_WINDOW = 200_000
 HEADSUP_FRACTION = 0.10  # of the window, before the point
 CHECKPOINT_FRACTION = 0.03
 CHECKPOINT_FRACTION_SMALL = 0.05  # windows <= 200K: 3% is only 6K tokens
-CADENCE_STOPS = 25
+# Fallback only. The real trigger is the model's own "step done" (see
+# milestones.py); this fires when a run goes this long with NEITHER a
+# deliberate checkpoint NOR a completion claim -- which is closer to a stall
+# signal than a save schedule.
+CADENCE_STOPS = 60
 
 # A statusLine is configured but no mirror has appeared this long after the
 # session started: the script is not calling record_statusline(). Say so once.
@@ -303,20 +307,51 @@ def pressure_state(state: dict) -> dict:
     ps.setdefault("stops_since_checkpoint", 0)
     ps.setdefault("last_manual_checkpoint_at", 0.0)
     ps.setdefault("not_recording_announced", False)
+    ps.setdefault("last_stop_at", 0.0)
+    ps.setdefault("milestone_pending", None)
     return ps
 
 
 def note_manual_checkpoint(state: dict) -> None:
-    """A deliberate checkpoint_save happened: reset the cadence counter."""
+    """A deliberate checkpoint_save happened: reset the cadence counter and
+    drop any staged milestone nudge -- it was answered."""
     ps = pressure_state(state)
     ps["stops_since_checkpoint"] = 0
     ps["last_manual_checkpoint_at"] = time.time()
+    ps["milestone_pending"] = None
 
 
-def note_stop(state: dict) -> None:
-    """One assistant turn ended (the Stop hook)."""
+def stage_milestone(state: dict, quote: str, kind: str = "claim") -> None:
+    """Remember that a unit closed without a deliberate checkpoint; the next
+    injection point asks for one. The newest claim wins."""
+    ps = pressure_state(state)
+    ps["milestone_pending"] = {"quote": quote[:160], "kind": kind, "at": time.time()}
+
+
+def note_stop(state: dict, last_message: str = "") -> None:
+    """One assistant turn ended (the Stop hook). If the model's final message
+    declares a step done and no deliberate checkpoint landed this turn, stage
+    the milestone nudge. A checkpoint that DID land this turn is the ideal
+    path and nothing is staged."""
     ps = pressure_state(state)
     ps["stops_since_checkpoint"] = int(ps.get("stops_since_checkpoint", 0)) + 1
+    prev_stop = float(ps.get("last_stop_at") or 0.0)
+    ps["last_stop_at"] = time.time()
+    if not last_message:
+        return
+    if float(ps.get("last_manual_checkpoint_at") or 0.0) > prev_stop:
+        return  # banked this turn already
+    try:
+        from claude_engram.hooks.milestones import is_completion_claim
+
+        claimed, quote = is_completion_claim(last_message)
+    except Exception:
+        return
+    if claimed:
+        stage_milestone(state, quote, "claim")
+        # A completion claim is a unit boundary; the fallback cadence counts
+        # turns with neither a checkpoint nor a claim.
+        ps["stops_since_checkpoint"] = 0
 
 
 def note_compaction(state: dict) -> None:
@@ -367,10 +402,11 @@ def checkpoint_text(a: dict) -> str:
 
 def cadence_text(stops: int) -> str:
     return (
-        "<engram-context>Checkpoint cadence: "
-        f"{stops} turns since the last deliberate checkpoint. Bank one now with "
-        "context(checkpoint_save); a compaction or a crash keeps only what is "
-        "written.</engram-context>"
+        "<engram-context>Checkpoint fallback: "
+        f"{stops} turns with neither a deliberate checkpoint nor a completed step. "
+        "Either a unit is closing without being declared, or the run is not "
+        "progressing. Bank a context(checkpoint_save) with where things stand; "
+        "a compaction or a crash keeps only what is written.</engram-context>"
     )
 
 
@@ -418,6 +454,17 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
             ps["not_recording_announced"] = True
             changed = True
             texts.append(not_recording_text())
+
+    # A closed step with no deliberate checkpoint behind it. Delivered once;
+    # a checkpoint that landed since the claim answers it silently.
+    mp = ps.get("milestone_pending")
+    if isinstance(mp, dict) and not texts:
+        ps["milestone_pending"] = None
+        changed = True
+        if float(ps.get("last_manual_checkpoint_at") or 0.0) <= float(mp.get("at") or 0.0):
+            from claude_engram.hooks.milestones import milestone_text
+
+            texts.append(milestone_text(str(mp.get("quote", "")), str(mp.get("kind", "claim"))))
 
     cadence = _env_int("CLAUDE_ENGRAM_CHECKPOINT_CADENCE", CADENCE_STOPS)
     stops = int(ps.get("stops_since_checkpoint", 0))

@@ -128,9 +128,11 @@ Hooks never see context usage; the statusline does. Engram mirrors the statuslin
 |---|---|
 | ~10% of the window out | Heads-up: finish the current step, start nothing long |
 | ~3% out (5% on a 200K window) | `CHECKPOINT NOW`: write a deliberate `context(checkpoint_save)`. PreCompact's automatic entry is only the floor |
-| 25 turns without a deliberate checkpoint | Cadence reminder, regardless of pressure |
+| 60 turns with neither a checkpoint nor a completed step | Fallback reminder. That condition is closer to a stall than a save schedule |
 
 Each fires once per compaction cycle. After a compaction the PostCompact banner restates the rhythm (`heads-up at ~650K, checkpoint at ~720K, compaction at ~750K`) so the model plans work in units that finish before the checkpoint call.
+
+**Milestones are the model's call.** The other moment a checkpoint belongs is when a unit of work closes, and the model is the one who knows. The rule in the skill says: when you judge a phase, step, or part of a plan done, checkpoint before you say so. Engram reads the model's final message at Stop; a completion claim ("Phase 1 built", "step 3 done, next is X", "all 60 checks pass") with no deliberate checkpoint behind it gets one nudge at the next opportunity, quoting the sentence. Questions, negations and future tense never fire ("is step 3 done?", "not done yet", "once the tests pass"). After ExitPlanMode it asks for the approved plan to be banked with its steps as `pending_steps`, so every later "done" maps onto that list. On models that have Claude Code's task tools, a task marked completed is the same signal stated structurally. Nothing is ever written for the model, and commits are not a trigger.
 
 **Setup**, one of:
 

@@ -21,7 +21,8 @@ These happen via hooks. You don't call anything:
 | **Decision capture** | UserPromptSubmit | "let's use X" parsed via semantic + regex scoring |
 | **Checkpoint on compact** | PreCompact | Task state saved before context compaction |
 | **Context re-injection** | PostCompact | Rules + mistakes + decisions re-injected, plus the compaction rhythm (where the next heads-up / checkpoint / compaction sit) |
-| **Context-pressure nudges** | UserPromptSubmit / PreToolUse / PostToolUse | `<engram-context>` heads-up ~10% of the window before the compaction point, `CHECKPOINT NOW` ~3% before it (once each per cycle), and a cadence reminder every 25 turns without a deliberate checkpoint. Needs a statusline that records the mirror; announced at session start when there is none |
+| **Context-pressure nudges** | UserPromptSubmit / PreToolUse / PostToolUse | `<engram-context>` heads-up ~10% of the window before the compaction point, `CHECKPOINT NOW` ~3% before it (once each per cycle); fallback after 60 turns with neither a checkpoint nor a completed step. Needs a statusline that records the mirror; announced at session start when there is none |
+| **Milestone nudges** | Stop (read) → next injection point (deliver); PostToolUse ExitPlanMode / TaskUpdate | The model's own "step done" in its final message, with no deliberate checkpoint that turn, gets one nudge quoting the claim. A plan approval asks for the plan to be banked with its steps pending. Never written for you, never from commits |
 | **Session handoff on stop** | Stop | Saves last_assistant_message + files for next session |
 | **Session summary on end** | SessionEnd | Files edited, memory counts |
 | **Search spiral detection** | PostToolUse Bash | Warns after 3+ failed search commands |
@@ -209,7 +210,8 @@ Handled automatically:
 2. **`CHECKPOINT NOW`** ~3% before it (5% on a 200K window): call `context(checkpoint_save)` with task, step, completed/pending steps, files, warnings and a handoff summary, then continue. Act on this one — a deliberate checkpoint beats the automatic entry.
 3. **PreCompact** hook saves the automatic checkpoint (the floor) with task state and files in progress.
 4. **PostCompact** hook re-injects rules, mistakes, recent decisions, and the rhythm for the next cycle.
-5. **Cadence**: every 25 turns without a deliberate checkpoint, a reminder regardless of pressure.
+5. **Milestones are yours to call.** When you judge a phase, step, or part of a plan done, call `context(checkpoint_save)` before ending the turn. Engram reads your final message at Stop; a completion claim ("Phase 1 built", "step 3 done, next is X", "all 60 checks pass") with no deliberate checkpoint behind it gets a nudge at the next opportunity. After ExitPlanMode, bank the approved plan with its steps as `pending_steps`. Never triggered by commits, never written for you.
+6. **Fallback**: 60 turns with neither a deliberate checkpoint nor a completed step, a reminder — that condition is closer to a stall than a save schedule.
 
 The distance is computed from the statusline's token counts (hooks receive none) against the actual compaction point: `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else `autoCompactWindow` in settings, else the model default (200K boundary, or ~967K on a native-1M model). Never the raw percentage.
 

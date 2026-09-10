@@ -3158,6 +3158,59 @@ def _hook_session_start(project_dir: str) -> None:
         pass
 
 
+def _hook_post_milestone() -> None:
+    """PostToolUse(ExitPlanMode|TaskUpdate): the two structural "unit
+    boundary" moments. A plan approval hands over the milestone list, so ask
+    for it to be banked as a checkpoint; a task marked completed is the
+    model's "step done" stated structurally (the task tools are absent on the
+    newest models unless opted in, so this is the bonus path). Injects at
+    once -- PostToolUse can -- rather than staging for later."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        if data.get("agent_id"):
+            return
+        tool = str(data.get("tool_name", ""))
+        tool_input = data.get("tool_input") or {}
+        from claude_engram.hooks import context_pressure as _cp
+        from claude_engram.hooks import milestones as _ms
+
+        result = ""
+        if tool == "ExitPlanMode":
+            result = _ms.plan_text()
+        elif tool == "TaskUpdate":
+            status = str(tool_input.get("status", "")).lower()
+            if status == "completed":
+                subject = (
+                    tool_input.get("subject")
+                    or tool_input.get("task_subject")
+                    or tool_input.get("taskId")
+                    or tool_input.get("task_id")
+                    or "a task"
+                )
+                state = load_state()
+                _cp.stage_milestone(state, str(subject), "task")
+                save_state(state)
+        result = _with_pressure(result, project_dir=get_project_dir())
+        if result:
+            print(
+                json_module.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUse",
+                            "additionalContext": result,
+                        }
+                    }
+                )
+            )
+    except Exception:
+        pass
+
+
 def main():
     hook_type = sys.argv[1] if len(sys.argv) > 1 else ""
     # Identify the Claude Code session before any state I/O so per-session
@@ -3629,17 +3682,22 @@ def main():
                 # Also persist session files for next session context
                 mark_session_ended()
 
-            # One more turn for the checkpoint cadence (hooks/context_pressure).
-            # Counted here, not at UserPromptSubmit: an unattended /goal loop
-            # has no user prompts, but every turn still ends with a Stop.
-            try:
-                from claude_engram.hooks import context_pressure as _cp
+                # One more turn for the checkpoint bookkeeping
+                # (hooks/context_pressure) and the milestone read
+                # (hooks/milestones): the final message is where the model
+                # declares a step done. Counted here, not at UserPromptSubmit:
+                # an unattended /goal loop has no user prompts, but every turn
+                # still ends with a Stop. Subagents excluded -- their "done"
+                # is not the session's.
+                if not data.get("agent_id"):
+                    try:
+                        from claude_engram.hooks import context_pressure as _cp
 
-                _st = load_state()
-                _cp.note_stop(_st)
-                save_state(_st)
-            except Exception:
-                pass
+                        _st = load_state()
+                        _cp.note_stop(_st, str(last_message or ""))
+                        save_state(_st)
+                    except Exception:
+                        pass
 
             # Live freshness tick: debounced incremental mine so search,
             # extractions, and code indexes track the session as it runs
@@ -3818,6 +3876,9 @@ def main():
     # ==================================================================
     elif hook_type == "pre_read_json":
         _hook_pre_read()
+
+    elif hook_type == "post_milestone_json":
+        _hook_post_milestone()
 
     else:
         pass  # Unknown hook type - silent
