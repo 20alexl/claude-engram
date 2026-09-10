@@ -553,16 +553,19 @@ def nudge(state: dict, bearings: Optional[list[str]] = None) -> tuple[str, bool]
 HALT_ALLOWED_TOOLS = frozenset({"PushNotification", "mcp__claude-engram__context", "ToolSearch"})
 
 
-def autonomy_on() -> bool:
-    """The /engram run launcher sets CLAUDE_ENGRAM_AUTONOMY=1 for the
-    session; a person can set it by hand for an unattended interactive run."""
-    return os.environ.get("CLAUDE_ENGRAM_AUTONOMY", "").strip().lower() in ("1", "on", "true", "yes")
+def autonomy_on(state: Optional[dict] = None) -> bool:
+    """Autonomy mode: an in-session `/engram run` is running (session state,
+    hooks/autorun.py), or CLAUDE_ENGRAM_AUTONOMY=1 in the environment (the
+    headless launcher, or a person arming a session by hand)."""
+    from claude_engram.hooks.autorun import env_or_state_autonomy
+
+    return env_or_state_autonomy(state)
 
 
 def maybe_halt(state: dict, turn_no: int) -> bool:
     """After close_turn: at the cap, in autonomy mode, arm the halt. Returns
     True when the halt was armed this call."""
-    if not autonomy_on():
+    if not autonomy_on(state):
         return False
     st = stall_state(state)
     cap = _env_int("CLAUDE_ENGRAM_STRIKE_CAP", STRIKE_CAP)
@@ -636,7 +639,7 @@ def summary(state: dict) -> dict:
         "last_change_at": float(st.get("last_change_at") or 0.0),
         "last_effects": list(st.get("last_effects") or []),
         "halted": dict(st["halted"]) if isinstance(st.get("halted"), dict) else None,
-        "autonomy": autonomy_on(),
+        "autonomy": autonomy_on(state),
     }
 
 

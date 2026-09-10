@@ -2849,7 +2849,7 @@ def _hook_pre_bash(project_dir: str) -> None:
         # Autonomy mode: an ask-first rule cannot be asked, so a detector
         # marked deny refuses the call (a deny ends nothing but this call;
         # the reason tells the model to record what it needs and go on).
-        denied = _cpl.should_deny(new, str(data.get("permission_mode") or "")) if new else []
+        denied = _cpl.should_deny(new, str(data.get("permission_mode") or ""), state) if new else []
         if denied and state is not None:
             for m in state.get("compliance", {}).get("matches", [])[-len(new):]:
                 if m.get("rule_id") in {d["rule_id"] for d in denied}:
@@ -2937,14 +2937,13 @@ def _hook_notification(project_dir: str) -> None:
         data = json_module.loads(stdin_data)
         from claude_engram.hooks import stall as _stall
 
-        if not _stall.autonomy_on():
+        state = load_state()
+        if not _stall.autonomy_on(state):
             return
         kind = str(data.get("notification_type") or data.get("type") or "").strip()
         if kind not in ("agent_needs_input", "permission_prompt", "idle_prompt"):
             return
         from claude_engram import alerts as _alerts
-
-        state = load_state()
         msg = str(data.get("message") or "")[:120]
         text = f"run {_session_id[:8]} waiting on you: {kind}" + (f" -- {msg}" if msg else "")
         _alerts.send(text, project_dir, kind="needs_input", state=state)
@@ -2993,7 +2992,7 @@ def _hook_stop_failure(project_dir: str) -> None:
         try:
             from claude_engram.hooks import stall as _stall
 
-            if _stall.autonomy_on():
+            if _stall.autonomy_on(state):
                 from claude_engram import alerts as _alerts
 
                 reset = ""
@@ -3284,7 +3283,7 @@ def _hook_session_start(project_dir: str) -> None:
                 from claude_engram.hooks import stall as _stall
                 from claude_engram import alerts as _alerts
 
-                if _stall.autonomy_on():
+                if _stall.autonomy_on(load_state()):
                     _cap = _stall._env_int("CLAUDE_ENGRAM_STRIKE_CAP", _stall.STRIKE_CAP)
                     _where = "configured" if _alerts.alert_command(project_dir) else "NOT configured (recorded only)"
                     lines.append(
@@ -4175,6 +4174,41 @@ def main():
                         except Exception:
                             pass
                         save_state(_st)
+                        # /engram run inside the session: engram's own loop
+                        # (hooks/autorun.py). While the run is running and
+                        # its check has not passed, block the stop with the
+                        # directive as the next prompt; otherwise the run
+                        # ends here with an alert and the report.
+                        try:
+                            from claude_engram.hooks import autorun as _ar
+
+                            if _ar.running(_st):
+                                _block = _ar.stop_decision(_st, project_dir)
+                                save_state(_st)
+                                if _block:
+                                    print(json_module.dumps(_block))
+                                else:
+                                    _a = _ar.auto(_st) or {}
+                                    try:
+                                        from claude_engram import alerts as _alerts
+
+                                        _alerts.send(
+                                            _ar.end_alert_text(_a, _session_id),
+                                            project_dir,
+                                            kind=str(_a.get("status") or "ended"),
+                                            state=_st,
+                                        )
+                                        save_state(_st)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        from claude_engram import run_report as _rr
+
+                                        _rr.write_report(_session_id, project_dir, _st)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
                     except Exception:
                         pass
 

@@ -190,13 +190,16 @@ The default pack ships detectors on the rules that need one, all marked deny una
 Engram does not invent a loop. `/goal` is the loop; engram brackets it so an unattended run cannot burn a night polling, cannot lose its record, and cannot die silently.
 
 ```text
-python -m claude_engram.run --goal "<condition>" --prompt "<task>" --model sonnet          # foreground: the normal session, autonomy armed
-python -m claude_engram.run --headless --goal "<condition>" --max-turns 150 \
-    --alert-command 'curl -s -d {message} https://ntfy.sh/<topic>'                        # cron / overnight: claude -p, no terminal
-/engram run <goal>                       # from a session: prints the foreground command for you; "in the background" runs it headless
+/engram run <goal> check: <command>      # in this session, like /goal or /loop; the person or Claude can invoke it
+/engram stop  ·  /engram done  ·  /engram status  ·  /engram report
+python -m claude_engram.run --headless --goal "<goal>" --alert-command 'curl -s -d {message} https://ntfy.sh/<topic>'   # cron / overnight only
 ```
 
-The default is the foreground: the launcher opens the normal interactive session in your terminal with the goal as its first prompt and autonomy armed, so you watch it, interject, and stop it like any session. `--headless` runs `claude -p` with no terminal UI, for cron and overnight. Either way the launcher writes a manifest (goal, model, permission mode, the rules in scope with their detectors, the start commit), sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window (a number that fits the model, not a fixed count), tells the model to park on a wait primitive rather than poll, and chooses the session id. Headless adds a hard `--max-turns` (the goal evaluator's own "or stop after N turns" is not honored) and, on exit, reads the session's state: a usage-limit failure with a known reset sleeps until the window resets and resumes the same session (a resume restores an active goal); anything else ends the run. The interactive client handles its own usage-limit resume. Then the run report and the closing alert. Cost is the same as any session: a Claude.ai plan pays with its usage windows, an API key or an enterprise provider pays per token; the `total_cost_usd` the headless run prints is Claude Code's own client-side estimate.
+`/engram run` works inside the session you are in. The skill calls `session_mine(run_start, goal, check, max_turns)`, which arms the run in the session state, and from the next stop engram's own Stop hook re-prompts with the goal until the run ends. Engram never judges the sentence: the **check command** is the truth, and the run ends when it exits 0. Without a check the run ends only when the model calls `session_mine(run_done, evidence)`, and the report says the end was self-declared. The other ends: the turn cap, the strike-cap halt, and `/engram stop`. While it runs, autonomy mode is on: ask-first rules refuse their commands, three no-effect strikes halt, alerts go out, the compaction point and the budget nudges do their work. You are watching the whole time and can interject or stop it like any session, and Claude may start one itself when the plan says to execute unattended and the goal is checkable.
+
+Every run writes a manifest (goal, check, the rules in scope with their detectors, the start commit) and, at its end, an alert and the run report with an "Engram run" section: goal, check, turns, how it ended, and whether the end was self-declared.
+
+For cron and overnight, outside any session, the launcher runs `claude -p` with the same supervision: it sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 75% of the model's window, a hard `--max-turns`, the park instruction, and after a usage-limit exit sleeps until the window resets and resumes the same session. Cost is the same as any session: a Claude.ai plan pays with its usage windows, an API key or an enterprise provider pays per token; the `total_cost_usd` a headless run prints is Claude Code's own client-side estimate.
 
 Inside the run, `CLAUDE_ENGRAM_AUTONOMY=1` arms two things:
 

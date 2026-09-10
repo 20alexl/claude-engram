@@ -207,7 +207,7 @@ def match_call(rules: list[dict], tool_name: str, tool_input: Any) -> list[dict]
     return hits
 
 
-def should_deny(hits: list[dict], permission_mode: str) -> list[dict]:
+def should_deny(hits: list[dict], permission_mode: str, state: Optional[dict] = None) -> list[dict]:
     """The hits that refuse the call: detectors marked ``unattended: deny``,
     in autonomy mode only. A person's own bypass-mode session is attended --
     they are at the terminal and see the rule injected -- so the permission
@@ -216,7 +216,7 @@ def should_deny(hits: list[dict], permission_mode: str) -> list[dict]:
         from claude_engram.hooks.stall import autonomy_on
     except Exception:  # pragma: no cover
         return []
-    if not autonomy_on():
+    if not autonomy_on(state):
         return []
     return [h for h in hits if h.get("unattended") == "deny"]
 

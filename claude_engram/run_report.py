@@ -534,6 +534,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
         "end_reason": str(run.get("end_reason") or ""),
         "failures": [f for f in (run.get("failures") or []) if isinstance(f, dict)],
         "alerts": [a for a in (state.get("alerts") or []) if isinstance(a, dict)],
+        "autorun": _autorun_summary(state),
         "not_measured": not_measured,
         "transcript_path": str(transcript_path) if transcript_path else "",
     }
@@ -778,6 +779,26 @@ def render_md(r: dict) -> str:
                 )
         lines.append("")
 
+    ar = r.get("autorun")
+    if isinstance(ar, dict):
+        lines.append(f"## Engram run ({ar.get('status', '?')})")
+        lines.append("")
+        lines.append(f"- **Goal:** {str(ar.get('goal', '')).replace('|', '/')}")
+        lines.append(f"- **Check:** `{ar['check']}`" if ar.get("check") else "- **Check:** none (the end is self-declared)")
+        lines.append(
+            f"- **Turns:** {ar.get('turns', 0)} of {ar.get('max_turns', '?')}"
+            + (f" · {ar['duration_s']} s" if ar.get("duration_s") is not None else "")
+        )
+        if ar.get("why"):
+            lines.append(f"- **Ended:** {ar['why']}")
+        if ar.get("self_declared"):
+            lines.append("- **Self-declared:** the model declared the goal met; no check command verified it")
+        lc = ar.get("last_check")
+        if isinstance(lc, dict) and (lc.get("rc") is not None or lc.get("error")):
+            tail = str(lc.get("out") or lc.get("error") or "").replace("\n", " / ")[-200:]
+            lines.append(f"- **Last check:** exit {lc.get('rc')} {tail}".rstrip())
+        lines.append("")
+
     al = r.get("alerts") or []
     if al:
         lines.append(f"## Alerts ({len(al)})")
@@ -800,6 +821,15 @@ def render_md(r: dict) -> str:
     lines.append("")
     lines.append(f"_Generated {r['generated_at']} by claude-engram run_report schema {r['schema']}._")
     return "\n".join(lines) + "\n"
+
+
+def _autorun_summary(state: dict) -> Optional[dict]:
+    try:
+        from claude_engram.hooks import autorun as _ar
+
+        return _ar.summary(state)
+    except Exception:
+        return None
 
 
 def runs_dir(project_dir: str) -> Path:
