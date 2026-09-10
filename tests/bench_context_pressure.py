@@ -96,6 +96,27 @@ def test_compaction_point(cp, tmp):
 
     (proj / ".claude" / "settings.json").write_text(json.dumps({"autoCompactWindow": "500k"}), encoding="utf-8")
     check("settings autoCompactWindow read", cp.compaction_point(1_000_000, str(proj)) == (500_000, "settings"))
+
+    # Managed (enterprise) settings outrank every project and user file;
+    # drop-ins in managed-settings.d/ merge alphabetically, later wins.
+    managed = tmp / "managed"
+    (managed / "managed-settings.d").mkdir(parents=True, exist_ok=True)
+    _orig_dir, _orig_reg = cp._managed_dir, cp._managed_registry
+    cp._managed_dir = lambda: managed
+    cp._managed_registry = lambda: {}
+    try:
+        (managed / "managed-settings.json").write_text(json.dumps({"autoCompactWindow": "600k"}), encoding="utf-8")
+        check("managed file beats the project setting", cp.compaction_point(1_000_000, str(proj)) == (600_000, "managed"))
+        (managed / "managed-settings.d" / "10-base.json").write_text(json.dumps({"autoCompactWindow": "620k"}), encoding="utf-8")
+        (managed / "managed-settings.d" / "20-team.json").write_text(json.dumps({"autoCompactWindow": "650k"}), encoding="utf-8")
+        check("the last drop-in wins", cp.compaction_point(1_000_000, str(proj)) == (650_000, "managed"))
+        cp._managed_registry = lambda: {"autoCompactWindow": 700000}
+        check("the registry policy outranks the files", cp.compaction_point(1_000_000, str(proj)) == (700_000, "managed"))
+        os.environ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "800000"
+        check("the env var still wins over managed", cp.compaction_point(1_000_000, str(proj)) == (800_000, "env"))
+        os.environ.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
+    finally:
+        cp._managed_dir, cp._managed_registry = _orig_dir, _orig_reg
     (proj / ".claude" / "settings.local.json").write_text(json.dumps({"autoCompactWindow": 300}), encoding="utf-8")
     check("settings.local beats settings", cp.compaction_point(1_000_000, str(proj)) == (300_000, "settings"))
     check("settings capped at the window", cp.compaction_point(200_000, str(proj)) == (200_000, "settings"))
@@ -371,6 +392,15 @@ def test_milestones(cp):
         "Run the suite until phase 2 is green.",
         "Your step 3 is done when the file exists.",
         "Run 2 of 3 done; one more to go.",
+        # Two more real false positives (2026-09-09): restated history with a
+        # unit noun hiding in a hyphenated compound, and a quoted sentence
+        # discussed under a bold header.
+        "Checkpoint restored. It matches where we are, with one commit behind: it names `8748488` as latest, and `ef0bb83` (the pushback and follow-plan rules) landed after it was saved.",
+        '**Milestone classifier: restated history reads as a fresh claim.** "X landed after it was saved" fired a nudge this turn.',
+        "Phase 1 was already built last session; today is phase 2.",
+        "The migration had landed before this run started.",
+        "As of the previous commit the step is complete, nothing new here.",
+        'The harness printed "step 2 is done", which is the quote we discuss.',
     ]
     for t in positives:
         s, q = ms.classify_completion(t, use_semantic=False)

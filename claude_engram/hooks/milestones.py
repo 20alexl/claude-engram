@@ -55,12 +55,31 @@ _NEG = (
     r"can't be|cannot be|yet|todo|pending|remaining)"
 )
 
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+# A sentence ends at .!? followed by optional markdown closers ("claim.**")
+# and whitespace; a bold header and the sentence after it are two sentences.
+_SENT_SPLIT = re.compile(r"(?<=[.!?])[*_)\"'`]*\s+|\n+")
+# A unit noun inside a hyphenated compound is not the unit ("follow-plan
+# rules", "goal-test/out.txt"); ``follow-?up`` is itself a unit.
+_U = rf"(?<![-\w/]){_UNIT}(?![-\w/])"
 _STRONG_UNIT_THEN_DONE = re.compile(
-    rf"\b{_UNIT}\b[^.!?\n]{{0,60}}?\b(?P<done>{_DONE})\b", re.IGNORECASE
+    rf"{_U}[^.!?\n]{{0,60}}?\b(?P<done>{_DONE})\b", re.IGNORECASE
 )
 _STRONG_DONE_THEN_UNIT = re.compile(
-    rf"\b(?P<done>{_DONE})\b[^.!?\n]{{0,40}}?\b{_UNIT}\b", re.IGNORECASE
+    rf"\b(?P<done>{_DONE})\b[^.!?\n]{{0,40}}?{_U}", re.IGNORECASE
+)
+# Quoted spans are someone else's words or a past sentence being discussed
+# ("X landed after it was saved" fired a nudge), never this turn's claim.
+_QUOTED = re.compile(r"\"[^\"\n]{2,}\"|`[^`\n]{2,}`|“[^”\n]{2,}”")
+# Restated history: a completion word that refers back to something that
+# was already the case ("landed after it was saved", "already built",
+# "done last session", "as of the previous commit"). Reporting the past is
+# not closing a step now.
+_HISTORY = re.compile(
+    rf"\b(?:already|earlier|previously|beforehand|before this (?:session|turn|run)|"
+    rf"last (?:session|turn|time|night|week|run)|in (?:the |a )?(?:previous|earlier|last|prior) "
+    rf"(?:session|turn|commit|run|pass)|after (?:it|that|this|the \w+) (?:was|were|had|got)|"
+    rf"as of|since (?:then|the last)|had (?:been )?{_DONE})\b",
+    re.IGNORECASE,
 )
 _ALL_PASS = re.compile(
     r"\ball\s+(?:\d+\s+)?(?:checks|tests|benches|benchmarks|suites|cases)\s+"
@@ -153,6 +172,11 @@ def _negated(sentence: str, m: "re.Match[str]") -> bool:
 
 def _regex_tier(sentence: str) -> float:
     if "?" in sentence:
+        return 0.0
+    # Quoted spans are discussed, not claimed; restated history is reported,
+    # not closed. Both leave nothing for a claim to stand on.
+    sentence = _QUOTED.sub(" ", sentence)
+    if _HISTORY.search(sentence):
         return 0.0
     if _IMPERATIVE_START.match(sentence.lstrip("*-# ")) or _SECOND_PERSON.search(sentence):
         return 0.0

@@ -176,6 +176,13 @@ class MemoryStore:
 
         # In-memory cache (lazy-loaded per project)
         self._projects: dict[str, ProjectMemory] = {}
+        # Disk stamp (mtime_ns, size) of each loaded memory.json and of the
+        # manifest. A long-lived server (the MCP process) otherwise serves a
+        # copy taken at first touch and, on its next save, overwrites what
+        # a CLI or a hook wrote in the meantime -- seen as a delete-by-id
+        # "not found" after a CLI re-seed (2026-09-09).
+        self._project_stamps: dict[str, tuple[int, int]] = {}
+        self._manifest_stamp: tuple[int, int] = (0, 0)
         self._global_entries: list[MemoryEntry] = []
         self._load_error: str | None = None  # Track if memory file was corrupted
         self._save_error: str | None = None  # Track if save failed
@@ -363,6 +370,7 @@ class MemoryStore:
         if self._manifest_file.exists():
             try:
                 self._manifest = json.loads(self._manifest_file.read_text())
+                self._manifest_stamp = self._disk_stamp(self._manifest_file)
             except Exception as e:
                 self._load_error = f"Manifest corrupted, starting fresh: {e}"
                 self._manifest = {"version": 3, "projects": {}}
@@ -637,10 +645,31 @@ class MemoryStore:
             self._save_error = f"Failed to save global: {e}"
 
     def _save_project(self, norm_path: str) -> bool:
-        """Save a single project to its per-project directory."""
+        """Save a single project to its per-project directory.
+
+        Another process may have written the file since this one loaded it.
+        A project this process did not mutate is then simply not written
+        (``_save()`` falls back to "all loaded projects" for callers that do
+        not mark dirty, and that fallback is how a stale copy used to land
+        on top of a fresh file). A project this process DID mutate on a
+        stale base is merged by entry id: our copy plus any entry on disk we
+        never saw. That can resurrect an entry the other writer deleted in
+        the same instant; it can never lose a write."""
         proj = self._projects.get(norm_path)
         if not proj:
             return False
+        if norm_path in self._project_stamps and self._project_stale(norm_path):
+            if norm_path not in self._dirty_projects:
+                return True
+            try:
+                disk = self._load_project(norm_path)
+                seen = {e.id for e in proj.entries}
+                added = [e for e in disk.entries if e.id and e.id not in seen]
+                if added:
+                    proj.entries.extend(added)
+                    self._rebuild_indexes(proj)
+            except Exception:
+                pass
         try:
             pdir = self._project_dir(norm_path)
             proj_data = proj.model_dump()
@@ -648,6 +677,7 @@ class MemoryStore:
             temp = (pdir / "memory.json").with_suffix(".json.tmp")
             temp.write_text(json.dumps(proj_data, indent=2))
             temp.replace(pdir / "memory.json")
+            self._project_stamps[norm_path] = self._disk_stamp(pdir / "memory.json")
             return True
         except Exception as e:
             self._save_error = f"Failed to save project {norm_path}: {e}"
@@ -693,16 +723,52 @@ class MemoryStore:
             normalized = normalized[0].lower() + normalized[1:]
         return normalized
 
+    @staticmethod
+    def _disk_stamp(path: Path) -> tuple[int, int]:
+        try:
+            st = path.stat()
+            return (int(st.st_mtime_ns), int(st.st_size))
+        except OSError:
+            return (0, 0)
+
+    def _refresh_manifest_if_changed(self) -> None:
+        """Another writer may have registered a project since we started."""
+        stamp = self._disk_stamp(self._manifest_file)
+        if stamp != self._manifest_stamp and stamp != (0, 0):
+            try:
+                data = json.loads(self._manifest_file.read_text())
+                if isinstance(data, dict):
+                    self._manifest = data
+            except Exception:
+                return
+            self._manifest_stamp = stamp
+
+    def _project_stale(self, norm_path: str) -> bool:
+        """Has memory.json changed on disk since this process loaded it?"""
+        stamp = self._disk_stamp(self._project_dir(norm_path) / "memory.json")
+        return stamp != self._project_stamps.get(norm_path, (0, 0))
+
+    def _load_project_tracked(self, norm_path: str) -> ProjectMemory:
+        proj = self._load_project(norm_path)
+        self._project_stamps[norm_path] = self._disk_stamp(
+            self._project_dir(norm_path) / "memory.json"
+        )
+        return proj
+
     def get_project(self, project_path: str) -> Optional[ProjectMemory]:
-        """Get memory for a project, lazy-loading from disk if needed."""
+        """Get memory for a project, lazy-loading from disk if needed, and
+        reloading when the file on disk is newer than the copy held here."""
         project_path = self._normalize_path(project_path)
-        if project_path not in self._projects:
-            # Check manifest for this project
-            if project_path in self._manifest.get("projects", {}):
-                self._projects[project_path] = self._load_project(project_path)
-            else:
-                return None
-        return self._projects.get(project_path)
+        if project_path in self._projects:
+            if self._project_stale(project_path):
+                self._projects[project_path] = self._load_project_tracked(project_path)
+            return self._projects.get(project_path)
+        if project_path not in self._manifest.get("projects", {}):
+            self._refresh_manifest_if_changed()
+        if project_path in self._manifest.get("projects", {}):
+            self._projects[project_path] = self._load_project_tracked(project_path)
+            return self._projects.get(project_path)
+        return None
 
     def remember_project(
         self,
@@ -713,18 +779,15 @@ class MemoryStore:
     ) -> ProjectMemory:
         """Create or update project memory."""
         project_path = self._normalize_path(project_path)
-        if project_path not in self._projects:
-            # Try lazy-load first
-            if project_path in self._manifest.get("projects", {}):
-                self._projects[project_path] = self._load_project(project_path)
-            else:
-                project_name = Path(project_path).name
-                self._projects[project_path] = ProjectMemory(
-                    project_path=project_path,
-                    project_name=project_name,
-                )
-                # Create manifest entry and project dir
-                self._project_dir(project_path)
+        # get_project() lazy-loads, reloads a copy that is stale on disk, and
+        # re-reads a manifest another writer has extended.
+        if self.get_project(project_path) is None:
+            self._projects[project_path] = ProjectMemory(
+                project_path=project_path,
+                project_name=Path(project_path).name,
+            )
+            # Create manifest entry and project dir
+            self._project_dir(project_path)
 
         proj = self._projects[project_path]
 

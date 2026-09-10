@@ -199,6 +199,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** Nothing, if it was research: say what you are looking for and carry on; the strike decays after five turns with real effect. If a run keeps hitting strike 2, the bearings check is the point: name the blocker and pick a different action, or park on a wait primitive instead of polling. Turns with no tools at all and turns parked on Monitor / ScheduleWakeup / a cron are neutral and never count.
 
+### Gotcha: a rule added from the CLI is "not found" through the MCP tools, or vanishes later
+
+**Symptom:** `python -m claude_engram …` (or a hook) writes a rule or memory; the running session's `memory(delete)` on that id says not found, or a later save from the session quietly drops what the CLI wrote.
+
+**Cause (fixed in 0.8.22):** The MCP server is one long-lived `MemoryStore`. It loaded each project's `memory.json` once and kept serving that copy, and its save path fell back to "write every loaded project" for callers that never marked a project dirty — so a save for one project rewrote the others from a stale copy.
+
+**Fix:** Upgrade. Each loaded file carries a disk stamp; reads reload a copy the disk moved past, the manifest is re-read when another writer extended it, a stale project this process never touched is not written, and a mutation on a stale base merges by entry id. If you are on an older version, use one writer per session.
+
 ### Gotcha: `claude -p "/goal …"` from Git Bash sets no goal
 
 **Symptom:** A headless goal run answers like a normal prompt, the transcript has no `goal_status` entries, and no run report is written.

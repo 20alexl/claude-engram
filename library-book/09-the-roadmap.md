@@ -45,6 +45,16 @@
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
 | Default pack (scaffold + rules) and rotation | Stable | v0.8.19 |
 | Stall detection (effect-judged turns, decaying strikes) + setpoint notice | Stable | v0.8.21 |
+| Memory store freshness across processes (disk stamps, stale-skip, merge-by-id) | Stable | v0.8.22 |
+
+## Done / Shipped (v0.8.22)
+
+| Feature | Notes |
+|---------|-------|
+| Store freshness | The long-lived MCP store reloads a `memory.json` the disk moved past, re-reads a manifest another writer extended, never writes a stale copy over a fresh file, and merges by id when it mutated on a stale base. |
+| Classifier guards | Quoted spans, restated history and hyphenated compounds no longer read as a fresh completion claim. |
+| Loop detector | "Edits without tests" only for code files. |
+| Managed settings | `managed-settings.json`, `managed-settings.d/`, Windows policy registry; precedence per the docs. |
 
 ## Done / Shipped (v0.8.21)
 

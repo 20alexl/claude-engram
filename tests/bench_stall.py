@@ -370,6 +370,31 @@ def test_source_guards():
     check("run report reads the stall summary", "_stall.summary(" in rr and "## Stalls" in rr)
 
 
+def test_loop_detector_docs():
+    print("loop detector: 'edits without tests' is a code signal:")
+    from claude_engram.hooks import remind
+
+    for p, want in (
+        ("docs/plan.md", False),
+        ("README.md", False),
+        ("config.json", False),
+        ("notes.txt", False),
+        ("pyproject.toml", False),
+        ("nb.ipynb", False),
+        ("claude_engram/hooks/stall.py", True),
+        ("src/app.ts", True),
+        ("game/Main.luau", True),
+        ("tools/reindex.ps1", True),
+        ("lib.rs", True),
+    ):
+        check(f"{p} -> {'code' if want else 'not code'}", remind._is_code_file(p) is want)
+    src = (ROOT / "claude_engram" / "hooks" / "remind.py").read_text(encoding="utf-8")
+    check(
+        "both loop warnings gate on _is_code_file",
+        src.count("_is_code_file(file_path)") >= 2 and "without running tests" in src,
+    )
+
+
 def _hook(hook_type, payload, env):
     return subprocess.run(
         [sys.executable, "-m", "claude_engram.hooks.remind", hook_type],
@@ -516,6 +541,7 @@ def main():
         test_reference_case(st)
         test_events_cap(st)
         test_source_guards()
+        test_loop_detector_docs()
         test_end_to_end(tmp)
         test_setpoint_notice(cp, tmp)
         test_run_report(tmp)

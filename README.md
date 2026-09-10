@@ -144,7 +144,7 @@ Each fires once per compaction cycle. After a compaction the PostCompact banner 
 
 - Your own statusline script — call `claude_engram.hooks.context_pressure.record_statusline(data)` with the JSON it received, or write the same record to `~/.claude_engram/sessions/<session_id>.ctx.json` yourself (eight flat fields; see the module docstring). No engram import is needed for the second form, which matters when the statusline runs under a different python than the hooks.
 
-Without a statusline engram says so at session start, and only the cadence runs. A window set only by the `--autocompact` launch flag is invisible to hooks; engram falls back to the model default and names the source it used.
+Without a statusline engram says so at session start, and only the cadence runs. A window set only by the `--autocompact` launch flag is invisible to hooks; engram falls back to the model default and names the source it used. The setting is read with Claude Code's own precedence: the env var, then managed settings (`managed-settings.json`, the `managed-settings.d/` drop-ins, the Windows policy registry key), then project-local, project and user settings.
 
 For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper, leaves headroom against the overflow that ends a `/goal` run, and puts the checkpoint nudge a known distance below a number you chose.
 

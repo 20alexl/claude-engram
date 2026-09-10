@@ -159,10 +159,59 @@ def parse_window_value(value) -> Optional[int]:
     return n if n > 0 else None
 
 
+def _managed_dir() -> Path:
+    """Where managed (enterprise) settings live, per the docs: macOS
+    ``/Library/Application Support/ClaudeCode``, Linux and WSL
+    ``/etc/claude-code``, Windows ``C:\\Program Files\\ClaudeCode``."""
+    if sys.platform == "darwin":
+        return Path("/Library/Application Support/ClaudeCode")
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "ClaudeCode"
+    return Path("/etc/claude-code")
+
+
+def _managed_files() -> list[Path]:
+    """``managed-settings.json`` plus the ``managed-settings.d/`` drop-ins,
+    which Claude Code merges in alphabetical order (later wins), so they
+    are listed highest precedence first: drop-ins reversed, then the file."""
+    d = _managed_dir()
+    out: list[Path] = []
+    try:
+        dropins = sorted((d / "managed-settings.d").glob("*.json"))
+    except Exception:
+        dropins = []
+    out += list(reversed(dropins))
+    out.append(d / "managed-settings.json")
+    return out
+
+
+def _managed_registry() -> dict:
+    """Windows only: ``HKLM`` then ``HKCU`` ``SOFTWARE\\Policies\\ClaudeCode``,
+    value ``Settings`` holding the settings JSON as a string."""
+    if not sys.platform.startswith("win"):
+        return {}
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except Exception:
+        return {}
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, r"SOFTWARE\Policies\ClaudeCode") as k:
+                raw, _kind = winreg.QueryValueEx(k, "Settings")
+            d = json.loads(os.path.expandvars(str(raw)))
+            if isinstance(d, dict):
+                return d
+        except Exception:
+            continue
+    return {}
+
+
 def _settings_files(project_dir: str = "") -> list[Path]:
     """Settings files that can carry ``autoCompactWindow``, highest precedence
-    first: project-local, project, user. Managed settings are not read."""
-    out: list[Path] = []
+    first: managed, project-local, project, user. The ``--settings`` command
+    line file sits between managed and project-local and is not visible to
+    a hook."""
+    out: list[Path] = list(_managed_files())
     if project_dir:
         p = Path(project_dir)
         out += [p / ".claude" / "settings.local.json", p / ".claude" / "settings.json"]
@@ -184,11 +233,21 @@ def _read_settings(path: Path) -> dict:
 
 
 def settings_autocompact(project_dir: str = "") -> Optional[int]:
+    return settings_autocompact_detail(project_dir)[0]
+
+
+def settings_autocompact_detail(project_dir: str = "") -> tuple[Optional[int], str]:
+    """(value, source): ``managed`` for the enterprise registry / files,
+    ``settings`` for project-local, project and user files."""
+    n = parse_window_value(_managed_registry().get("autoCompactWindow"))
+    if n:
+        return n, "managed"
+    managed = set(_managed_files())
     for f in _settings_files(project_dir):
         n = parse_window_value(_read_settings(f).get("autoCompactWindow"))
         if n:
-            return n
-    return None
+            return n, ("managed" if f in managed else "settings")
+    return None, ""
 
 
 def statusline_configured(project_dir: str = "") -> bool:
@@ -227,9 +286,9 @@ def compaction_point_detail(window: int, project_dir: str = "") -> dict:
         if n >= _ENV_MIN_WINDOW:
             configured, source = n, "env"
     if not configured:
-        n = settings_autocompact(project_dir)
+        n, label = settings_autocompact_detail(project_dir)
         if n:
-            configured, source = int(n), "settings"
+            configured, source = int(n), label
     if configured:
         point = min(configured, window)
     elif window > SMALL_WINDOW:

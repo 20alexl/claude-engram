@@ -889,14 +889,16 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     edit_count = edits.get(file_path, 0) or edits.get(file_name, 0)
     test_results = loop_status.get("recent_test_results", [])
 
-    # Only warn with evidence of trouble
+    # Only warn with evidence of trouble. "Without running tests" is a code
+    # signal: eight edits to a markdown, config or data file are a document
+    # being written, and tests have nothing to say about it.
     if test_results:
         last_failing = not test_results[-1].get("passed", True)
-        if last_failing and edit_count >= 3:
+        if last_failing and edit_count >= 3 and _is_code_file(file_path):
             results["loop_warnings"].append(
                 f"{edit_count} edits to {file_name}, tests still failing"
             )
-    elif edit_count >= 8:
+    elif edit_count >= 8 and _is_code_file(file_path):
         results["loop_warnings"].append(
             f"{edit_count} edits to {file_name} without running tests"
         )
@@ -1039,6 +1041,23 @@ def get_contextual_memories(
         return out
     except Exception:
         return []
+
+
+_CODE_SUFFIXES = frozenset(
+    {
+        ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".rs", ".go",
+        ".java", ".kt", ".kts", ".scala", ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp",
+        ".cs", ".rb", ".php", ".swift", ".m", ".mm", ".lua", ".luau", ".sh", ".bash",
+        ".zsh", ".ps1", ".psm1", ".pl", ".r", ".jl", ".ex", ".exs", ".erl", ".hs",
+        ".ml", ".clj", ".dart", ".vue", ".svelte", ".sql", ".proto", ".zig", ".nim",
+    }
+)
+
+
+def _is_code_file(file_path: str) -> bool:
+    """Tests speak to code. Markdown, config, data and notebooks are edited
+    many times in a row as a matter of course."""
+    return Path(file_path or "").suffix.lower() in _CODE_SUFFIXES
 
 
 def _auto_record_edit(file_path: str, description: str = "auto-tracked") -> int:
