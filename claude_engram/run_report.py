@@ -143,6 +143,10 @@ def _read_transcript(path: Optional[Path], session_id: str) -> dict:
         "prompts": 0,
         "assistant_messages": 0,
         "edits": {},  # file path -> Edit/Write count, from the tool_use blocks
+        # Scheduled work: /loop and the cron tools. Verified on a live /loop
+        # session: the skill creates a cron job (CronCreate), each fire arrives
+        # as a user prompt, and the job is deleted (CronDelete) when done.
+        "scheduled": {"cron_created": 0, "cron_deleted": 0, "wakeups": 0},
     }
     if not path or not path.is_file():
         return out
@@ -214,11 +218,16 @@ def _read_transcript(path: Optional[Path], session_id: str) -> dict:
                 content = message.get("content")
                 if isinstance(content, list):
                     for block in content:
-                        if (
-                            isinstance(block, dict)
-                            and block.get("type") == "tool_use"
-                            and block.get("name") in ("Edit", "Write", "MultiEdit", "NotebookEdit")
-                        ):
+                        if not isinstance(block, dict) or block.get("type") != "tool_use":
+                            continue
+                        name = str(block.get("name") or "")
+                        if name == "CronCreate":
+                            out["scheduled"]["cron_created"] += 1
+                        elif name == "CronDelete":
+                            out["scheduled"]["cron_deleted"] += 1
+                        elif name == "ScheduleWakeup" and not (block.get("input") or {}).get("stop"):
+                            out["scheduled"]["wakeups"] += 1
+                        if name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
                             fp = str((block.get("input") or {}).get("file_path") or (block.get("input") or {}).get("notebook_path") or "")
                             if fp:
                                 key = fp.replace("\\", "/")
@@ -492,6 +501,7 @@ def collect(session_id: str, project_dir: str, state: Optional[dict] = None) -> 
             "cost_usd": mirror.get("total_cost_usd"),
         },
         "compactions": compactions,
+        "scheduled": tr["scheduled"],
         "files": file_rows,
         "tests": tests,
         "errors": errors,
@@ -546,6 +556,12 @@ def render_md(r: dict) -> str:
         lines.append(
             f"- **Context at end:** {_k(tok['final_input'])} of {_k(tok.get('context_window') or 0)}"
             + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else "")
+        )
+    sch = r.get("scheduled") or {}
+    if any(sch.values()):
+        lines.append(
+            f"- **Scheduled work:** cron jobs created {sch.get('cron_created', 0)}, "
+            f"deleted {sch.get('cron_deleted', 0)}, self-paced wakeups {sch.get('wakeups', 0)}"
         )
     if r.get("end_reason"):
         lines.append(f"- **Ended:** {r['end_reason']}")
@@ -702,12 +718,15 @@ def substantial(state: dict) -> bool:
     """Worth a report: something was edited, or a compaction happened, or a
     goal was set (a /goal run that never touched Edit -- the model wrote its
     file through Bash -- must still leave its report), or the session ran
-    more than a handful of prompts or tests."""
+    three or more real turns (a /loop session appends through Bash and never
+    touches Edit either; three Stop events is a session that did work, not a
+    one-shot question), or a handful of prompts or a test run."""
     ps = _dict(state.get("pressure"))
     run = _dict(state.get("run"))
     return bool(
         state.get("files_edited_this_session")
         or int(ps.get("cycle") or 0) > 0
+        or int(ps.get("stops_total") or 0) >= 3
         or int(state.get("prompts_this_session") or 0) >= 5
         or int(state.get("test_runs_this_session") or 0) > 0
         or goal_seen(str(run.get("transcript_path") or ""))

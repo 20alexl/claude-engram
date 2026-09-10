@@ -68,11 +68,31 @@ _ALL_PASS = re.compile(
     r"|\b(?P<n>\d+)\s*/\s*(?P=n)\b[^.!?\n]{0,20}\b(?P<done2>pass(?:ed|ing)?|green|ok)\b",
     re.IGNORECASE,
 )
-# A future / intent marker anywhere before the completion word: "I'll mark
-# the task complete", "we will call step 3 done once...".
+# A future / modal / conditional marker ANYWHERE before the completion word:
+# "I'll mark the task complete", "the next verdict should say met", "after
+# the third line lands the goal clears". Talk about completion, not a claim
+# of it. Precision over recall: "After a long fight, phase 1 is done" is
+# rejected too, and that is the right trade for a nudge.
 _FUTURE_ANY = re.compile(
-    r"\b(?:i'?ll|we'?ll|will|going to|about to|plan to|planning to|intend to|"
-    r"then i|then we|next i|next we)\b",
+    r"\b(?:i'?ll|we'?ll|will|shall|would|should|could|might|may|going to|"
+    r"about to|plan to|planning to|intend to|expect(?:s|ed)? to|then|once|"
+    r"after|when|whenever|if|unless|until|before)\b",
+    re.IGNORECASE,
+)
+# Imperatives and second-person instructions are addressed to someone, not
+# reported: "Exit after it says the goal is met.", "Run the suite until it
+# is green." A claim is first-person or declarative.
+_IMPERATIVE_START = re.compile(
+    r"^(?:exit|run|press|tell|let|open|send|wait|delete|keep|go|stop|start|"
+    r"check|make|try|use|set|add|remove|restart|kill|ask|give|type|click|do|"
+    r"please|then|now|first|next|finally|remember|note|see)\b(?=\s+[a-z])",
+    re.IGNORECASE,
+)  # the lookahead keeps "Run 3 of 3 done" (a count, not a command)
+_SECOND_PERSON = re.compile(r"\b(?:you|your|yours|you'?re|you'?ll|you'?ve)\b", re.IGNORECASE)
+# "Run 3 of 3 done", "step 2 of 5 complete": numeric progress that reaches
+# the total is a claim even without a unit noun.
+_N_OF_N_DONE = re.compile(
+    r"\b(?P<n>\d+)\s+of\s+(?P=n)\b[^.!?\n]{0,30}\b(?P<done>done|complete|completed|finished)\b",
     re.IGNORECASE,
 )
 _UNIT_ANY = re.compile(rf"\b{_UNIT}\b", re.IGNORECASE)
@@ -134,7 +154,12 @@ def _negated(sentence: str, m: "re.Match[str]") -> bool:
 def _regex_tier(sentence: str) -> float:
     if "?" in sentence:
         return 0.0
+    if _IMPERATIVE_START.match(sentence.lstrip("*-# ")) or _SECOND_PERSON.search(sentence):
+        return 0.0
     m = _ALL_PASS.search(sentence)
+    if m and not _negated(sentence, m):
+        return STRONG
+    m = _N_OF_N_DONE.search(sentence)
     if m and not _negated(sentence, m):
         return STRONG
     for rx in (_STRONG_UNIT_THEN_DONE, _STRONG_DONE_THEN_UNIT):

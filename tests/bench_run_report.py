@@ -61,6 +61,7 @@ def _write_transcript(path: Path, sid: str):
         _msg("user", "2026-09-09T10:00:05Z", sid=sid, message={"role": "user", "content": "start"}),
         _msg("assistant", "2026-09-09T10:00:10Z", sid=sid, message={"role": "assistant", "model": "claude-fable-5-1", "content": [{"type": "text", "text": "working"}, {"type": "tool_use", "id": "e1", "name": "Edit", "input": {"file_path": "E:\\ws\\proj\\a.py"}}, {"type": "tool_use", "id": "e2", "name": "Write", "input": {"file_path": "E:/ws/proj/c.py"}}]}),
         _msg("assistant", "2026-09-09T10:00:12Z", sid=sid, message={"role": "assistant", "model": "<synthetic>", "content": [{"type": "text", "text": "injected"}]}),
+        _msg("assistant", "2026-09-09T10:00:14Z", sid=sid, message={"role": "assistant", "model": "claude-fable-5-1", "content": [{"type": "tool_use", "id": "c1", "name": "CronCreate", "input": {"cron": "*/2 * * * *", "prompt": "append", "recurring": True}}, {"type": "tool_use", "id": "w1", "name": "ScheduleWakeup", "input": {"delaySeconds": 120, "prompt": "x"}}, {"type": "tool_use", "id": "w2", "name": "ScheduleWakeup", "input": {"stop": True}}, {"type": "tool_use", "id": "c2", "name": "CronDelete", "input": {"id": "c1"}}]}),
         _msg("user", "2026-09-09T10:01:00Z", sid=sid, message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "ModuleNotFoundError: No module named 'foo'"}]}),
         _msg("user", "2026-09-09T10:02:00Z", sid=sid, message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": "ModuleNotFoundError: No module named 'foo'"}]}),
         _msg("user", "2026-09-09T10:03:00Z", sid=sid, toolUseResult="Error: File does not exist.", message={"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t3", "is_error": True, "content": "Error: File does not exist."}]}),
@@ -147,6 +148,8 @@ def main():
         check("per-file counts: hook counter wins when larger, case-insensitive join", {x["path"][-4:]: x["edits"] for x in f} == {"a.py": 4, "b.py": 1, "c.py": 1})
         check("files sorted by edits desc", f[0]["path"].endswith("a.py"))
         check("<synthetic> is not a model", "<synthetic>" not in r["models"])
+        check("scheduled work counted (cron created/deleted, wakeups excluding stop)", r["scheduled"] == {"cron_created": 1, "cron_deleted": 1, "wakeups": 1})
+        check("scheduled line rendered", "**Scheduled work:** cron jobs created 1, deleted 1, self-paced wakeups 1" in rr.render_md(r))
         t = r["tests"]
         check("tests: runs, first fail, last pass, failing runs", t["runs"] == 2 and t["first"] is False and t["last"] is True and t["failures"] == 1)
         e = r["errors"]
@@ -253,6 +256,8 @@ def main():
         check("an empty session is not", not rr.substantial({"prompts_this_session": 2}))
         check("a goal makes it substantial even with no edits (Bash-written files)", rr.substantial({"run": {"transcript_path": str(transcript)}}))
         check("a test run makes it substantial", rr.substantial({"test_runs_this_session": 1}))
+        check("three real turns make it substantial (a Bash-only /loop session)", rr.substantial({"pressure": {"stops_total": 3}}))
+        check("two turns do not", not rr.substantial({"pressure": {"stops_total": 2}}))
         check("goal_seen is false on a transcript without one", not rr.goal_seen(str(tmp / "nope.jsonl")))
 
         print("CLI:")

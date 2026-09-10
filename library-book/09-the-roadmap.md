@@ -44,6 +44,14 @@
 | Milestone checkpoints (the model's "step done" read at Stop; plan/task boundaries) | Stable | v0.8.15 |
 | Run report (`.engram/runs/`, hook-captured facts only) | Stable | v0.8.16 |
 
+## Done / Shipped (v0.8.18)
+
+| Feature | Notes |
+|---------|-------|
+| `/loop` and `/goal` tested live | Loop alone: cron job, fires as prompts, deleted at the end. Goal + loop in one session: the goal's Stop hook never lets the session idle, so cron never fires and the model does the loop's work itself. They do not compose. |
+| Loop sessions reported | Three Stop events qualify a session; scheduled work (cron created/deleted, wakeups) counted in the report. |
+| Classifier precision | Imperatives, second person, and modal/conditional talk about completion rejected; "N of N done" accepted. |
+
 ## Done / Shipped (v0.8.17)
 
 | Feature | Notes |

@@ -337,6 +337,8 @@ def test_milestones(cp):
         "Phase 2 wrapped up; moving to phase 3.",
         "Milestone reached: the report module is in place.",
         "Goal met: done.txt contains ok and check.py prints PASS.",
+        "Run 3 of 3 done and the loop is stopped.",
+        "Phase 1 is built and verified.",
     ]
     negatives = [
         "Is phase 1 done?",
@@ -355,6 +357,14 @@ def test_milestones(cp):
         "I'll mark the task complete after you confirm.",
         "The step needs to be verified before it is done.",
         "The goal is not met yet; two benches still fail.",
+        # Three real false positives from 2026-09-09 (instruction, prediction,
+        # a quote of the prediction): talk ABOUT completion, not claims of it.
+        "Exit after it says the goal is met.",
+        "After the third line lands, the next verdict should say met, and the goal clears itself.",
+        'The second nudge fired on another of my sentences, "the next verdict should say met, and the goal clears itself," which is a prediction.',
+        "Run the suite until phase 2 is green.",
+        "Your step 3 is done when the file exists.",
+        "Run 2 of 3 done; one more to go.",
     ]
     for t in positives:
         s, q = ms.classify_completion(t, use_semantic=False)
@@ -376,7 +386,7 @@ def test_milestones(cp):
     # strong-match windows): the regex tier alone must not decide this.
     weak = (
         "The plan we agreed on this morning, with every one of its sub-items "
-        "and the extra tests you asked for, is I think done."
+        "and the extra tests the reviewer wanted, is I think done."
     )
     check("bench premise: that sentence is a WEAK regex match", ms._regex_tier(weak) == ms.WEAK)
     s, _ = ms.classify_completion(weak, use_semantic=False)
