@@ -20,7 +20,8 @@ These happen via hooks. You don't call anything:
 | **Error auto-logging** | PostToolUseFailure (all tools) | Mistakes auto-saved from any failed tool |
 | **Decision capture** | UserPromptSubmit | "let's use X" parsed via semantic + regex scoring |
 | **Checkpoint on compact** | PreCompact | Task state saved before context compaction |
-| **Context re-injection** | PostCompact | Rules + mistakes + decisions re-injected |
+| **Context re-injection** | PostCompact | Rules + mistakes + decisions re-injected, plus the compaction rhythm (where the next heads-up / checkpoint / compaction sit) |
+| **Context-pressure nudges** | UserPromptSubmit / PreToolUse / PostToolUse | `<engram-context>` heads-up ~10% of the window before the compaction point, `CHECKPOINT NOW` ~3% before it (once each per cycle), and a cadence reminder every 25 turns without a deliberate checkpoint. Needs a statusline that records the mirror; announced at session start when there is none |
 | **Session handoff on stop** | Stop | Saves last_assistant_message + files for next session |
 | **Session summary on end** | SessionEnd | Files edited, memory counts |
 | **Search spiral detection** | PostToolUse Bash | Warns after 3+ failed search commands |
@@ -204,9 +205,13 @@ Captures patterns like "let's use X", "switch to Y", "don't use Z", "from now on
 
 Handled automatically:
 
-1. **PreCompact** hook saves checkpoint with task state and files in progress.
-2. **PostCompact** hook re-injects rules, mistakes, and recent decisions.
-3. No manual action needed. If you want deeper restore, call `session_start`.
+1. **Heads-up** ~10% of the window before the compaction point: finish the current step, start nothing long.
+2. **`CHECKPOINT NOW`** ~3% before it (5% on a 200K window): call `context(checkpoint_save)` with task, step, completed/pending steps, files, warnings and a handoff summary, then continue. Act on this one — a deliberate checkpoint beats the automatic entry.
+3. **PreCompact** hook saves the automatic checkpoint (the floor) with task state and files in progress.
+4. **PostCompact** hook re-injects rules, mistakes, recent decisions, and the rhythm for the next cycle.
+5. **Cadence**: every 25 turns without a deliberate checkpoint, a reminder regardless of pressure.
+
+The distance is computed from the statusline's token counts (hooks receive none) against the actual compaction point: `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else `autoCompactWindow` in settings, else the model default (200K boundary, or ~967K on a native-1M model). Never the raw percentage.
 
 ## Session Mining
 
@@ -237,6 +242,8 @@ Automatically mines Claude Code session JSONL logs for intelligence that hooks c
 - Semantic scoring: configured encoder (default `BAAI/bge-base-en-v1.5`) via persistent TCP server on localhost (auto-managed). The resident daemon stays on cpu (zero VRAM parked); bulk embedding jobs (>= `CLAUDE_ENGRAM_GPU_BULK_MIN`, default 512 texts) run in a transient GPU worker that exits after the job — full VRAM release. `CLAUDE_ENGRAM_DEVICE` forces one device everywhere; vectors are device-identical so stores never rebuild. `claude_engram_status` shows the daemon's device.
 - Scorer daemon threading: connections are handled per-thread, but every MODEL call is submitted to one pinned worker thread (`_on_model_thread`). PyTorch retains per-thread state that is never freed when a thread dies, so encoding on the ephemeral connection thread leaked ~0.73 MB per request (dead-linear, +146 MB per 200 requests, no plateau). Never call the model directly from a request thread. Input is capped at `MAX_ENCODE_CHARS` (2000) server-side — the encoder discards past 512 tokens regardless, and uncapped text ratcheted the allocator high-water mark
 - Hook daemon: the same server runs high-frequency hooks in-process (warm imports); hooks are thin `python -S` clients with a full in-process fallback when the daemon is down
+- Context pressure (`hooks/context_pressure.py`): the statusline mirrors `context_window.total_input_tokens` / `context_window_size` to `sessions/<session_id>.ctx.json`; every injecting hook calls `_with_pressure()` which computes distance to the compaction point and latches each nudge once per cycle in the session state (`pressure` block). PostCompact opens the next cycle and ignores a mirror older than the compaction (it still shows the pre-compaction count); `checkpoint_save` resets the cadence counter through the same state. `python -m claude_engram.hooks.context_pressure statusline` is a ready-made statusline; `assess <session_id>` prints the current reading. The `--autocompact` launch flag is not visible to hooks, so a window set only that way reads as the model default
+- `main()` in `remind.py` is at pyright's complexity ceiling: the SessionStart, PostCompact and Read branches live in `_hook_session_start` / `_hook_post_compact` / `_hook_pre_read`. Add new hook logic as a function, not another branch body
 - Ring vocabulary: a ring record carries ONE name per concept — `next_steps`, `files_in_progress`, `warnings`, `context_needed`, `decisions`, `created`. The checkpoint-side twins (`pending_steps`, `files_involved`, `handoff_warnings`, `handoff_context_needed`, `key_decisions`, `timestamp`) are no longer written; they were byte-identical in all 129 stored records that had both, and carrying both made the restore payload print every list twice. Records already on disk keep both, and every reader takes either — so there is no migration. **`task_description` and `summary` are NOT a twin pair**: `summary` is the handoff note (`handoff_summary or task_description`) and differed from the task title in 110 of those 129 records. The per-task `task_*.json` file keeps the checkpoint vocabulary and is untouched
 - Checkpoint ring scope: a restore/list resolves the project's OWN ring, its DESCENDANT project rings, then its ancestors' — the global `checkpoints/` ring is a fallback used only when none of those exist. Descendants matter because a workspace root is a real place to restore from; without them a root-scoped restore read only the root ring and could return a stale entry while reporting success. Selection is by newest deliberate (manual) checkpoint, not by dir order, and responses name the store they came from
 - Session identity: working state lives in `sessions/<session_id>.json` so concurrent sessions never clobber each other. Hooks read the id from their stdin payload; the MCP server adopts `CLAUDE_CODE_SESSION_ID` (exported to stdio MCP servers by Claude Code 2.1.154+) at startup, so MCP tools like `session_end` report THIS session instead of the shared fallback file. The scorer daemon deliberately opts out — one process serves many sessions and re-reads the id per request

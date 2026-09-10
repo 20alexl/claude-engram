@@ -16,7 +16,9 @@ Claude Code
     │   ├── PostToolUse Bash/Edit/Write          → track edits, tests, search spirals
     │   ├── PostToolUseFailure (all tools)       → error deja-vu (past fix inline), auto-log mistakes
     │   ├── SessionStart / SessionEnd / Stop     → lifecycle management
-    │   └── PreCompact / PostCompact             → checkpoint + re-inject context
+    │   ├── PreCompact / PostCompact             → checkpoint + re-inject context + rhythm
+    │   └── (every injecting hook)               → context-pressure nudge when due
+    │                                              (statusline mirror → distance to compaction)
     │
     ├── MCP Server (server.py → handlers.py)  ← Tools for manual operations (16)
     │   ├── memory, work (log_mistake, log_decision)
@@ -113,6 +115,21 @@ Storage: ~/.claude_engram/
 - `get_project_dir(file_path)` resolves sub-projects by walking up from the file looking for project markers
 - `_auto_capture_from_prompt()` uses two-tier scoring: semantic via scorer server (if available) → regex fallback
 - Hook output uses Claude Code's `hookSpecificOutput.additionalContext` format for conversation injection
+- `main()` sits at pyright's complexity ceiling; the SessionStart, PostCompact and Read branches are `_hook_session_start` / `_hook_post_compact` / `_hook_pre_read`. New hook logic goes in a function
+
+### Context Pressure (`hooks/context_pressure.py`)
+
+**What it does:** Tells the model when compaction is near, as a distance to the compaction point, and nudges it to write a deliberate checkpoint before the automatic one.
+
+**Why it's separate:** Hooks receive no context-usage numbers at all. The statusline does (`context_window.total_input_tokens`, `context_window_size`, on every update). So the signal has to cross from the statusline to the hooks through a file, and the arithmetic has to know where compaction actually fires — which is not 100% of the window.
+
+**Key internals:**
+- `record_statusline(data)` writes `sessions/<session_id>.ctx.json` (eight flat fields); a statusline script calls it, or the shipped `statusline` subcommand does
+- `compaction_point(window, project_dir)` — `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (plain count, ≥100K), else `autoCompactWindow` from `.claude/settings.local.json` → `.claude/settings.json` → `~/.claude/settings.json` (any documented form), else the model default: the 200K boundary, or 967K on a window above 200K. Capped at the window. The `--autocompact` launch flag is invisible from a hook and reads as `model-default`
+- `thresholds()` — heads-up at 10% of the window below the point, checkpoint at 3% (5% when the window is ≤ 200K, where 3% is only 6K tokens)
+- `nudge(state, session_id, project_dir)` — one text per call at most; each band latches in `state["pressure"]` so it fires once per compaction cycle; the cadence counter (`note_stop`, reset by `note_manual_checkpoint` from `checkpoint_save`) re-arms every 25 turns
+- `note_compaction()` opens a cycle and records the moment; a mirror with an older timestamp is ignored, because right after `/compact` the statusline still shows the pre-compaction count until the next API response
+- Delivery: `_with_pressure()` in `remind.py` wraps every main-session injection site (UserPromptSubmit, PreToolUse Edit/Write/Read, PostToolUse Bash/Edit/Write). PostToolUse matters most: an unattended `/goal` loop has no user prompts. The Stop hook only counts; it never injects (a Stop hook cannot add context, and engram never blocks there)
 
 ### Scorer/Hook Daemon (`hooks/scorer_server.py`)
 

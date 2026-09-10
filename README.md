@@ -113,9 +113,38 @@ All optional. Deep detail on each lives in the [library-book](./library-book/).
 | `CLAUDE_ENGRAM_DIR` | `~/.claude_engram` | Storage location (also the test-isolation seam) |
 | `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search shards older than N days |
 | `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | Mirror last-read file path to this file (statusline integration) |
+| `CLAUDE_ENGRAM_HEADSUP_FRACTION` | `0.10` | Heads-up nudge this fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_FRACTION` | `0.03` (`0.05` on a 200K window) | `CHECKPOINT NOW` nudge this fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `25` | Turns without a deliberate checkpoint before the cadence reminder |
 | `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | `1` prints a stderr breadcrumb per hook |
 
 `~/.claude_engram/config.json` additionally accepts `embed_model`, `embed_dim`, and `lessons_globs` (opt-in lessons bridge: globs of curated markdown whose dated entries sync as protected memories).
+
+## Context pressure
+
+Hooks never see context usage; the statusline does. Engram mirrors the statusline's token counts to a per-session file, and its hooks compute the **distance to the point where auto-compaction fires**. Not the raw percentage: that is against the full 200K/1M window, while a native-1M model compacts at about 967K by default and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` / `autoCompactWindow` move the point.
+
+| Distance to the compaction point | Engram injects |
+|---|---|
+| ~10% of the window out | Heads-up: finish the current step, start nothing long |
+| ~3% out (5% on a 200K window) | `CHECKPOINT NOW`: write a deliberate `context(checkpoint_save)`. PreCompact's automatic entry is only the floor |
+| 25 turns without a deliberate checkpoint | Cadence reminder, regardless of pressure |
+
+Each fires once per compaction cycle. After a compaction the PostCompact banner restates the rhythm (`heads-up at ~650K, checkpoint at ~720K, compaction at ~750K`) so the model plans work in units that finish before the checkpoint call.
+
+**Setup**, one of:
+
+- No statusline yet — use engram's. It prints `Fable 5.1 | ctx 660K/1000K | compact at 750K (90K left) | $1.25 | proj`:
+
+  ```json
+  "statusLine": {"type": "command", "command": "<venv python> -m claude_engram.hooks.context_pressure statusline"}
+  ```
+
+- Your own statusline script — call `claude_engram.hooks.context_pressure.record_statusline(data)` with the JSON it received, or write the same record to `~/.claude_engram/sessions/<session_id>.ctx.json` yourself (eight flat fields; see the module docstring). No engram import is needed for the second form, which matters when the statusline runs under a different python than the hooks.
+
+Without a statusline engram says so at session start, and only the cadence runs. A window set only by the `--autocompact` launch flag is invisible to hooks; engram falls back to the model default and names the source it used.
+
+For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper, leaves headroom against the overflow that ends a `/goal` run, and puts the checkpoint nudge a known distance below a number you chose.
 
 ## Reindexing
 

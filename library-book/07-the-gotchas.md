@@ -173,6 +173,16 @@ python install.py
 
 ---
 
+### Gotcha: No checkpoint nudges, or nudges at the wrong moment
+
+**Symptom:** Compaction fires without a heads-up or `CHECKPOINT NOW`, or the nudge lands hundreds of thousands of tokens early on a 1M model.
+
+**Cause:** Hooks receive no context-usage numbers; the signal comes from the statusline. No `statusLine` in settings, or a custom statusline script that never records the mirror, means no reading. Engram says so at session start (no statusLine) or after five silent minutes (statusLine configured but not recording).
+
+The "wrong moment" case is the raw-percent trap: the statusline's `used_percentage` is against the full window (1M), but a native-1M model compacts at about 967K by default, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` / `autoCompactWindow` move the point. Engram computes the distance to the real point. One thing it cannot see is a window set only by the `--autocompact` launch flag; it falls back to the model default and labels the source (`env`, `settings`, `model-default`) in the nudge, so a wrong source is visible.
+
+**Fix:** Point `statusLine` at `python -m claude_engram.hooks.context_pressure statusline`, or add `record_statusline(data)` to your own script (README: Context pressure). Prefer the env var or the setting over the launch flag for the window. `python -m claude_engram.hooks.context_pressure assess <session_id>` prints exactly what engram sees.
+
 ## Common Mistakes
 
 | Mistake | What They Do | What They Should Do |

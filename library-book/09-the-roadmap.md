@@ -40,6 +40,16 @@
 | Path-aware memory relevance (`file_match`) | Stable | v0.5.0 |
 | Recurring error grouping by normalized signature | Stable | v0.5.0 |
 | Idempotent version-stamped migrations | Stable | v0.5.0 |
+| Context-pressure checkpoint nudges (statusline mirror, distance to compaction) | Stable | v0.8.14 |
+
+## Done / Shipped (v0.8.14)
+
+| Feature | Notes |
+|---------|-------|
+| Deliberate checkpoints before compaction | Hooks get no context-usage numbers; the statusline does. It now mirrors `total_input_tokens` / `context_window_size` to a per-session file and the hooks compute the distance to the compaction point — env var, else `autoCompactWindow`, else the model default (200K boundary or ~967K), never the raw percent. Heads-up ~10% of the window out, `CHECKPOINT NOW` ~3% out (5% on 200K), once each per cycle; PostCompact restates the rhythm; a cadence reminder every 25 turns without a deliberate save. Delivered at every injecting hook, so an unattended `/goal` loop (no user prompts) still gets it at PostToolUse. |
+| Ready-made statusline | `python -m claude_engram.hooks.context_pressure statusline` records the mirror and prints `ctx 660K/1000K \| compact at 750K (90K left)`. A custom script calls `record_statusline(data)` or writes the eight-field record itself. No statusline is announced at session start, never silent. |
+| Restore names its ring again | A manual `checkpoint_save` stored `project_path` only under `metadata`, so the 0.8.8 `**From:**` line never printed for the common case (same-ring restore) — the provenance guard existed and was blind to its own writes. The ring entry now carries it top-level like the auto entries; both readers fall back to `metadata` for records already on disk. |
+| `bench_context_pressure` | 60 checks: every documented `autoCompactWindow` form, precedence and capping, thresholds, mirror round-trip, the nudge sequence across a compaction (including the stale-mirror guard right after `/compact`), cadence and its reset, the not-recording announcement, the CLI, source guards on every injection site, and the From line. |
 
 ## Done / Shipped (v0.8.13)
 

@@ -169,6 +169,10 @@ class ContextGuard:
         }
         checkpoint_data["kind"] = "manual"
         checkpoint_data["created"] = checkpoint.timestamp
+        # Top-level like the auto entries write it: every ring reader (the
+        # restore From line, the session-start banner) keys provenance on it.
+        if project_path:
+            checkpoint_data["project_path"] = project_path
         checkpoint_data["summary"] = handoff_summary or task_description
         checkpoint_data["files_in_progress"] = checkpoint.files_involved
         checkpoint_data["next_steps"] = checkpoint.pending_steps
@@ -196,6 +200,20 @@ class ContextGuard:
                 if (project_path and _proj_dir)
                 else "global checkpoints"
             )
+        except Exception:
+            pass
+
+        # Cadence bookkeeping for the pressure nudges (hooks/context_pressure):
+        # a deliberate save resets the turns-since-checkpoint counter. The MCP
+        # server adopted the session id at startup, so this lands in the same
+        # per-session state the hooks read.
+        try:
+            from claude_engram.hooks import context_pressure as _cp
+            from claude_engram.hooks.remind import load_state, save_state
+
+            _st = load_state()
+            _cp.note_manual_checkpoint(_st)
+            save_state(_st)
         except Exception:
             pass
 
@@ -357,7 +375,13 @@ class ContextGuard:
         # different sub-project than the one asked from. Say which store it came
         # from: a confident payload with no origin let a cross-project or stale
         # restore pass for "yours".
-        _entry_project = data.get("project_path") or ""
+        # Manual saves before 0.8.14 carried the path only under metadata,
+        # which is why a same-ring restore printed no From line at all.
+        _entry_project = (
+            data.get("project_path")
+            or (data.get("metadata") or {}).get("project_path")
+            or ""
+        )
         _from = Path(_entry_project).name if _entry_project else ""
         if _entry_project and project_path:
             try:

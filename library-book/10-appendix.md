@@ -151,6 +151,10 @@ All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 | `CLAUDE_ENGRAM_KEEP_ALIVE` | `str/int` | `0` | Ollama model keep-alive (`0`, `5m`, `-1`) |
 | `CLAUDE_ENGRAM_ARCHIVE_DAYS` | `int` | `14` | Days until inactive memories archive |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `int` | `1800` | Scorer server idle timeout (seconds) |
+| `CLAUDE_ENGRAM_HEADSUP_FRACTION` | `float` | `0.10` | Context-pressure heads-up, as a fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_FRACTION` | `float` | `0.03` (`0.05` on ≤200K) | `CHECKPOINT NOW` nudge, as a fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `int` | `25` | Turns without a deliberate checkpoint before the cadence reminder |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `int` | unset | Claude Code's own variable; engram reads it as the compaction point (else `autoCompactWindow`, else the model default) |
 
 ## Memory Categories
 
@@ -189,7 +193,9 @@ Category bonuses: `rule` +0.3, `mistake` +0.2.
 | `SessionEnd` | `""` | `session_end_json` | Save session state, output summary |
 | `SessionStart` | `""` | `session_start_json` | Load context, start scorer server |
 | `PreCompact` | `""` | `pre_compact_json` | Auto-save checkpoint |
-| `PostCompact` | `""` | `post_compact_json` | Re-inject rules/mistakes/decisions |
+| `PostCompact` | `""` | `post_compact_json` | Re-inject rules/mistakes/decisions + the compaction rhythm |
+
+Every injecting handler above (prompt, pre-edit, pre-read, bash, post-edit) also attaches the context-pressure nudge when one is due (`hooks/context_pressure.py`). The statusline is not a hook, but it is the signal source: `python -m claude_engram.hooks.context_pressure statusline` or a custom script that records the mirror.
 
 ## Project Markers (Sub-Project Resolution)
 
@@ -239,6 +245,18 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.14 — 2026-09-09
+
+- **Deliberate checkpoints before compaction.** Auto-compaction used to be the thing that decided checkpoint quality: `PreCompact` wrote an automatic entry and that was all a long run had. Hooks receive no context-usage numbers, so the fix crosses from the statusline, which gets `context_window.total_input_tokens` and `context_window_size` on every update. The statusline mirrors them to `sessions/<session_id>.ctx.json`; the hooks read the mirror and compute the **distance to the compaction point**.
+  - The point is not 100% of the window. Verified against the model-config docs: with nothing set, a 200K model compacts at the 200K boundary and a native-1M model at about 967K; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` beats everything, then `autoCompactWindow` in settings (local → project → user, in every documented form: plain count, `500k`, `1M`, bare 100–1000 = thousands), capped at the window. A window set only by the `--autocompact` launch flag is invisible to a hook; engram falls back to the model default and names its source in the nudge. Raw `used_percentage` is never used: on a 1M model a "65%" heads-up against the raw window would fire ~300K tokens early.
+  - Two nudges, once each per compaction cycle: a heads-up 10% of the window before the point (finish the step, start nothing long) and `CHECKPOINT NOW` 3% before it (5% on a ≤200K window, where 3% is 6K tokens) — write a deliberate `checkpoint_save`, then continue. `PreCompact`'s automatic entry stays as the floor. `PostCompact` opens the next cycle and restates the rhythm ("heads-up at ~650K, checkpoint at ~720K, compaction at ~750K"), so after the first compaction the model plans around the next. A cadence reminder fires every 25 turns without a deliberate save (`CLAUDE_ENGRAM_CHECKPOINT_CADENCE`), counted at Stop, reset by `checkpoint_save`.
+  - Delivered from every injecting hook (UserPromptSubmit, PreToolUse Edit/Write/Read, PostToolUse Bash/Edit/Write) through one state-latched `_with_pressure()`. That breadth is deliberate: an unattended `/goal` loop has no user prompts, so PostToolUse is the only delivery point that fires every turn. Never via the Stop hook — it cannot add context, and engram never blocks there.
+  - Right after `/compact` the statusline still shows the pre-compaction count until the next API response. A mirror older than the compaction is ignored, so there is no false `CHECKPOINT NOW` in the first turn of a new cycle.
+  - No statusline means no reading; that is announced at session start (no `statusLine`) or after five silent minutes (configured but not recording) — never silently absent. `python -m claude_engram.hooks.context_pressure statusline` is a ready-made statusline; `assess <session_id>` prints the current reading.
+- **Restore prints its ring again.** The 0.8.8 provenance line (`**From:** project · age`) keyed on a top-level `project_path`, which the auto entries write and manual `checkpoint_save` did not — it stored the path only under `metadata`. So the guard built to catch a cross-project restore was blind to every deliberate checkpoint, the common case. Manual ring entries now carry it top-level; the restore and the session-start banner both fall back to `metadata` for records already on disk.
+- `remind.py`'s `main()` crossed pyright's complexity ceiling ("code is too complex to analyze", which also switches off every check inside it). The SessionStart, PostCompact and Read branches are now `_hook_session_start` / `_hook_post_compact` / `_hook_pre_read`. Zero pyright errors again.
+- New `tests/bench_context_pressure.py` (60 checks).
 
 ### v0.8.13 — 2026-08-27
 

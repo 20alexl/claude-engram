@@ -743,10 +743,12 @@ def _format_restored_context(entry: dict) -> list[str]:
             sub = ""
     if not sub:
         # Cross-project breadcrumbs may carry no files; the saved project
-        # path still names whose checkpoint this is.
-        sub = Path(entry.get("project_path", "")).name if entry.get(
-            "project_path"
-        ) else ""
+        # path still names whose checkpoint this is. Manual saves before
+        # 0.8.14 carried it only under metadata.
+        _pp = entry.get("project_path") or (entry.get("metadata") or {}).get(
+            "project_path", ""
+        )
+        sub = Path(_pp).name if _pp else ""
     label = f"{entry.get('kind', 'auto')}, {age:.1f}h ago"
     if sub:
         label += f", {sub}"
@@ -2669,6 +2671,493 @@ def _error_dejavu(project_dir: str, error_output: str) -> str:
 # ============================================================================
 
 
+def _with_pressure(result: str, project_dir: str) -> str:
+    """Append a context-pressure nudge (heads-up / checkpoint-now / cadence)
+    when one is due. See hooks/context_pressure.py. State-latched, so each
+    band fires once per compaction cycle no matter how many hook sites call
+    this; every site that injects for the main session should, because in an
+    unattended /goal loop there are no user prompts and PostToolUse is the
+    only delivery point that fires every turn."""
+    try:
+        from claude_engram.hooks import context_pressure as _cp
+
+        state = load_state()
+        text, changed = _cp.nudge(state, _session_id, project_dir)
+        if changed:
+            save_state(state)
+    except Exception:
+        return result
+    if not text:
+        return result
+    return f"{result}\n{text}" if result else text
+
+
+def _hook_post_compact(project_dir: str) -> None:
+    """PostCompact: re-inject rules, mistakes and the restored handoff, and
+    open a new context-pressure cycle. Split out of main() -- pyright gives
+    up analysing a function past a complexity ceiling, and main() hit it."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if stdin_data:
+            json_module.loads(stdin_data)  # compact_summary is not used
+
+        # Load rules and mistakes to re-inject after compaction
+        # (CLAUDE.md-covered rules skipped — that file survives
+        # compaction in context anyway)
+        project_memory = load_project_memory(project_dir)
+        rules = filter_rules_in_claude_md(
+            get_project_rules(project_memory), project_dir
+        )
+        mistakes = get_past_mistakes(project_memory)
+
+        lines = []
+        lines.append("Context compacted. Rules and key context re-injected.")
+        # New compaction cycle: clear the nudge latches and restate the
+        # rhythm, so after the first compaction the model plans around
+        # the next one (hooks/context_pressure).
+        try:
+            from claude_engram.hooks import context_pressure as _cp
+
+            _st = load_state()
+            _cp.note_compaction(_st)
+            save_state(_st)
+            lines.append(_cp.rhythm_text(_st, _session_id, project_dir))
+        except Exception:
+            pass
+        if rules:
+            lines.append(f"Rules ({len(rules)}):")
+            for r in rules[:5]:
+                lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
+        if mistakes:
+            lines.append(
+                f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
+            )
+
+        # Show auto-saved handoff context
+        handoff = get_handoff_data(project_dir)
+        if handoff:
+            decisions = handoff.get("decisions", [])
+            files = handoff.get("files_in_progress", [])
+            if files:
+                lines.append(
+                    f"Files in progress: {', '.join(Path(f).name for f in files[:5])}"
+                )
+            if decisions:
+                lines.append(
+                    f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}"
+                )
+
+        # PostCompact has no hookSpecificOutput in Claude Code's schema.
+        # Print as plain stdout — Claude Code shows this as hook output.
+        print("\n".join(lines))
+    except Exception:
+        pass
+
+
+def _hook_pre_read() -> None:
+    """PreToolUse(Read): orientation before Read -- code-index summary + the
+    most relevant memories for the file, once per file per session -- plus
+    the context-pressure nudge when one is due. Split out of main() for the
+    same complexity ceiling as _hook_post_compact."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        if not stdin_data:
+            return
+        data = json_module.loads(stdin_data)
+        file_path = data.get("tool_input", {}).get("file_path", "")
+
+        # Optional statusline integration: mirror the last-read file to a
+        # plain text file (replaces a separate user hook = one less spawn).
+        if file_path:
+            lf = os.environ.get("CLAUDE_ENGRAM_LAST_FILE_PATH", "")
+            if lf:
+                try:
+                    Path(lf).expanduser().write_text(file_path, encoding="utf-8")
+                except Exception:
+                    pass
+
+        # Subagents: no injection (preserve their context budget)
+        if data.get("agent_id") or not file_path:
+            return
+
+        # Once per file per session — re-reads shouldn't re-pay the tokens
+        state = load_state()
+        seen = state.get("read_injected", [])
+        norm = file_path.replace("\\", "/").lower()
+        if norm in seen:
+            return
+        seen.append(norm)
+        state["read_injected"] = seen[-50:]
+        save_state(state)
+
+        project_dir = get_project_dir(file_path)
+        lines = []
+        try:
+            from claude_engram.hooks.precheck import read_context
+
+            rc = read_context(file_path, project_dir)
+            if rc:
+                lines.append(rc)
+        except Exception:
+            pass
+        for mem in get_contextual_memories(project_dir, file_path)[:2]:
+            lines.append(f"- {mem}")
+
+        result = ""
+        if lines:
+            result = (
+                "<engram-read-context>\n" + "\n".join(lines) + "\n</engram-read-context>"
+            )
+        result = _with_pressure(result, project_dir)
+        if result:
+            print(
+                json_module.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "additionalContext": result,
+                        }
+                    }
+                )
+            )
+    except Exception:
+        pass
+
+
+def _hook_session_start(project_dir: str) -> None:
+    """SessionStart: start the session, migrations, the scorer daemon, and
+    print the orientation banner (rules, mistakes, restored checkpoint, last
+    session, patterns, known-good test commands). Split out of main() for
+    the same pyright complexity ceiling as _hook_post_compact."""
+    import json as json_module
+
+    try:
+        stdin_data = _read_stdin_with_timeout(0.5)
+        source = "startup"
+        if stdin_data:
+            data = json_module.loads(stdin_data)
+            source = data.get("source", "startup")
+
+        # Capture the resuming session's OWN edited files BEFORE
+        # mark_session_started wipes the per-session list below. They
+        # are the only concurrency-safe signal for which sub-project
+        # this session is about — the pooled "last session" may belong
+        # to a different concurrent session in a different project.
+        resume_files = []
+        if source == "resume":
+            try:
+                resume_files = list(
+                    load_state().get("files_edited_this_session", [])
+                )
+            except Exception:
+                resume_files = []
+
+        # Auto-start claude_engram session
+        mark_session_started(project_dir)
+
+        # Apply pending data migrations: cheap steps inline (fast, idempotent),
+        # heavy steps in a detached background process so the hook stays snappy.
+        try:
+            from claude_engram import migrations as _migrations
+
+            _migrations.run(include_heavy=False)
+            if _migrations.heavy_pending():
+                _migrations.spawn_background()
+        except Exception:
+            pass
+
+        # Start persistent scorer server in background (if sentence-transformers available)
+        try:
+            from claude_engram.hooks.scorer_server import start_server_background
+
+            start_server_background()  # Non-blocking, returns immediately if already running
+        except Exception:
+            pass  # sentence-transformers not installed — regex fallback will be used
+
+        lines = []
+        lines.append(f"Claude Engram session started ({source})")
+        # No statusLine means no context reading: say so here, once,
+        # rather than let the pressure nudges be silently absent.
+        try:
+            from claude_engram.hooks import context_pressure as _cp
+
+            _no_sl = _cp.session_start_text(project_dir)
+            if _no_sl:
+                lines.append(_no_sl)
+        except Exception:
+            pass
+
+        # Load and show key context (CLAUDE.md-covered rules skipped)
+        project_memory = load_project_memory(project_dir)
+        rules = filter_rules_in_claude_md(
+            get_project_rules(project_memory), project_dir
+        )
+        mistakes = get_past_mistakes(project_memory)
+
+        if rules:
+            lines.append(f"Rules ({len(rules)}):")
+            for r in rules[:5]:
+                lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
+        if mistakes:
+            lines.append(
+                f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
+            )
+
+        # Restored context: checkpoint + handoff are one ring construct now;
+        # show it once. WHICH ring to read depends on how the session began:
+        #   resume  -> this session's own files name its sub-project; read
+        #              that ring (walk-up) so its manual handoff wins over
+        #              the workspace root's per-turn autos.
+        #   fresh   -> unknowable which sub-project comes next; prefer the
+        #              newest MANUAL across the workspace subtree (a labeled
+        #              breadcrumb), else the plain walk-up result.
+        #   compact -> PostCompact handles re-injection; skip.
+        restored = {}
+        if source != "compact":
+            if resume_files:
+                restored = get_handoff_data(
+                    _resolve_session_project(project_dir, resume_files)
+                )
+            if not restored:
+                restored = _subtree_manual_handoff(project_dir)
+            if not restored:
+                restored = get_handoff_data(project_dir)
+        if restored:
+            lines.extend(_format_restored_context(restored))
+
+        # Session mining: show last session context (read-only, no building)
+        try:
+            from claude_engram.mining.session_index import get_or_create_index
+            from pathlib import Path as _Path
+            import hashlib as _hashlib
+
+            # Resolve project hash dir (same logic as MemoryStore)
+            _norm = str(_Path(project_dir).resolve()).replace("\\", "/")
+            if len(_norm) >= 2 and _norm[1] == ":":
+                _norm = _norm[0].lower() + _norm[1:]
+            _storage = _Path("~/.claude_engram").expanduser()
+            _manifest_path = _storage / "manifest.json"
+            _hash_dir = None
+            if _manifest_path.exists():
+                _manifest = json_module.loads(_manifest_path.read_text())
+                _proj_info = _manifest.get("projects", {}).get(_norm)
+                if _proj_info:
+                    _hash_dir = _storage / "projects" / _proj_info["hash"]
+
+            if _hash_dir and (_hash_dir / "session_index.json").exists():
+                index = get_or_create_index(_hash_dir)
+            else:
+                index = None
+
+                # Bootstrap: no index yet, but session JSONLs may exist
+                if _hash_dir:
+                    try:
+                        from claude_engram.mining.jsonl_reader import (
+                            resolve_jsonl_dir,
+                        )
+
+                        _jsonl_dir = resolve_jsonl_dir(project_dir)
+                        if _jsonl_dir and any(_jsonl_dir.glob("*.jsonl")):
+                            from claude_engram.mining.background import (
+                                start_mining_background,
+                                is_mining_running,
+                            )
+
+                            if not is_mining_running():
+                                start_mining_background(
+                                    project_dir, mode="bootstrap"
+                                )
+                                lines.append(
+                                    "Session mining: bootstrapping from history (background)..."
+                                )
+                    except Exception:
+                        pass
+
+            if index and index.get_session_count() > 0:
+                summary = index.get_latest_session_summary()
+                if summary and summary.get("file_count", 0) > 0:
+                    age = summary.get("age_str", "")
+                    branch = summary.get("branch", "")
+                    header = f"Last session"
+                    if age:
+                        header += f" ({age}"
+                        if branch:
+                            header += f", branch: {branch}"
+                        header += ")"
+                    lines.append(header + ":")
+                    files = summary.get("files_edited", [])
+                    if files:
+                        lines.append(f"  Worked on: {', '.join(files[:8])}")
+                        if summary["file_count"] > 8:
+                            lines.append(
+                                f"  ...and {summary['file_count'] - 8} more files"
+                            )
+                    errs = summary.get("error_count", 0)
+                    # prompt_count = real typed prompts; the old
+                    # user_message_count includes every tool result
+                    # (that is the "893 prompts" absurdity). Metas from
+                    # before the field show messages, labeled honestly.
+                    prompts = summary.get("prompt_count", 0)
+                    msgs = summary.get("user_message_count", 0)
+                    if errs or prompts or msgs:
+                        parts = []
+                        if prompts:
+                            parts.append(f"{prompts} prompts")
+                        elif msgs:
+                            parts.append(f"{msgs} messages")
+                        if errs:
+                            parts.append(f"{errs} tool errors")
+                        lines.append(f"  Activity: {', '.join(parts)}")
+
+                # Auto-inject patterns if available. _hash_dir is None for an
+                # unregistered project — without this guard the join raised
+                # TypeError into the enclosing except, so pattern injection
+                # silently never ran there.
+                patterns_path = (
+                    (_hash_dir / "patterns.json") if _hash_dir else None
+                )
+                if patterns_path is not None and patterns_path.exists():
+                    try:
+                        pdata = json_module.loads(patterns_path.read_text())
+
+                        # Predict the session's sub-projects from what
+                        # the LAST session touched: mining pools at the
+                        # workspace root, and without scoping a vzip
+                        # session gets CORTEX errors injected at start.
+                        predicted = set()
+                        try:
+                            for f in (summary or {}).get(
+                                "files_edited_full", []
+                            ):
+                                predicted.add(
+                                    _normalize_path(
+                                        resolve_project_for_file(f)
+                                    )
+                                )
+                        except Exception:
+                            predicted = set()
+                        norm_root = _normalize_path(project_dir)
+
+                        def _in_scope(projs):
+                            # No prediction or no attribution -> show
+                            # (legacy patterns.json has no projects field);
+                            # workspace-root errors are generic -> show.
+                            if not predicted or not projs:
+                                return True
+                            pset = set(projs)
+                            return bool(pset & predicted) or norm_root in pset
+
+                        def _struggle_scope(s):
+                            try:
+                                return _in_scope(
+                                    [
+                                        _normalize_path(
+                                            resolve_project_for_file(
+                                                s.get("file_path", "")
+                                            )
+                                        )
+                                    ]
+                                )
+                            except Exception:
+                                return True
+
+                        struggles = [
+                            s
+                            for s in pdata.get("struggles", [])
+                            if _struggle_scope(s)
+                        ][:3]
+                        recurring = [
+                            e
+                            for e in pdata.get("recurring_errors", [])
+                            if _in_scope(e.get("projects") or [])
+                        ][:3]
+                        if struggles:
+                            lines.append("Recurring struggles:")
+                            for s in struggles:
+                                # Label with the sub-project so a struggle from
+                                # the other concurrent session's project (mining
+                                # is workspace-pooled) is obvious, not mistaken
+                                # for this one's.
+                                try:
+                                    proj = Path(
+                                        resolve_project_for_file(s["file_path"])
+                                    ).name
+                                except Exception:
+                                    proj = ""
+                                loc = (
+                                    f"{proj}/{Path(s['file_path']).name}"
+                                    if proj
+                                    else s["file_path"]
+                                )
+                                lines.append(
+                                    f"  - {loc} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
+                                )
+                        if recurring:
+                            lines.append("Recurring errors:")
+                            for e in recurring:
+                                # Prefer a concrete instance over the
+                                # templated signature (which strips the
+                                # identifiers that make it actionable).
+                                label = (
+                                    e.get("example")
+                                    or e.get("message_pattern")
+                                    or e["error_type"]
+                                )
+                                lines.append(
+                                    f"  - {label} ({e['session_count']} sessions)"
+                                )
+                                fix = e.get("fix")
+                                if fix:
+                                    lines.append(f"    fix: {fix}")
+                    except Exception:
+                        pass
+
+            # Known-good test commands — what actually passed here before,
+            # so verification doesn't start from a guess.
+            try:
+                top = _top_test_commands(project_dir)
+                if top:
+                    lines.append("Known-good test commands:")
+                    for cmd, rec in top:
+                        n = rec.get("pass_count", 0)
+                        lines.append(f"  - {cmd} ({n}x pass)")
+            except Exception:
+                pass
+
+            # Schema canary: the miner flags when Claude Code's log format
+            # stops being recognized (mining would degrade silently).
+            try:
+                status_path = get_engram_storage_dir() / "mining_status.json"
+                if status_path.exists():
+                    sdata = json_module.loads(status_path.read_text())
+                    warn = sdata.get("schema_warning", "")
+                    if warn:
+                        lines.append(f"WARNING: {warn}")
+            except Exception:
+                pass
+        except Exception:
+            pass  # Mining not available or no sessions — skip silently
+
+        hook_output = {
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": "\n".join(lines),
+            }
+        }
+        # Never set hookSpecificOutput.sessionTitle here (tried in 0.8.6,
+        # removed in 0.8.7). The session name belongs to Claude Code and
+        # the user's /rename; this hook also fires on resume, and in a
+        # workspace the restored checkpoint can belong to a different
+        # sub-project than the session it would rename.
+        print(json_module.dumps(hook_output))
+    except Exception:
+        pass
+
+
 def main():
     hook_type = sys.argv[1] if len(sys.argv) > 1 else ""
     # Identify the Claude Code session before any state I/O so per-session
@@ -2741,6 +3230,7 @@ def main():
                         if result
                         else spiral_suggestion
                     )
+                result = _with_pressure(result, project_dir)
 
                 if result:
                     # Output JSON format for PostToolUse to add context to Claude
@@ -2785,9 +3275,12 @@ def main():
                         # keys on, and the point where "you keep editing this" is
                         # worth saying. Tracking above still runs for every edit;
                         # only the output is gated.
+                        result = ""
                         if edit_count >= 3:
                             result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
+                        result = _with_pressure(result, project_dir)
 
+                        if result:
                             hook_output = {
                                 "hookSpecificOutput": {
                                     "hookEventName": "PostToolUse",
@@ -3015,372 +3508,13 @@ def main():
     # NEW: PostCompact - inject restore reminder into compacted context
     # ==================================================================
     elif hook_type == "post_compact_json":
-        import json as json_module
-
-        try:
-            stdin_data = _read_stdin_with_timeout(0.5)
-            summary = ""
-            if stdin_data:
-                data = json_module.loads(stdin_data)
-                summary = data.get("compact_summary", "")
-
-            # Load rules and mistakes to re-inject after compaction
-            # (CLAUDE.md-covered rules skipped — that file survives
-            # compaction in context anyway)
-            project_memory = load_project_memory(project_dir)
-            rules = filter_rules_in_claude_md(
-                get_project_rules(project_memory), project_dir
-            )
-            mistakes = get_past_mistakes(project_memory)
-
-            lines = []
-            lines.append("Context compacted. Rules and key context re-injected.")
-            if rules:
-                lines.append(f"Rules ({len(rules)}):")
-                for r in rules[:5]:
-                    lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
-            if mistakes:
-                lines.append(
-                    f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
-                )
-
-            # Show auto-saved handoff context
-            handoff = get_handoff_data(project_dir)
-            if handoff:
-                decisions = handoff.get("decisions", [])
-                files = handoff.get("files_in_progress", [])
-                if files:
-                    lines.append(
-                        f"Files in progress: {', '.join(Path(f).name for f in files[:5])}"
-                    )
-                if decisions:
-                    lines.append(
-                        f"Session decisions: {'; '.join(d[:80] for d in decisions[:3])}"
-                    )
-
-            # PostCompact has no hookSpecificOutput in Claude Code's schema.
-            # Print as plain stdout — Claude Code shows this as hook output.
-            print("\n".join(lines))
-        except Exception:
-            pass
+        _hook_post_compact(project_dir)
 
     # ==================================================================
     # NEW: SessionStart hook - native session tracking (replaces marker files)
     # ==================================================================
     elif hook_type == "session_start_json":
-        import json as json_module
-
-        try:
-            stdin_data = _read_stdin_with_timeout(0.5)
-            source = "startup"
-            if stdin_data:
-                data = json_module.loads(stdin_data)
-                source = data.get("source", "startup")
-
-            # Capture the resuming session's OWN edited files BEFORE
-            # mark_session_started wipes the per-session list below. They
-            # are the only concurrency-safe signal for which sub-project
-            # this session is about — the pooled "last session" may belong
-            # to a different concurrent session in a different project.
-            resume_files = []
-            if source == "resume":
-                try:
-                    resume_files = list(
-                        load_state().get("files_edited_this_session", [])
-                    )
-                except Exception:
-                    resume_files = []
-
-            # Auto-start claude_engram session
-            mark_session_started(project_dir)
-
-            # Apply pending data migrations: cheap steps inline (fast, idempotent),
-            # heavy steps in a detached background process so the hook stays snappy.
-            try:
-                from claude_engram import migrations as _migrations
-
-                _migrations.run(include_heavy=False)
-                if _migrations.heavy_pending():
-                    _migrations.spawn_background()
-            except Exception:
-                pass
-
-            # Start persistent scorer server in background (if sentence-transformers available)
-            try:
-                from claude_engram.hooks.scorer_server import start_server_background
-
-                start_server_background()  # Non-blocking, returns immediately if already running
-            except Exception:
-                pass  # sentence-transformers not installed — regex fallback will be used
-
-            lines = []
-            lines.append(f"Claude Engram session started ({source})")
-
-            # Load and show key context (CLAUDE.md-covered rules skipped)
-            project_memory = load_project_memory(project_dir)
-            rules = filter_rules_in_claude_md(
-                get_project_rules(project_memory), project_dir
-            )
-            mistakes = get_past_mistakes(project_memory)
-
-            if rules:
-                lines.append(f"Rules ({len(rules)}):")
-                for r in rules[:5]:
-                    lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
-            if mistakes:
-                lines.append(
-                    f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
-                )
-
-            # Restored context: checkpoint + handoff are one ring construct now;
-            # show it once. WHICH ring to read depends on how the session began:
-            #   resume  -> this session's own files name its sub-project; read
-            #              that ring (walk-up) so its manual handoff wins over
-            #              the workspace root's per-turn autos.
-            #   fresh   -> unknowable which sub-project comes next; prefer the
-            #              newest MANUAL across the workspace subtree (a labeled
-            #              breadcrumb), else the plain walk-up result.
-            #   compact -> PostCompact handles re-injection; skip.
-            restored = {}
-            if source != "compact":
-                if resume_files:
-                    restored = get_handoff_data(
-                        _resolve_session_project(project_dir, resume_files)
-                    )
-                if not restored:
-                    restored = _subtree_manual_handoff(project_dir)
-                if not restored:
-                    restored = get_handoff_data(project_dir)
-            if restored:
-                lines.extend(_format_restored_context(restored))
-
-            # Session mining: show last session context (read-only, no building)
-            try:
-                from claude_engram.mining.session_index import get_or_create_index
-                from pathlib import Path as _Path
-                import hashlib as _hashlib
-
-                # Resolve project hash dir (same logic as MemoryStore)
-                _norm = str(_Path(project_dir).resolve()).replace("\\", "/")
-                if len(_norm) >= 2 and _norm[1] == ":":
-                    _norm = _norm[0].lower() + _norm[1:]
-                _storage = _Path("~/.claude_engram").expanduser()
-                _manifest_path = _storage / "manifest.json"
-                _hash_dir = None
-                if _manifest_path.exists():
-                    _manifest = json_module.loads(_manifest_path.read_text())
-                    _proj_info = _manifest.get("projects", {}).get(_norm)
-                    if _proj_info:
-                        _hash_dir = _storage / "projects" / _proj_info["hash"]
-
-                if _hash_dir and (_hash_dir / "session_index.json").exists():
-                    index = get_or_create_index(_hash_dir)
-                else:
-                    index = None
-
-                    # Bootstrap: no index yet, but session JSONLs may exist
-                    if _hash_dir:
-                        try:
-                            from claude_engram.mining.jsonl_reader import (
-                                resolve_jsonl_dir,
-                            )
-
-                            _jsonl_dir = resolve_jsonl_dir(project_dir)
-                            if _jsonl_dir and any(_jsonl_dir.glob("*.jsonl")):
-                                from claude_engram.mining.background import (
-                                    start_mining_background,
-                                    is_mining_running,
-                                )
-
-                                if not is_mining_running():
-                                    start_mining_background(
-                                        project_dir, mode="bootstrap"
-                                    )
-                                    lines.append(
-                                        "Session mining: bootstrapping from history (background)..."
-                                    )
-                        except Exception:
-                            pass
-
-                if index and index.get_session_count() > 0:
-                    summary = index.get_latest_session_summary()
-                    if summary and summary.get("file_count", 0) > 0:
-                        age = summary.get("age_str", "")
-                        branch = summary.get("branch", "")
-                        header = f"Last session"
-                        if age:
-                            header += f" ({age}"
-                            if branch:
-                                header += f", branch: {branch}"
-                            header += ")"
-                        lines.append(header + ":")
-                        files = summary.get("files_edited", [])
-                        if files:
-                            lines.append(f"  Worked on: {', '.join(files[:8])}")
-                            if summary["file_count"] > 8:
-                                lines.append(
-                                    f"  ...and {summary['file_count'] - 8} more files"
-                                )
-                        errs = summary.get("error_count", 0)
-                        # prompt_count = real typed prompts; the old
-                        # user_message_count includes every tool result
-                        # (that is the "893 prompts" absurdity). Metas from
-                        # before the field show messages, labeled honestly.
-                        prompts = summary.get("prompt_count", 0)
-                        msgs = summary.get("user_message_count", 0)
-                        if errs or prompts or msgs:
-                            parts = []
-                            if prompts:
-                                parts.append(f"{prompts} prompts")
-                            elif msgs:
-                                parts.append(f"{msgs} messages")
-                            if errs:
-                                parts.append(f"{errs} tool errors")
-                            lines.append(f"  Activity: {', '.join(parts)}")
-
-                    # Auto-inject patterns if available. _hash_dir is None for an
-                    # unregistered project — without this guard the join raised
-                    # TypeError into the enclosing except, so pattern injection
-                    # silently never ran there.
-                    patterns_path = (
-                        (_hash_dir / "patterns.json") if _hash_dir else None
-                    )
-                    if patterns_path is not None and patterns_path.exists():
-                        try:
-                            pdata = json_module.loads(patterns_path.read_text())
-
-                            # Predict the session's sub-projects from what
-                            # the LAST session touched: mining pools at the
-                            # workspace root, and without scoping a vzip
-                            # session gets CORTEX errors injected at start.
-                            predicted = set()
-                            try:
-                                for f in (summary or {}).get(
-                                    "files_edited_full", []
-                                ):
-                                    predicted.add(
-                                        _normalize_path(
-                                            resolve_project_for_file(f)
-                                        )
-                                    )
-                            except Exception:
-                                predicted = set()
-                            norm_root = _normalize_path(project_dir)
-
-                            def _in_scope(projs):
-                                # No prediction or no attribution -> show
-                                # (legacy patterns.json has no projects field);
-                                # workspace-root errors are generic -> show.
-                                if not predicted or not projs:
-                                    return True
-                                pset = set(projs)
-                                return bool(pset & predicted) or norm_root in pset
-
-                            def _struggle_scope(s):
-                                try:
-                                    return _in_scope(
-                                        [
-                                            _normalize_path(
-                                                resolve_project_for_file(
-                                                    s.get("file_path", "")
-                                                )
-                                            )
-                                        ]
-                                    )
-                                except Exception:
-                                    return True
-
-                            struggles = [
-                                s
-                                for s in pdata.get("struggles", [])
-                                if _struggle_scope(s)
-                            ][:3]
-                            recurring = [
-                                e
-                                for e in pdata.get("recurring_errors", [])
-                                if _in_scope(e.get("projects") or [])
-                            ][:3]
-                            if struggles:
-                                lines.append("Recurring struggles:")
-                                for s in struggles:
-                                    # Label with the sub-project so a struggle from
-                                    # the other concurrent session's project (mining
-                                    # is workspace-pooled) is obvious, not mistaken
-                                    # for this one's.
-                                    try:
-                                        proj = Path(
-                                            resolve_project_for_file(s["file_path"])
-                                        ).name
-                                    except Exception:
-                                        proj = ""
-                                    loc = (
-                                        f"{proj}/{Path(s['file_path']).name}"
-                                        if proj
-                                        else s["file_path"]
-                                    )
-                                    lines.append(
-                                        f"  - {loc} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
-                                    )
-                            if recurring:
-                                lines.append("Recurring errors:")
-                                for e in recurring:
-                                    # Prefer a concrete instance over the
-                                    # templated signature (which strips the
-                                    # identifiers that make it actionable).
-                                    label = (
-                                        e.get("example")
-                                        or e.get("message_pattern")
-                                        or e["error_type"]
-                                    )
-                                    lines.append(
-                                        f"  - {label} ({e['session_count']} sessions)"
-                                    )
-                                    fix = e.get("fix")
-                                    if fix:
-                                        lines.append(f"    fix: {fix}")
-                        except Exception:
-                            pass
-
-                # Known-good test commands — what actually passed here before,
-                # so verification doesn't start from a guess.
-                try:
-                    top = _top_test_commands(project_dir)
-                    if top:
-                        lines.append("Known-good test commands:")
-                        for cmd, rec in top:
-                            n = rec.get("pass_count", 0)
-                            lines.append(f"  - {cmd} ({n}x pass)")
-                except Exception:
-                    pass
-
-                # Schema canary: the miner flags when Claude Code's log format
-                # stops being recognized (mining would degrade silently).
-                try:
-                    status_path = get_engram_storage_dir() / "mining_status.json"
-                    if status_path.exists():
-                        sdata = json_module.loads(status_path.read_text())
-                        warn = sdata.get("schema_warning", "")
-                        if warn:
-                            lines.append(f"WARNING: {warn}")
-                except Exception:
-                    pass
-            except Exception:
-                pass  # Mining not available or no sessions — skip silently
-
-            hook_output = {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": "\n".join(lines),
-                }
-            }
-            # Never set hookSpecificOutput.sessionTitle here (tried in 0.8.6,
-            # removed in 0.8.7). The session name belongs to Claude Code and
-            # the user's /rename; this hook also fires on resume, and in a
-            # workspace the restored checkpoint can belong to a different
-            # sub-project than the session it would rename.
-            print(json_module.dumps(hook_output))
-        except Exception:
-            pass
+        _hook_session_start(project_dir)
 
     # ==================================================================
     # prompt_json - reads stdin JSON, auto-captures decisions from user
@@ -3408,6 +3542,7 @@ def main():
                 _auto_capture_from_prompt(project_dir, prompt_text)
 
             result = reminder_for_prompt(project_dir, prompt_text)
+            result = _with_pressure(result, project_dir)
             if result:
                 hook_output = {
                     "hookSpecificOutput": {
@@ -3493,6 +3628,18 @@ def main():
 
                 # Also persist session files for next session context
                 mark_session_ended()
+
+            # One more turn for the checkpoint cadence (hooks/context_pressure).
+            # Counted here, not at UserPromptSubmit: an unattended /goal loop
+            # has no user prompts, but every turn still ends with a Stop.
+            try:
+                from claude_engram.hooks import context_pressure as _cp
+
+                _st = load_state()
+                _cp.note_stop(_st)
+                save_state(_st)
+            except Exception:
+                pass
 
             # Live freshness tick: debounced incremental mine so search,
             # extractions, and code indexes track the session as it runs
@@ -3652,6 +3799,7 @@ def main():
                 except Exception:
                     pass
 
+                result = _with_pressure(result, project_dir)
                 if result:
                     hook_output = {
                         "hookSpecificOutput": {
@@ -3669,68 +3817,7 @@ def main():
     # before Read"). One injection per file per session; silent otherwise.
     # ==================================================================
     elif hook_type == "pre_read_json":
-        import json as json_module
-
-        try:
-            stdin_data = _read_stdin_with_timeout(0.5)
-            if not stdin_data:
-                return
-            data = json_module.loads(stdin_data)
-            file_path = data.get("tool_input", {}).get("file_path", "")
-
-            # Optional statusline integration: mirror the last-read file to a
-            # plain text file (replaces a separate user hook = one less spawn).
-            if file_path:
-                lf = os.environ.get("CLAUDE_ENGRAM_LAST_FILE_PATH", "")
-                if lf:
-                    try:
-                        Path(lf).expanduser().write_text(file_path, encoding="utf-8")
-                    except Exception:
-                        pass
-
-            # Subagents: no injection (preserve their context budget)
-            if data.get("agent_id") or not file_path:
-                return
-
-            # Once per file per session — re-reads shouldn't re-pay the tokens
-            state = load_state()
-            seen = state.get("read_injected", [])
-            norm = file_path.replace("\\", "/").lower()
-            if norm in seen:
-                return
-            seen.append(norm)
-            state["read_injected"] = seen[-50:]
-            save_state(state)
-
-            project_dir = get_project_dir(file_path)
-            lines = []
-            try:
-                from claude_engram.hooks.precheck import read_context
-
-                rc = read_context(file_path, project_dir)
-                if rc:
-                    lines.append(rc)
-            except Exception:
-                pass
-            for mem in get_contextual_memories(project_dir, file_path)[:2]:
-                lines.append(f"- {mem}")
-
-            if lines:
-                result = (
-                    "<engram-read-context>\n" + "\n".join(lines) + "\n</engram-read-context>"
-                )
-                print(
-                    json_module.dumps(
-                        {
-                            "hookSpecificOutput": {
-                                "hookEventName": "PreToolUse",
-                                "additionalContext": result,
-                            }
-                        }
-                    )
-                )
-        except Exception:
-            pass
+        _hook_pre_read()
 
     else:
         pass  # Unknown hook type - silent

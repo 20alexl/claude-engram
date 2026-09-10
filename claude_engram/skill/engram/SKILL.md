@@ -69,6 +69,8 @@ Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are pr
 - `context(checkpoint_list, project_path="...")` — list the unified history newest-first (index, age, kind, summary)
 - `context(handoff_create | handoff_get | handoff_list, ...)` — deprecated aliases of the checkpoint_* ops above
 
+**Compaction is announced, not sprung.** Engram measures the distance to the compaction point (not the raw context percent) and injects `<engram-context>` twice per cycle: a heads-up ~10% of the window out (finish the step, start nothing long) and `CHECKPOINT NOW` ~3% out. Act on the second: write a full `checkpoint_save` (task, step, completed/pending, files, warnings, handoff_summary) and continue — the PreCompact auto entry is only the floor. After a compaction the banner restates the rhythm; a cadence reminder fires every 25 turns without a deliberate save. Needs a statusline that records the mirror (README: Context pressure); engram says so at session start when there is none.
+
 For rules use the dedicated API: `memory(add_rule / list_rules / delete)`.
 
 Example:

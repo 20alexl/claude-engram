@@ -285,6 +285,10 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_EMBED_MODEL` | `BAAI/bge-base-en-v1.5` | sentence-transformers embedding model (scorer server, decision capture, memory + session embeddings). Also `embed_model` in `config.json` |
 | `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `0` (keep all) | Prune session-search embedding shards older than N days (whole months at a time) |
 | `CLAUDE_ENGRAM_LAST_FILE_PATH` | unset | Read hook mirrors the last-read file path here (statusline integration; replaces a separate user hook) |
+| `CLAUDE_ENGRAM_HEADSUP_FRACTION` | `0.10` | Context-pressure heads-up this fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_FRACTION` | `0.03` (`0.05` on ≤200K) | `CHECKPOINT NOW` nudge this fraction of the window before the compaction point |
+| `CLAUDE_ENGRAM_CHECKPOINT_CADENCE` | `25` | Turns (Stop events) without a deliberate checkpoint before the cadence reminder |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | unset (Claude Code's) | Not engram's variable, but engram reads it: the compaction point the nudges are measured against. Set it for unattended runs (e.g. `750000` on a 1M model) |
 | `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | `1` prints a stderr breadcrumb per hook: served by daemon vs fallback (and why) |
 | `CLAUDE_ENGRAM_EMBED_DIM` | model native | Matryoshka truncation dim (e.g. `256` for `google/embeddinggemma-300m`). Also `embed_dim` in `config.json` |
 | `CLAUDE_ENGRAM_OLLAMA_URL` | `http://localhost:11434` | Ollama API endpoint (optional LLM) |
