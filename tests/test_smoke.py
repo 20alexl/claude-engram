@@ -299,7 +299,7 @@ def test_decisions_read_the_repos_history_and_never_crash_on_a_missing_index(tmp
     texts = [r.chunk_text for r in res]
     # The reason lives in the diff (a comment above the constant), not in
     # the message: the pickaxe hit carries the added lines around the needle.
-    assert any("we stay well under" in t and "diff:" in t for t in texts), texts
+    assert any("we stay well under" in t.lower() and "diff:" in t for t in texts), texts
     assert all(r.msg_type == "git" and r.session_id.startswith("git:") for r in res)
     # The file's history rides along with replay.
     hist = search.git_file_history(str(repo), str(repo / "src" / "sync.py"))

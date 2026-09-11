@@ -1187,7 +1187,7 @@ def _git_log(project_path: str, args: list[str], limit: int) -> list[SearchResul
     return out
 
 
-def _diff_excerpt(project_path: str, sha: str, needle_regex: str, paths: list, window: int = 10) -> str:
+def _diff_excerpt(project_path: str, sha: str, needle_regex: str, paths: list, window: int = 20) -> str:
     """The added lines around the needle in one commit's diff: the reason
     for a constant is usually a comment a few lines above it, in the diff,
     not in the message (trade-lab's `PACE = 0.15`: "We stay well under"
@@ -1232,7 +1232,7 @@ def _diff_excerpt(project_path: str, sha: str, needle_regex: str, paths: list, w
         body = ln[1:].strip()
         if j == i or body.startswith(("#", "//", '"""', "'''", "*", "--")) or " # " in body:
             picked.append(body)
-    return " | ".join(picked[-5:])[:400]
+    return " | ".join(picked[-8:])[:600]
 
 
 def git_pickaxe(project_path: str, query: str, limit: int = 5) -> list[SearchResult]:
