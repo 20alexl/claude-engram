@@ -472,6 +472,28 @@ def _ring_manual_after(project_dir: str, t: float) -> bool:
         return False
 
 
+MILESTONE_NUDGE_GAP_SECS = 3600  # at most one prose-triggered nudge an hour
+
+
+def _turn_corroborates_a_close(state: dict, quote: str) -> bool:
+    """A sentence alone is not a close. The trade-lab trial (2026-09-11) got
+    four nudges quoting status-report lines to the person ("Track B is built
+    and merged", a bullet relaying another agent's work); the model tuned
+    them out. A claim counts only when the turn that made it did something:
+    a commit, an edit, a delegated agent (hooks/stall.py accounts these to
+    the open turn, judged after this runs). A list bullet is a relay, never
+    a close of the model's own."""
+    q = (quote or "").lstrip()
+    if q.startswith(("- ", "* ", "• ", "-**", "*  ")):
+        return False
+    _stall = state.get("stall")
+    turn = (_stall if isinstance(_stall, dict) else {}).get("turn")
+    if not isinstance(turn, dict):
+        return False
+    effects = turn.get("effects") or []
+    return bool(effects) or bool(turn.get("delegated"))
+
+
 def stage_milestone(state: dict, quote: str, kind: str = "claim", since: float = 0.0) -> None:
     """Remember that a unit closed without a deliberate checkpoint; the next
     injection point asks for one. The newest claim wins. ``since`` is the
@@ -501,7 +523,7 @@ def note_stop(state: dict, last_message: str = "") -> None:
         claimed, quote = is_completion_claim(last_message)
     except Exception:
         return
-    if claimed:
+    if claimed and _turn_corroborates_a_close(state, quote):
         stage_milestone(state, quote, "claim", since=prev_stop)
         # A completion claim is a unit boundary; the fallback cadence counts
         # turns with neither a checkpoint nor a claim.
@@ -771,9 +793,13 @@ def nudge(state: dict, session_id: str, project_dir: str = "") -> tuple[str, boo
             # newer than the turn's start answers the nudge. (Three false
             # nudges on 2026-09-10 came from exactly that.)
             answered = _ring_manual_after(project_dir, window_start)
-        if not answered:
+        # One prose nudge an hour: past that it is wallpaper (the trial's
+        # verdict). Task-tool closes are structural and not rate-limited.
+        recent = time.time() - float(ps.get("milestone_nudged_at") or 0.0) < MILESTONE_NUDGE_GAP_SECS
+        if not answered and not (recent and mp.get("kind") == "claim"):
             from claude_engram.hooks.milestones import milestone_text
 
+            ps["milestone_nudged_at"] = time.time()
             texts.append(milestone_text(str(mp.get("quote", "")), str(mp.get("kind", "claim"))))
 
     cadence = _env_int("CLAUDE_ENGRAM_CHECKPOINT_CADENCE", CADENCE_STOPS)

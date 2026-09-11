@@ -125,6 +125,94 @@ def test_output_markers_count_only_for_commands_that_can_run_tests():
     assert can("") is False
 
 
+def test_a_prose_claim_needs_a_turn_effect_and_bullets_never_count():
+    from claude_engram.hooks.context_pressure import _turn_corroborates_a_close as ok
+    assert ok({"stall": {"turn": {"effects": ["commit"], "delegated": False}}}, "Track B is built and merged.") is True
+    assert ok({"stall": {"turn": {"effects": [], "delegated": True}}}, "Phase 1 built.") is True
+    assert ok({"stall": {"turn": {"effects": [], "delegated": False}}}, "Track B is built and merged.") is False
+    assert ok({"stall": {"turn": {"effects": ["file"]}}}, "- **The torch kind**: built") is False
+    assert ok({}, "step 3 done") is False
+
+
+def test_nudge_delivery_is_capped_to_one_an_hour(tmp_path: Path, monkeypatch):
+    import time as _t
+    from claude_engram.hooks import context_pressure as cp
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    monkeypatch.setattr(cp, "_ring_manual_after", lambda *_a, **_k: False)
+    state: dict = {}
+    cp.stage_milestone(state, "step one done", "claim", since=_t.time() - 10)
+    text, _ = cp.nudge(state, "s-cap-test", str(tmp_path))
+    assert "closed a step" in text
+    cp.stage_milestone(state, "step two done", "claim", since=_t.time() - 5)
+    text2, _ = cp.nudge(state, "s-cap-test", str(tmp_path))
+    assert "closed a step" not in text2  # within the hour: swallowed
+    # A task-tool close is structural and never rate-limited.
+    cp.stage_milestone(state, "task X", "task", since=_t.time() - 5)
+    text3, _ = cp.nudge(state, "s-cap-test", str(tmp_path))
+    assert "marked a task done" in text3
+
+
+def test_recent_edit_files_reads_the_transcript(tmp_path: Path):
+    from claude_engram.hooks import autorun
+    t = tmp_path / "t.jsonl"
+    def tu(name, fp):
+        return json.dumps({"type": "assistant", "timestamp": "2026-09-11T10:00:00.000Z",
+                           "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "x", "name": name, "input": {"file_path": fp}}]}})
+    t.write_text("\n".join([tu("Read", "E:/ws/p/readme.md"), tu("Edit", "E:/ws/p/a.py"), tu("Write", "E:/ws/p/b.py"), tu("Edit", "E:/ws/p/a.py")]) + "\n", encoding="utf-8")
+    assert autorun.recent_edit_files(str(t)) == ["E:/ws/p/b.py", "E:/ws/p/a.py"]
+    assert autorun.recent_edit_files(str(tmp_path / "missing.jsonl")) == []
+
+
+def test_latest_session_is_picked_per_project(tmp_path: Path):
+    from claude_engram.mining.session_index import SessionIndex
+    idx = SessionIndex(tmp_path / "session_index.json")
+    idx._data["sessions"] = {
+        "s-ui": {"last_timestamp": "2026-09-11T09:00:00Z", "files_edited": ["E:/ws/web/page.tsx", "E:/ws/web/app.css"]},
+        "s-tl": {"last_timestamp": "2026-09-11T08:00:00Z", "files_edited": ["E:/ws/trade-lab/src/a.py", "C:/Users/x/.claude/memory.md"]},
+    }
+    latest = idx.get_latest_session()
+    assert latest is not None and latest["files_edited"][0].endswith("page.tsx")
+    s = idx.get_latest_session_summary("E:/ws/trade-lab")
+    assert s is not None and s["files_edited"] == ["a.py"]
+    assert s["file_count"] == 1  # the memory file outside the project is not counted
+    assert idx.get_latest_session_summary("E:/ws/other") is None
+
+
+def test_test_invocation_reads_every_segment_and_read_only_tools_never_count():
+    from claude_engram.hooks.remind import _is_test_invocation as inv
+    assert inv("cd /e/workspace/trade-lab; .venv/Scripts/python.exe -m pytest 2>&1 | tail -1") is True
+    assert inv("FOO=1 pytest -q tests") is True
+    assert inv("sed -n 100,121p tests/bench_scoring.py") is False
+    assert inv("cat session-logs/2026-09-10.md") is False
+
+
+def test_edit_reminders_need_a_file_match_for_rules_and_a_full_path_when_old():
+    import time as _t
+    from claude_engram.hooks.hot_reader import score_loaded_entries
+    now = _t.time()
+    ctx = {"file_path": "E:/ws/tl/src/loader.py"}
+    fresh_hit = {"id": "1", "category": "decision", "content": "loader.py reads the manifest first", "related_files": ["E:/ws/tl/src/loader.py"], "created_at": now - 86400, "relevance": 6}
+    old_name_drop = {"id": "2", "category": "decision", "content": "we discussed loader.py once", "related_files": ["loader.py"], "created_at": now - 91 * 86400, "relevance": 6}
+    old_full_path = {"id": "3", "category": "decision", "content": "E:/ws/tl/src/loader.py must stay lazy", "related_files": ["E:/ws/tl/src/loader.py"], "created_at": now - 91 * 86400, "relevance": 6}
+    far_rule = {"id": "4", "category": "rule", "content": "Delegate session maintenance to a background agent", "related_files": [], "created_at": now - 128 * 86400, "relevance": 9}
+    near_rule = {"id": "5", "category": "rule", "content": "src/loader.py: never read the whole file", "related_files": ["E:/ws/tl/src/loader.py"], "created_at": now - 128 * 86400, "relevance": 9}
+    out = score_loaded_entries([fresh_hit, old_name_drop, old_full_path, far_rule, near_rule], ctx, limit=3)
+    ids = [e["id"] for e in out]
+    assert "1" in ids and "3" in ids and "5" in ids
+    assert "2" not in ids and "4" not in ids
+
+
+def test_rule_context_sees_approval_and_session_created_paths():
+    from claude_engram.hooks.remind import _rule_context, _note_created_paths
+    st: dict = {"last_prompt": "approved, delete the scratch dir"}
+    _note_created_paths(st, [{"tool_name": "Bash", "tool_input": {"command": "mkdir -p E:/ws/tl/.scratch/tmpwork"}},
+                            {"tool_name": "Write", "tool_input": {"file_path": "E:/ws/tl/.scratch/tmpwork/plan.md"}}])
+    assert "e:/ws/tl/.scratch/tmpwork" in [c.lower() for c in st["created_paths"]]
+    ctx = _rule_context(st, {"command": "rm -rf E:/ws/tl/.scratch/tmpwork"})
+    assert "reads as approval" in ctx and "this session created" in ctx
+    assert _rule_context({"last_prompt": "what is the plan?"}, {"command": "rm -rf E:/ws/tl/src"}) == ""
+
+
 def test_generic_basenames_need_a_full_path():
     gate = 0.35 * 0.5  # a bare-name match would score 0.5 under the 0.35 file weight
     assert hot_reader._file_match_score("E:/ws/engram/README.md", [], "FileNotFoundError: src/README.md") == 0.0

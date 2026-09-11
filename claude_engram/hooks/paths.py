@@ -70,7 +70,13 @@ def _non_project_segments() -> "frozenset[str]":
     env = os.environ.get("CLAUDE_ENGRAM_NON_PROJECT_DIRS", "")
     try:
         cfg_path = get_engram_storage_dir() / "config.json"
-        key = f"{cfg_path}|{env}"
+        try:
+            stamp = cfg_path.stat().st_mtime_ns if cfg_path.is_file() else 0
+        except OSError:
+            stamp = 0
+        # Keyed by the file's mtime too: a long-lived daemon must see an
+        # edit to the config without a restart.
+        key = f"{cfg_path}|{stamp}|{env}"
         if _non_project_cache and _non_project_cache[0] == key:
             return _non_project_cache[1]
         extra: set[str] = set()

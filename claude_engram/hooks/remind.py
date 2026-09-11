@@ -715,6 +715,19 @@ def _session_edit_files(state: dict) -> list:
     root because the turn that set the goal edited nothing). Fall back to
     the previous turn's files, then to every absolute path the loop tracker
     counted this session."""
+    # The transcript Claude Code writes is the primary record: every Edit
+    # and Write the session made, in order, whatever the hook state did.
+    try:
+        _run = state.get("run")
+        tp = str((_run if isinstance(_run, dict) else {}).get("transcript_path") or "")
+        if tp:
+            from claude_engram.hooks.autorun import recent_edit_files
+
+            files = recent_edit_files(tp)
+            if files:
+                return files
+    except Exception:
+        pass
     live = list(state.get("files_edited_this_session") or [])
     if live:
         return live
@@ -927,15 +940,18 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
     # signal: eight edits to a markdown, config or data file are a document
     # being written, and tests have nothing to say about it. A file under a
     # scratch or vendored tree is somebody's working notes, never a loop.
+    # Latched: the warning speaks at the threshold and again every
+    # threshold after it, not on every edit past it (a frontend file with
+    # no tests drew ~400 of them in one session, 2026-09-11).
     if under_non_project_dir(file_path):
         pass
     elif test_results:
         last_failing = not test_results[-1].get("passed", True)
-        if last_failing and edit_count >= 3 and _is_code_file(file_path):
+        if last_failing and edit_count >= 3 and edit_count % 3 == 0 and _is_code_file(file_path):
             results["loop_warnings"].append(
                 f"{edit_count} edits to {file_name}, tests still failing"
             )
-    elif edit_count >= 8 and _is_code_file(file_path):
+    elif edit_count >= 8 and edit_count % 8 == 0 and _is_code_file(file_path):
         results["loop_warnings"].append(
             f"{edit_count} edits to {file_name} without running tests"
         )
@@ -1234,16 +1250,19 @@ def _is_test_invocation(command: str) -> bool:
     RED-phase TDD failures (deliberate ModuleNotFoundError/assertion fails
     before implementing) are not mistakes — logging them drowns the
     banner's signal in noise."""
-    first_cmd = re.split(r"&&|\|\||;|\$\(", (command or "").lower().strip())[
-        0
-    ].strip()
-    if any(first_cmd.startswith(p) for p in _TEST_RUNNER_PREFIXES):
-        return True
-    # venv/...python -m pytest, python tests/bench_x.py and similar shapes
-    if re.search(r"python[\w.\\/]*(\.exe)?\s+(-m\s+)?(pytest|unittest)\b", first_cmd):
-        return True
-    if re.search(r"python[\w.\\/]*(\.exe)?\s+\S*tests?[\\/]", first_cmd):
-        return True
+    # Every segment of a chain is judged (`cd proj && python -m pytest` is
+    # a test run; its first segment alone is a cd), after stripping leading
+    # environment assignments.
+    for seg in re.split(r"&&|\|\||;|\$\(", (command or "").lower().strip()):
+        seg = seg.strip()
+        seg = re.sub(r"^(?:[a-z_][a-z0-9_]*=\S*\s+)+", "", seg)
+        if any(seg.startswith(p) for p in _TEST_RUNNER_PREFIXES):
+            return True
+        # venv/...python -m pytest, python tests/bench_x.py and similar shapes
+        if re.search(r"python[\w.\\/]*(\.exe)?\s+(-m\s+)?(pytest|unittest)\b", seg):
+            return True
+        if re.search(r"python[\w.\\/]*(\.exe)?\s+\S*tests?[\\/]", seg):
+            return True
     return False
 
 
@@ -1309,18 +1328,29 @@ def _top_test_commands(project_dir: str, limit: int = 3) -> "list[tuple[str, dic
     not older than last fail), ranked by pass count then recency. Walks
     ancestors so sub-project sessions inherit workspace-tracked commands."""
     try:
-        check = _normalize_path(project_dir)
+        own = _normalize_path(project_dir)
+        own_name = Path(own).name.lower()
+        check = own
         for _ in range(8):
             path = get_project_memory_dir(check) / "test_commands.json"
             if path.exists():
                 cmds = json.loads(path.read_text(encoding="utf-8")).get(
                     "commands", {}
                 )
+                inherited = check != own
                 good = [
                     (c, r)
                     for c, r in cmds.items()
                     if r.get("pass_count", 0) >= 1
                     and r.get("last_pass", 0) >= r.get("last_fail", 0)
+                    # Recorded before the runner gate (0.8.39) the store
+                    # holds `sed -n ... tests/x.py` shapes; only a command
+                    # that runs a test is worth suggesting.
+                    and _is_test_invocation(c)
+                    # An ancestor's commands belong to this project only
+                    # when they say so (the workspace root pools every
+                    # sibling's runs).
+                    and (not inherited or (own_name and own_name in c.lower()))
                 ]
                 good.sort(
                     key=lambda kv: (
@@ -1696,22 +1726,23 @@ def reminder_for_bash(
                     error_project, command, error_snippet, recent[:5]
                 )
 
-        # Show confirmation (not reminder)
+        # Speak only when the status is news: the first run and every flip.
+        # A same-verdict rerun is tracked in silence (~380 "PASS Test
+        # tracked" lines in one trial session said nothing, 2026-09-11).
         status_emoji = "PASS" if passed else "FAIL"
-        lines.append("<engram-test-tracked>")
-        if state_changed:
-            if passed:
-                lines.append(f"{status_emoji} Test tracked: NOW PASSING (were failing)")
+        if state_changed or first_run:
+            lines.append("<engram-test-tracked>")
+            if state_changed:
+                if passed:
+                    lines.append(f"{status_emoji} Test tracked: NOW PASSING (were failing)")
+                else:
+                    lines.append(f"{status_emoji} Test tracked: NOW FAILING (were passing)")
             else:
-                lines.append(f"{status_emoji} Test tracked: NOW FAILING (were passing)")
-        elif first_run:
-            lines.append(
-                f"{status_emoji} Test tracked: {result} (baseline established)"
-            )
-        else:
-            lines.append(f"{status_emoji} Test tracked: {result}")
-        lines.append("</engram-test-tracked>")
-        has_content = True
+                lines.append(
+                    f"{status_emoji} Test tracked: {result} (baseline established)"
+                )
+            lines.append("</engram-test-tracked>")
+            has_content = True
 
     # Check if command failed
     if exit_code and exit_code != "0":
@@ -2941,6 +2972,58 @@ def _stall_bearings(project_dir: str) -> list[str]:
     return lines
 
 
+_APPROVAL = re.compile(
+    r"\b(?:approved?|go ahead|proceed|yes,? (?:do|delete|remove|trash|rm|go)|"
+    r"(?:delete|remove|trash|rm|kill|drop) (?:it|them|that|those|the \w+)|do it)\b",
+    re.IGNORECASE,
+)
+
+
+def _note_created_paths(state: dict, calls: list) -> None:
+    """Remember what this session created (Write targets, mkdir arguments)
+    so a later deletion of the same path reads as cleanup, not as the
+    destructive act the rule guards. Capped; paths normalized."""
+    created = list(state.get("created_paths") or [])
+    for call in calls if isinstance(calls, list) else []:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("tool_name") or "")
+        _ti = call.get("tool_input")
+        ti: dict = _ti if isinstance(_ti, dict) else {}
+        if name in ("Write", "NotebookEdit"):
+            fp = str(ti.get("file_path") or ti.get("notebook_path") or "")
+            if fp:
+                created.append(_normalize_path(fp))
+        elif name in ("Bash", "PowerShell"):
+            cmd = str(ti.get("command") or "")
+            for m in re.finditer(r"\bmkdir\b(?:\s+-\w+)*\s+((?:\"[^\"]+\"|'[^']+'|\S+)(?:\s+(?:\"[^\"]+\"|'[^']+'|\S+))*)", cmd):
+                for tok in re.findall(r"\"([^\"]+)\"|'([^']+)'|(\S+)", m.group(1)):
+                    p = next(t for t in tok if t)
+                    if p.startswith("-"):
+                        continue
+                    created.append(_normalize_path(p) if os.path.isabs(p) else p.replace("\\", "/"))
+    if created:
+        state["created_paths"] = created[-60:]
+
+
+def _rule_context(state: dict, tool_input) -> str:
+    """What the session knows that the detector cannot: the last prompt
+    reads as approval; the targets are paths this session created."""
+    notes = []
+    prompt = str(state.get("last_prompt") or "")
+    if prompt and _APPROVAL.search(prompt):
+        notes.append(f'The last prompt reads as approval: "{_truncate(prompt.strip(), 80)}".')
+    created = [str(c).lower() for c in state.get("created_paths") or []]
+    cmd = str((tool_input or {}).get("command") or "") if isinstance(tool_input, dict) else ""
+    if created and cmd:
+        targets = [t for t in re.findall(r"(?:\"([^\"]+)\"|'([^']+)'|(\S+))", cmd)]
+        targets = [next(x for x in t if x) for t in targets]
+        paths = [t.replace("\\", "/").lower() for t in targets[1:] if not t.startswith("-") and ("/" in t or "\\" in t or "." in t)]
+        if paths and all(any(p == c or p.startswith(c.rstrip("/") + "/") or p.endswith("/" + c) or p == c.rsplit("/", 1)[-1] for c in created) for p in paths):
+            notes.append("Every target is a path this session created.")
+    return " ".join(notes)
+
+
 def _compliance_check(
     project_dir: str, data: dict, tool_name: str, tool_input, state: "dict | None" = None
 ) -> "tuple[list[dict], dict | None]":
@@ -3012,7 +3095,8 @@ def _hook_pre_bash(project_dir: str) -> None:
         if data.get("agent_id"):
             return  # recorded (flagged as a subagent's), never nudged
 
-        result = _cpl.rule_text(new, str(data.get("permission_mode") or "")) if new else ""
+        _ctx = _rule_context(state or {}, data.get("tool_input")) if new else ""
+        result = _cpl.rule_text(new, str(data.get("permission_mode") or ""), _ctx) if new else ""
         result = _with_pressure(result, project_dir)
         if result:
             print(
@@ -3171,6 +3255,7 @@ def _hook_post_batch(project_dir: str) -> None:
 
         state = load_state()
         _stall.note_batch(state, calls if isinstance(calls, list) else [])
+        _note_created_paths(state, calls if isinstance(calls, list) else [])
         # Compliance on every non-shell call (path globs on edits, MCP tools
         # by name); shell calls were matched at PreToolUse and dedupe by
         # tool_use_id here.
@@ -3371,11 +3456,28 @@ def _hook_session_start(project_dir: str) -> None:
         resume_files = []
         if source in ("resume", "compact"):
             try:
-                resume_files = list(
-                    load_state().get("files_edited_this_session", [])
-                )
+                # The transcript is the record: every edit the resuming
+                # session made. The hook state is the fallback (every Stop
+                # moves its live list into last_session_files).
+                from claude_engram.hooks.autorun import recent_edit_files as _recent
+
+                resume_files = _recent(_transcript) if _transcript else []
+                if not resume_files:
+                    resume_files = _session_edit_files(load_state())
             except Exception:
                 resume_files = []
+        # The project this session is ABOUT. A session run from a workspace
+        # root that works on one sub-project got the root's recurring errors,
+        # test commands and "last session" (another project's web UI files)
+        # in its banner (trade-lab trial, 2026-09-11). On resume/compact the
+        # session's own edits name the project; on a fresh start only the
+        # cwd is known.
+        work_project = project_dir
+        if resume_files:
+            try:
+                work_project = _resolve_session_project(project_dir, resume_files)
+            except Exception:
+                work_project = project_dir
 
         # Auto-start claude_engram session
         mark_session_started(
@@ -3540,7 +3642,11 @@ def _hook_session_start(project_dir: str) -> None:
                         pass
 
             if index and index.get_session_count() > 0:
-                summary = index.get_latest_session_summary()
+                # An ancestor's index holds every sub-project's sessions:
+                # ask for the latest one that touched THIS project.
+                summary = index.get_latest_session_summary(
+                    work_project if _normalize_path(work_project) != _normalize_path(project_dir) else ""
+                )
                 if summary and summary.get("file_count", 0) > 0:
                     age = summary.get("age_str", "")
                     branch = summary.get("branch", "")
@@ -3602,9 +3708,14 @@ def _hook_session_start(project_dir: str) -> None:
                                 )
                         except Exception:
                             predicted = set()
-                        norm_root = _normalize_path(project_dir)
+                        norm_root = _normalize_path(work_project)
+                        _own_errors = Path(work_project).name.lower() == "claude-engram"
 
-                        def _in_scope(projs):
+                        def _in_scope(projs, example=""):
+                            # Engram's own failures (paths inside its store)
+                            # are nobody's recurring errors but engram's.
+                            if not _own_errors and ".claude_engram" in str(example or "").replace("\\", "/"):
+                                return False
                             # No prediction or no attribution -> show
                             # (legacy patterns.json has no projects field);
                             # workspace-root errors are generic -> show.
@@ -3635,7 +3746,7 @@ def _hook_session_start(project_dir: str) -> None:
                         recurring = [
                             e
                             for e in pdata.get("recurring_errors", [])
-                            if _in_scope(e.get("projects") or [])
+                            if _in_scope(e.get("projects") or [], e.get("example") or "")
                         ][:3]
                         if struggles:
                             lines.append("Recurring struggles:")
@@ -3681,7 +3792,7 @@ def _hook_session_start(project_dir: str) -> None:
             # Known-good test commands — what actually passed here before,
             # so verification doesn't start from a guess.
             try:
-                top = _top_test_commands(project_dir)
+                top = _top_test_commands(work_project)
                 if top:
                     lines.append("Known-good test commands:")
                     for cmd, rec in top:
@@ -4175,6 +4286,12 @@ def main():
 
             # Resolve project from recently edited files (not just cwd)
             state = load_state()
+            # The last prompt is what the destructive-command rule reads for
+            # approval ("approved", "delete it") -- the detector alone cannot
+            # see that the person just said yes (hooks/compliance.rule_text).
+            if prompt_text:
+                state["last_prompt"] = str(prompt_text)[:600]
+                save_state(state)
             # A goal set or ended since the last stop (hooks/autorun.py).
             _goal_bracket(state, data if isinstance(data, dict) else {}, project_dir, turn=False)
             recent_files = state.get("files_edited_this_session", []) or state.get(

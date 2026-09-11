@@ -24,6 +24,7 @@ SCORE_WEIGHTS = {
     "access_freq": 0.10,
 }
 CATEGORY_BONUSES = {"rule": 0.3, "lesson": 0.25, "mistake": 0.2}
+STALE_CONTEXT_DAYS = 30  # older context needs a full-path match to be injected
 RECENCY_HALF_LIFE_DAYS = 30
 
 # Filenames that exist in nearly every project/package. A bare basename match
@@ -49,6 +50,16 @@ _GENERIC_BASENAMES = {
     "claude.md",
     "agents.md",
     "changelog.md",
+    # The workspace convention's own files: every project has them, and a
+    # memory that merely says "logged in ERRORS.md" is about none of them
+    # in particular (two such decisions surfaced on an ERRORS.md edit in
+    # the trade-lab trial, 2026-09-11).
+    "errors.md",
+    "learnings.md",
+    "handoff.md",
+    "notes.md",
+    "todo.md",
+    "plan.md",
     "license",
     "pyproject.toml",
     "setup.cfg",
@@ -257,16 +268,29 @@ def score_loaded_entries(
         gate = 0.5 / _memory_injection_weight()
         for entry, _s in scored:
             category = entry.get("category", "")
+            related = entry.get("related_files", [])
+            content = entry.get("content", "")
+            fm = _file_match_score(ctx_file, related, content)
             if category == "rule":
-                rules.append(entry)
+                # A rule rides along only when it names this file or its
+                # directory. A 128-day-old workspace rule about session
+                # maintenance is not context for a loader edit (trade-lab
+                # trial, 2026-09-11); rules were shown at session start.
+                if fm > 0:
+                    rules.append(entry)
                 continue
             # Direct file relevance only — path-aware, so a shared basename
             # across diverging paths (e.g. service-a vs service-b) is not treated
             # as a match and generic names like __init__.py need a full path.
-            related = entry.get("related_files", [])
-            content = entry.get("content", "")
-            if _file_match_score(ctx_file, related, content) >= gate:
-                file_relevant.append(entry)
+            if fm < gate:
+                continue
+            # Age: past a month a bare name-drop is history, not context.
+            # An old entry stays only when it names the full path.
+            created = float(entry.get("created_at") or 0.0)
+            age_days = (time.time() - created) / 86400 if created else 999
+            if age_days > STALE_CONTEXT_DAYS and category != "mistake" and fm < 0.7:
+                continue
+            file_relevant.append(entry)
 
         # Only show rules when there's something file-specific to go with
         # them. Dumping generic rules on every unrelated edit is noise —

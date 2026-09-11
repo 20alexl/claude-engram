@@ -179,7 +179,7 @@ def test_recording(c):
     print("injected text:")
     t = c.rule_text(hits, "bypassPermissions")
     check("names the rule and what matched", "[r1] No rm" in t and "command ~" in t)
-    check("unattended wording", "no person approves" in t)
+    check("unattended wording", "No permission prompt stands before this call" in t)
     t2 = c.rule_text(hits, "default")
     check("prompted wording", "permission prompt" in t2)
     check("nothing to inject for no hits", c.rule_text([], "default") == "")
@@ -298,7 +298,7 @@ def test_end_to_end(tmp):
     base = {"session_id": sid, "cwd": str(proj), "hook_event_name": "PreToolUse", "tool_name": "Bash", "permission_mode": "bypassPermissions"}
     r = _hook("pre_bash_json", dict(base, tool_use_id="tu1", tool_input={"command": "rm -rf build"}), env)
     check("hook exits 0", r.returncode == 0)
-    check("additionalContext carries the rule before the command runs", "engram-rule" in r.stdout and rid in r.stdout and "no person approves" in r.stdout)
+    check("additionalContext carries the rule before the command runs", "engram-rule" in r.stdout and rid in r.stdout and "No permission prompt stands before this call" in r.stdout)
     try:
         out = json.loads(r.stdout.strip().splitlines()[-1])
         check("PreToolUse output shape", out["hookSpecificOutput"]["hookEventName"] == "PreToolUse" and "permissionDecision" not in out["hookSpecificOutput"])

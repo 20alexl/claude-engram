@@ -12,11 +12,11 @@ These happen via hooks. You don't call anything:
 
 | What | When It Fires | What You See |
 |---|---|---|
-| **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff |
+| **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff. On resume/compact the banner's recurring errors, last session and test commands are scoped to the project the session's own edits name (`autorun.recent_edit_files` from the transcript, then the hook state); engram's own `.claude_engram` failures never listed as a project's |
 | **Edit tracking** | PostToolUse Edit/Write | Nothing printed; the count feeds the loop warning before the next edit (files under node_modules/, venvs, or a `non_project_dirs` name from `~/.claude_engram/config.json` never warn) |
 | **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times (state lives in per-session hook state, so concurrent sessions don't cross-contaminate) |
-| **Scored memory injection** | PreToolUse Edit/Write | Top 3 relevant memories for the file |
-| **Test tracking** | PostToolUse Bash | "PASS/FAIL Test tracked" |
+| **Scored memory injection** | PreToolUse Edit/Write | Top 3 file-relevant memories; a rule rides along only when it names the file; an entry older than 30 days (`STALE_CONTEXT_DAYS`) only with a full-path match; ERRORS.md / LEARNINGS.md / plan.md are generic basenames |
+| **Test tracking** | PostToolUse Bash | "PASS/FAIL Test tracked" on the first run and on each flip only; output markers count only when the command's executable can run something (`_command_can_run_tests`), and `_is_test_invocation` reads every segment of a chain |
 | **Error auto-logging** | PostToolUseFailure (all tools) | Mistakes auto-saved from any failed tool |
 | **Decision capture** | UserPromptSubmit | "let's use X" parsed via semantic + regex scoring |
 | **Checkpoint on compact** | PreCompact | Task state saved before context compaction |
@@ -25,7 +25,7 @@ These happen via hooks. You don't call anything:
 | **Default pack** | SessionStart (fresh start only) | Scaffold pieces created where missing (headered `CLAUDE.md`, `.learnings/*.md`, `session-logs/`; per-person layouts left alone) and ten working rules seeded once, skipping any the project or an ancestor already has. `.engram/config.json`: `"structure": false`, `"default_rules": false` |
 | **Rotation** | SessionEnd plans, SessionStart announces; `session_mine(rotate)` | Dailies > 30 d → `session-logs/archive/<month>/` + digest; dated learnings > 90 d (or over 500 lines) → `.learnings/archive/`; nothing deleted; note under the title. `"rotation": "auto"` applies at session end |
 | **Run report** | SessionEnd (auto, substantial sessions) or `session_mine(run_report)` | `<project>/.engram/runs/<date>-<session>.md` + `.json`: commits, turns, files with edit counts, tests, errors (grouped, known-before), compactions with sizes and what each restored, checkpoints deliberate vs auto, goal text, and an explicit not-measured list. Hook-captured facts only |
-| **Milestone nudges** | Stop (read) → next injection point (deliver); PostToolUse ExitPlanMode / TaskUpdate | The model's own "step done" in its final message, with no deliberate checkpoint that turn, gets one nudge quoting the claim. A plan approval asks for the plan to be banked with its steps pending. Never written for you, never from commits |
+| **Milestone nudges** | Stop (read) → next injection point (deliver); PostToolUse ExitPlanMode / TaskUpdate | The model's own "step done" in its final message, with no deliberate checkpoint that turn, gets one nudge quoting the claim, only when the turn also had an effect (edit, commit, delegated agent; `_turn_corroborates_a_close`), never for a list bullet, at most one prose nudge an hour (`MILESTONE_NUDGE_GAP_SECS`). A plan approval asks for the plan to be banked with its steps pending. Never written for you, never from commits |
 | **Session handoff on stop** | Stop | Saves last_assistant_message + files for next session |
 | **Session summary on end** | SessionEnd | Files edited, memory counts |
 | **Stall detection** | PostToolBatch (account) + PostToolUse Edit/Bash fallback; Stop (judge); next injection point (deliver) | `<engram-stall>` after 3 consecutive turns with tool use and no effect (no file change, no test-status flip, no commit, no delegation); strike 2 re-injects the checkpoint + rules and forces a bearings check; strike 3 is the cap (the halt in autonomy mode). Turns with no tools or parked on Monitor/ScheduleWakeup/cron are neutral. Strikes decay: 5 good turns remove one. Events with turn numbers in the run report |

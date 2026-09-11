@@ -413,6 +413,46 @@ def _log(msg: str) -> None:
         pass
 
 
+def _drop_worktree_projects(storage: Path, manifest: dict) -> None:
+    """Unregister projects that were never projects: a git worktree or a
+    path inside a scratch/vendor dir, registered because its `.git` file or
+    marker made the resolver stop there (eleven `trade-lab/.scratch/*-wt`
+    entries with empty stores, 2026-09-11). Since 0.8.39 the resolver maps
+    those to the main repository, so the entries can never be reached
+    again. Only an EMPTY store is dropped; a store with entries is left
+    for a person (moved nothing, deleted nothing). The store directory is
+    moved under ``_unregistered/`` in the storage dir, never removed."""
+    from claude_engram.hooks.paths import canonical_project_root, _normalize_path
+
+    projects = manifest.get("projects")
+    if not isinstance(projects, dict):
+        return
+    for path in list(projects):
+        info = projects.get(path) or {}
+        try:
+            norm = _normalize_path(str(path))
+            if canonical_project_root(norm) == norm:
+                continue  # a real project
+            hdir = storage / "projects" / str(info.get("hash") or "")
+            if hdir.is_dir():
+                mem = hdir / "memory.json"
+                if mem.is_file():
+                    data = json.loads(mem.read_text(encoding="utf-8"))
+                    values = data.values() if isinstance(data, dict) else []
+                    if any(isinstance(v, list) and v for v in values):
+                        _log(f"kept {path}: its store has entries")
+                        continue
+                parked = storage / "_unregistered"
+                parked.mkdir(parents=True, exist_ok=True)
+                target = parked / hdir.name
+                if not target.exists():
+                    hdir.rename(target)
+            del projects[path]
+            _log(f"unregistered {path} (worktree or scratch path; empty store)")
+        except Exception as e:
+            _log(f"skip {path}: {e}")
+
+
 STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
@@ -425,6 +465,7 @@ STEPS = [
     # Re-run under 0.8.37: the routing rule changed (registered projects only,
     # never a worktree or vendor dir), so the 0.8.36 pass has to be redone.
     ("0.8.37:reattribute_pooled", True, _reattribute_pooled),
+    ("0.8.40:drop_worktree_projects", False, _drop_worktree_projects),
 ]
 
 

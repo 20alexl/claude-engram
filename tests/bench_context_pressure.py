@@ -467,14 +467,24 @@ def test_milestones(cp):
     cp.note_stop(state, "Looking into the failing bench now.")
     t, _ = cp.nudge(state, sid)
     check("ordinary turn: nothing staged", t == "" and state["pressure"]["milestone_pending"] is None)
+    # A claim in a turn that changed nothing is a status line, not a close
+    # (the trade-lab trial's four nudges on report prose, 2026-09-11).
+    cp.note_stop(state, "Phase 1 is built and verified. Next is the run report.")
+    check("claim without a turn effect: nothing staged", state["pressure"]["milestone_pending"] is None)
+    state["stall"] = {"turn": {"effects": ["file"], "tools": 2}}
     cp.note_stop(state, "Phase 1 is built and verified. Next is the run report.")
     check("completion claim staged at Stop", isinstance(state["pressure"]["milestone_pending"], dict))
     check("claim resets the fallback counter", state["pressure"]["stops_since_checkpoint"] == 0)
     t, ch = cp.nudge(state, sid)
     check("milestone nudge delivered once", "Last turn you closed a step" in t and "Phase 1 is built" in t and ch)
-    check("nudge names the call", "context(checkpoint_save)" in t)
+    check("nudge names the call", "context(checkpoint_save" in t)
     t, _ = cp.nudge(state, sid)
     check("not delivered twice", t == "")
+    # One prose nudge an hour: a second claim inside the window is swallowed.
+    cp.note_stop(state, "Step 1b is done as well.")
+    t, _ = cp.nudge(state, sid)
+    check("a second prose nudge within the hour is swallowed", t == "" and state["pressure"]["milestone_pending"] is None)
+    cp.MILESTONE_NUDGE_GAP_SECS = 0  # the rest of this section tests delivery, not the cap
     # The ideal path: a deliberate checkpoint landed in the same turn.
     time.sleep(0.01)
     cp.note_manual_checkpoint(state)
@@ -551,6 +561,7 @@ def test_milestones(cp):
     check("heads-up wins the slot", "Context pressure" in t and "Round 4" not in t)
     t, _ = cp.nudge(state, sid)
     check("milestone delivered on the next slot", "Round 4 closed" in t)
+    cp.MILESTONE_NUDGE_GAP_SECS = 3600
     _clean_env()
     check("plan text asks to bank the plan's steps", "pending_steps" in ms.plan_text())
 

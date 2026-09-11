@@ -290,16 +290,47 @@ class SessionIndex:
 
         return latest
 
-    def get_latest_session_summary(self) -> Optional[dict]:
+    def get_latest_session_for(self, project_dir: str) -> Optional[dict]:
+        """The most recent session that edited a file under ``project_dir``.
+        A workspace-root index holds every sub-project's sessions, so the
+        plain latest is whichever project was touched last: a trade-lab
+        session opened with a web UI project's files as "last session"
+        (2026-09-11). None when no session touched the project."""
+        prefix = (project_dir or "").replace("\\", "/").rstrip("/").lower()
+        if not prefix:
+            return self.get_latest_session()
+        latest = None
+        latest_ts = ""
+        for _sid, meta in self.sessions.items():
+            files = meta.get("files_edited") or []
+            if not any(str(f).replace("\\", "/").lower().startswith(prefix + "/") for f in files):
+                continue
+            ts = meta.get("last_timestamp", "")
+            if ts > latest_ts:
+                latest_ts = ts
+                latest = meta
+        return latest
+
+    def get_latest_session_summary(self, project_dir: str = "") -> Optional[dict]:
         """
         Get a formatted summary of the most recent session.
 
         Returns dict with: session_id, age_str, branch, files_edited,
         error_count, last_message, tools_summary
+        With ``project_dir``: the latest session that touched that project,
+        listing and counting only its files under the project.
         """
-        latest = self.get_latest_session()
+        latest = self.get_latest_session_for(project_dir) if project_dir else self.get_latest_session()
         if not latest:
             return None
+        if project_dir:
+            prefix = project_dir.replace("\\", "/").rstrip("/").lower()
+            latest = dict(latest)
+            latest["files_edited"] = [
+                f
+                for f in latest.get("files_edited") or []
+                if str(f).replace("\\", "/").lower().startswith(prefix + "/")
+            ]
 
         # Calculate age
         last_ts = latest.get("last_timestamp", "")

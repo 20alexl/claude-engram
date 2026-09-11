@@ -323,8 +323,13 @@ def record(
     return new
 
 
-def rule_text(hits: list[dict], permission_mode: str) -> str:
-    """Injected before the command runs."""
+def rule_text(hits: list[dict], permission_mode: str, context: str = "") -> str:
+    """Injected before the command runs. ``context`` is what the session
+    itself knows about this call (the last prompt reads as approval, the
+    target is a path this session created) -- the detector cannot see
+    approval, so the hook says what it can and leaves the call to the
+    model instead of telling it to stop for a deletion the person just
+    approved (trade-lab trial, 2026-09-11)."""
     if not hits:
         return ""
     v = verdict(permission_mode)
@@ -332,11 +337,13 @@ def rule_text(hits: list[dict], permission_mode: str) -> str:
     for h in hits[:3]:
         note = f" ({h['note']})" if h.get("note") else ""
         lines.append(f"  [{h['rule_id']}] {h['rule'][:200]}{note} -- {h['what']}")
+    if context:
+        lines.append(f"  {context}")
     if v == "unattended":
         lines.append(
-            "  Permission mode is unattended: no person approves this call. If the rule "
-            "says ask first, this is the moment to stop and ask; the match is recorded "
-            "in the run report either way."
+            "  No permission prompt stands before this call. If the rule says ask first "
+            "and the person has not already approved this in the conversation, stop and "
+            "ask; the match is recorded in the run report either way."
         )
     else:
         lines.append("  Recorded for the run report. A permission prompt stands between you and the call.")

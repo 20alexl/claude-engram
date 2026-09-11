@@ -241,10 +241,12 @@ def test_parent_inheritance():
     """Test that workspace memories are visible from sub-projects."""
     m = MemoryStore(storage_dir=_TMP)
 
-    # Workspace-level rule
+    # Workspace-level rule. Since 0.8.40 a rule rides along with an edit
+    # only when it names the file or its directory (a generic workspace rule
+    # was noise on every loader edit in the trade-lab trial); this one does.
     m.remember_discovery(
         "/tmp/workspace",
-        "Always run linter before commit",
+        "app_server.py: always run linter before commit",
         category="rule",
         relevance=9,
     )

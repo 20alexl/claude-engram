@@ -81,7 +81,7 @@ Requirements the launcher enforces, not you: `claude` on PATH; a project directo
 Checkpoint and handoff are ONE construct (a durable ring). `checkpoint_*` are primary; `handoff_*` are deprecated aliases.
 
 **Checkpoint vs mining:** a checkpoint is the durable note *you* write for the next session; session mining is what engram derives from the transcript. For "what's next" on resume, prefer `session_mine(commitments)` (reads the live session) over re-reading a stale checkpoint's pending_steps. Keep `task_description` to a title and put the state in the structured fields (`current_step`, `completed_steps`, `pending_steps`, `files_involved`, `handoff_warnings`, `handoff_context_needed`): a thousand-word task_description restores as one paragraph, the fields restore as lists.
-- `context(checkpoint_save, ...)` — save task/session state for compaction/recovery (add handoff_summary/handoff_context_needed/handoff_warnings to bridge to the next session; emits HANDOFF.md)
+- `context(checkpoint_save, task_description="<one line: what closed, what is next>")` — the one-string form; it is enough and it is what to call at a close. Add `current_step`, `completed_steps`, `pending_steps`, `files_involved` when the state is a list, and `handoff_summary`/`handoff_context_needed`/`handoff_warnings` to bridge to the next session (emits HANDOFF.md)
 - `context(checkpoint_restore, project_path="...", index=0)` — restore a checkpoint (0 = latest, N = older from history)
 - `context(checkpoint_list, project_path="...")` — list the unified history newest-first (index, age, kind, summary)
 - `context(handoff_create | handoff_get | handoff_list, ...)` — deprecated aliases of the checkpoint_* ops above

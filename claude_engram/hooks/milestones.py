@@ -272,9 +272,10 @@ def milestone_text(quote: str, kind: str = "claim") -> str:
         else f'Last turn you closed a step: "{quote}".'
     )
     return (
-        f"<engram-context>{lead} No deliberate checkpoint followed. Bank it now "
-        "with context(checkpoint_save): what closed, what is next, and any "
-        "warnings for the next session. Engram never writes this for you."
+        f"<engram-context>{lead} No deliberate checkpoint followed. Bank it: "
+        'context(checkpoint_save, task_description="<one line: what closed, what is next>") '
+        "is enough; the structured fields (pending_steps, files_involved, "
+        "handoff_warnings) are optional. Engram never writes this for you."
         "</engram-context>"
     )
 

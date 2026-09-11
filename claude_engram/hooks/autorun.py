@@ -105,6 +105,44 @@ def _tail_lines(path: str, tail_bytes: int = TAIL_BYTES) -> list[bytes]:
     return data.splitlines()
 
 
+_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+
+
+def recent_edit_files(transcript_path: str, tail_bytes: int = TAIL_BYTES, limit: int = 40) -> list:
+    """The files this session's transcript shows it edited, oldest first,
+    each once (its last position kept). The transcript is the record Claude
+    Code itself writes and the one engram already parses; the hook state's
+    per-turn list is cleared at every Stop. The user's question (2026-09-11):
+    "isn't there a better way to identify projects from the .claude logs we
+    actually parse?" -- this is it."""
+    if not transcript_path:
+        return []
+    seen: dict = {}
+    for raw in _tail_lines(transcript_path, tail_bytes):
+        if b'"tool_use"' not in raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        msg = d.get("message") if isinstance(d, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            if str(block.get("name") or "") not in _EDIT_TOOLS:
+                continue
+            _ti = block.get("input")
+            ti: dict = _ti if isinstance(_ti, dict) else {}
+            fp = str(ti.get("file_path") or ti.get("notebook_path") or "").strip()
+            if fp:
+                seen.pop(fp, None)
+                seen[fp] = True
+    return list(seen)[-limit:]
+
+
 def scan_goal(transcript_path: str, tail_bytes: int = TAIL_BYTES) -> dict:
     """The goal as the transcript tells it. ``active`` is the sentinel with no
     end after it; ``ended`` is met / failed / cleared for the LAST goal seen."""
