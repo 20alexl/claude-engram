@@ -49,34 +49,136 @@ from .hot_reader import _GENERIC_BASENAMES  # noqa: E402,F401
 _project_dir_cache: dict[str, str] = {}
 
 
-def target_project_for_files(project_path: str, related_files: list, content: str = "") -> str:
+# Directory names that make everything beneath them somebody else's workspace,
+# not a project of its own: a scratch area, a vendored tree, a cache. A git
+# WORKTREE under one of these carries a `.git` file, which is a project marker,
+# so marker-walking alone happily resolved E:/ws/trade-lab/.scratch/stack/<wt>
+# to the worktree and filed trade-lab's errors under a directory nobody asks
+# about (they then surfaced as claude-engram's own, 2026-09-10).
+_NON_PROJECT_SEGMENTS = {".scratch", "node_modules", ".venv", "venv", "__pycache__"}
+
+
+def _is_absolute_path(raw: str) -> bool:
+    """True when ``raw`` names a location on its own, cwd-independently.
+
+    A RELATIVE related_file is no evidence of anything: ``Path.resolve()`` pins
+    it to whatever directory the process happens to run in, so a mined
+    ``'v2/tests/test_orders.py'`` voted for the checkout the MINER was started
+    from. That is how trading_bot's, kaggriculture's and trade-lab's errors
+    became claude-engram's own -- the 0.8.36 migration ran from the engram
+    checkout (2026-09-10). Windows drive and UNC paths are recognized on Linux
+    too: a store written on Windows is read on both.
+    """
+    raw = raw.strip()
+    if not raw:
+        return False
+    if raw.startswith("\\\\") or raw.startswith("//"):
+        return True  # UNC share
+    if re.match(r"^[A-Za-z]:[\\/]", raw):
+        return True  # drive-absolute, whatever platform reads it
+    try:
+        return Path(raw).is_absolute()
+    except Exception:
+        return False
+
+
+def _inside_non_project_dir(path: str, root: str) -> bool:
+    """True when ``path`` lies under a scratch/vendor/cache dir below ``root``."""
+    base = root.lower().rstrip("/")
+    rel = path.lower().rstrip("/")
+    if rel.startswith(base + "/"):
+        rel = rel[len(base) + 1 :]
+    return any(seg in _NON_PROJECT_SEGMENTS for seg in rel.split("/"))
+
+
+def _nearest_real_project(sub: str, root: str) -> str:
+    """``sub``, or its nearest ancestor that is not inside a scratch/vendor dir."""
+    cur = sub
+    base = root.lower().rstrip("/")
+    while cur.lower().rstrip("/") != base and _inside_non_project_dir(cur, root):
+        parent = str(Path(cur).parent).replace("\\", "/")
+        if parent == cur:
+            break
+        cur = _normalize_path(parent)
+    return cur
+
+
+def target_project_for_files(
+    project_path: str,
+    related_files: list,
+    content: str = "",
+    known_projects: "list[str] | None" = None,
+) -> str:
     """The sub-project a mined entry belongs to, from the files it names.
 
     Sessions run from a workspace root mine everything into the ROOT store,
     so a sub-project's own store stayed empty while the root pooled every
     sibling's mistakes (2026-09-10: claude-engram's store held 0 of the 148
-    mistakes about it). Each named file resolves to the closest marked
-    project under ``project_path``; the majority wins; files outside the
-    root (temp dirs, other drives) do not vote. When the entry's text names
-    one of the candidate projects (``trade_lab`` in a traceback), that
+    mistakes about it). The majority of the named files wins; files outside
+    the root (temp dirs, other drives) do not vote. When the entry's text
+    names one of the candidate projects (``trade_lab`` in a traceback), that
     project wins over the file vote -- a session that edits two projects
-    lists both projects' files. Falls back to ``project_path`` itself."""
+    lists both projects' files. A RELATIVE path never votes: it would resolve
+    against the calling process's cwd, not the work's. Falls back to
+    ``project_path`` itself.
+
+    ``known_projects``: the projects the store actually knows (the manifest's
+    keys). Given them, a file votes for the DEEPEST known project that
+    contains it and no marker walking happens at all -- which is what keeps a
+    git worktree or a vendored checkout (both carry project markers) from
+    becoming a destination. Without them the walk still runs, but its answer
+    is pulled back to the nearest ancestor that is not inside a scratch,
+    vendor or cache directory. Either way an entry never lands in a path
+    under another project's .scratch/, node_modules/, .venv/, venv/ or
+    __pycache__/."""
     root = _normalize_path(project_path) if project_path else ""
     if not root or not related_files:
         return project_path
-    votes: dict[str, int] = {}
     root_l = root.lower().rstrip("/") + "/"
+
+    # Registered destinations under the root, deepest first, junk paths dropped.
+    known: list[str] = []
+    if known_projects:
+        for k in known_projects or []:
+            try:
+                n = _normalize_path(str(k))
+            except Exception:
+                continue
+            if n.lower().rstrip("/") == root.lower().rstrip("/"):
+                continue  # the root is the fallback, never a vote
+            if not n.lower().startswith(root_l):
+                continue  # a sibling of the root: out of scope
+            if _inside_non_project_dir(n, root):
+                continue  # a worktree/vendor dir registered by accident
+            known.append(n)
+        known.sort(key=lambda p: p.count("/"), reverse=True)
+
+    def _owner(p: str) -> str:
+        """The known project containing ``p`` (deepest wins), or ""."""
+        pl = p.lower()
+        for k in known:
+            kl = k.lower().rstrip("/")
+            if pl == kl or pl.startswith(kl + "/"):
+                return k
+        return ""
+
+    votes: dict[str, int] = {}
     for f in related_files or []:
+        if not _is_absolute_path(str(f)):
+            continue  # relative: would resolve against this process's cwd
         try:
             p = _normalize_path(str(f))
         except Exception:
             continue
         if not p.lower().startswith(root_l):
             continue  # outside the mining root: no vote
-        try:
-            sub = resolve_project_for_file(p, root)
-        except Exception:
-            continue
+        if known_projects is not None:
+            sub = _owner(p)  # under no known project: no vote
+        else:
+            try:
+                sub = _nearest_real_project(resolve_project_for_file(p, root), root)
+            except Exception:
+                continue
         if not sub or sub.lower().rstrip("/") == root.lower().rstrip("/"):
             continue
         votes[sub] = votes.get(sub, 0) + 1
@@ -84,18 +186,26 @@ def target_project_for_files(project_path: str, related_files: list, content: st
         return project_path
     text = (content or "").lower()
     if text:
-        # Voted projects first, then every marked child of the root: a
+        # Voted projects first, then the other candidates under the root: a
         # traceback that says `trade_lab` belongs there even when the
-        # session's edits named another project's files.
+        # session's edits named another project's files. The candidate pool is
+        # the known projects when the caller supplied them, otherwise every
+        # marked child of the root.
         candidates = list(votes)
-        try:
-            for child in sorted(Path(root).iterdir()):
-                if child.is_dir() and any((child / m).exists() for m in _PROJECT_MARKERS):
-                    n = _normalize_path(str(child))
-                    if n not in candidates:
-                        candidates.append(n)
-        except Exception:
-            pass
+        extra: list[str] = list(known)
+        if known_projects is None:
+            extra = []
+            try:
+                for child in sorted(Path(root).iterdir()):
+                    if child.is_dir() and any(
+                        (child / m).exists() for m in _PROJECT_MARKERS
+                    ):
+                        extra.append(_normalize_path(str(child)))
+            except Exception:
+                pass
+        for n in extra:
+            if n not in candidates:
+                candidates.append(n)
         for sub in candidates:
             name = Path(sub).name.lower()
             if len(name) < 6:

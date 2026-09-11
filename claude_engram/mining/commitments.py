@@ -4,8 +4,9 @@ Live-session commitment extraction.
 Answers "what did I say I'd do this session, and is it done?" — the one
 question session_mine's post-session index structurally cannot answer, because
 indexing runs at SessionEnd while the question is almost always about the OPEN
-session. This scans the live transcript directly (the newest ``*.jsonl`` for
-the project).
+session. This scans the asking session's transcript directly — the one the
+hooks recorded, else the file named by the session id, else the project's
+newest ``*.jsonl`` (see ``session_transcript``).
 
 Two channels, because a long session is full of "let me ..." narration that is
 resolved seconds later and is NOT a real commitment:
@@ -19,6 +20,7 @@ content word.
 """
 
 import re
+from pathlib import Path
 
 from .jsonl_reader import get_live_transcript, iter_messages
 
@@ -87,14 +89,46 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in re.split(r"(?<=[.!?])\s+|\n+", text) if p.strip()]
 
 
-def extract_commitments(project_path: str) -> dict:
+def session_transcript(project_path: str):
+    """The transcript of the session asking, not just the project's newest.
+
+    A session started from a workspace root writes its JSONL under the ROOT's
+    projects dir, so a sub-project-scoped lookup found nothing and the op
+    answered "no live transcript found for this project" mid-session
+    (2026-09-10). Same lookup the run report uses: the hook-recorded path from
+    the session state wins, then the file named by the session id anywhere
+    under Claude's projects dir, then the project's newest transcript.
+    """
+    session_id, hint = "", ""
+    try:
+        from claude_engram.hooks import remind
+
+        session_id = remind._session_id or remind.adopt_env_session_id()
+        hint = str((remind.load_state().get("run") or {}).get("transcript_path") or "")
+    except Exception:
+        pass
+    try:
+        from claude_engram.run_report import find_transcript
+
+        found = find_transcript(session_id, project_path, hint)
+        if found is not None:
+            return found
+    except Exception:
+        pass
+    return get_live_transcript(project_path)
+
+
+def extract_commitments(project_path: str, transcript=None) -> dict:
     """Scan the live transcript for open commitments (deferred + in-flight).
 
     Returns ``{"session", "scanned_messages", "deferred_open", "inflight_open"}``
     or ``{"error": ...}``.
     """
-    live = get_live_transcript(project_path)
+    live = transcript if transcript is not None else session_transcript(project_path)
     if live is None:
+        return {"error": "no live transcript found for this project"}
+    live = Path(live)
+    if not live.is_file():
         return {"error": "no live transcript found for this project"}
 
     per_msg: list[list[str]] = []  # sentences grouped by assistant message

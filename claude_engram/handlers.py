@@ -135,12 +135,21 @@ class Handlers:
 
         # Self-identifying: a bug report is far more useful with a version on it,
         # and this is the one call people are told to run when something looks off.
-        from . import __version__
+        from . import __version__, _installed_version
+
+        # A stale editable install is worth naming here: the code is what runs,
+        # but a mismatch explains why `pip show` disagrees with this line.
+        _installed = _installed_version()
+        _install_note = (
+            ""
+            if _installed in ("", __version__)
+            else f" (pip metadata says {_installed} - stale editable install)"
+        )
 
         response = EngramResponse(
             status="success",
             confidence="high",
-            reasoning=f"Claude Engram v{__version__} is ready.",
+            reasoning=f"Claude Engram v{__version__} is ready.{_install_note}",
             work_log=WorkLog(
                 what_worked=[
                     embed_line,
@@ -1479,20 +1488,36 @@ class Handlers:
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "list_rules":
-            rules = self.memory.get_rules(project_path)
-            if not rules:
+            # Inherited rules count: a workspace-level rule binds every project
+            # under it, and the hooks inject them. Listing only the project's
+            # own store answered "No rules defined" next to a banner showing 35.
+            from pathlib import Path
+
+            pairs = self.memory.get_rules_with_inheritance(project_path)
+            if not pairs:
                 return [
                     TextContent(type="text", text="No rules defined for this project")
                 ]
-            lines = [f"Rules for {project_path}:", ""]
-            for r in rules:
+            own = sum(1 for _, src in pairs if not src)
+            inherited = len(pairs) - own
+            head = f"Rules for {project_path}: {own} own"
+            if inherited:
+                head += f", {inherited} inherited"
+            lines = [head, ""]
+            for r, src in pairs:
                 _mark = " [detector]" if getattr(r, "detector", None) else ""
+                if src:
+                    _mark += f" [inherited from {Path(src).name}]"
                 lines.append(f"  [{r.id}]{_mark} {r.content}")
             response = EngramResponse(
                 status="success",
                 confidence="high",
                 reasoning="\n".join(lines),
-                data={"rules": [r.model_dump() for r in rules]},
+                data={
+                    "rules": [
+                        {**r.model_dump(), "inherited_from": src} for r, src in pairs
+                    ]
+                },
             )
             return [TextContent(type="text", text=response.to_formatted_string())]
         elif operation == "modify":
@@ -1745,7 +1770,31 @@ class Handlers:
                 limit=args.get("limit", 5),
             )
             if not results:
-                return [TextContent(type="text", text="No results")]
+                # "No results" is the honest answer for a query nothing
+                # matches; before 0.8.37 the zero-score tail was printed
+                # instead and read as three unrelated matches. Say WHY when
+                # the store simply has no vectors yet -- that is a fixable
+                # state, not an empty store.
+                pending = 0
+                try:
+                    pending = self.memory.pending_embedding_count(project_path)
+                except Exception:
+                    pass
+                hint = (
+                    ""
+                    if not pending
+                    else (
+                        f"\n{pending} memories have no vector yet, so only the "
+                        "keyword half ran. Run memory(embed_all) to enable "
+                        "semantic matching."
+                    )
+                )
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"No match for: {args.get('query', '')}{hint}",
+                    )
+                ]
             # Render each entry once, here, with its hybrid score. Do NOT also
             # pass them as data["memories"]: to_formatted_string would re-render
             # the same entries from data, printing every result twice (once with

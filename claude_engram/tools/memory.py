@@ -1937,6 +1937,52 @@ class MemoryStore:
         rules = [e for e in proj.entries if e.category == "rule"]
         return sorted(rules, key=lambda x: x.relevance, reverse=True)
 
+    def get_rules_with_inheritance(
+        self, project_path: str
+    ) -> list[tuple[MemoryEntry, str]]:
+        """A project's rules AND the ones it inherits from ancestor projects.
+
+        Rules live where they were written. A workspace-level rule ("never
+        Path.write_text in this repo") applies to every project under it, and
+        the hooks have always injected them that way (hooks.storage
+        .load_project_memory walks ancestors). The MCP list_rules op read only
+        the project's own store, so it answered "No rules defined for this
+        project" while the very same session's banner listed 35 (2026-09-10).
+
+        Returns ``(rule, source)`` pairs: the project's own first (source
+        ``""``), then ancestors nearest first, with ``source`` the ancestor's
+        path. Duplicates by id or by identical text are kept once, at the
+        nearest owner.
+        """
+        pairs: list[tuple[MemoryEntry, str]] = [
+            (r, "") for r in self.get_rules(project_path)
+        ]
+        seen_ids = {r.id for r, _ in pairs}
+        seen_text = {r.content.strip().lower() for r, _ in pairs}
+
+        norm = self._normalize_path(project_path)
+        registered = {
+            k.lower(): k for k in (self._manifest.get("projects", {}) or {})
+        }
+        current = Path(norm)
+        while True:
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+            key = self._normalize_path(str(current))
+            owner = registered.get(key.lower())
+            if owner is None:
+                continue
+            for rule in self.get_rules(owner):
+                text = rule.content.strip().lower()
+                if rule.id in seen_ids or text in seen_text:
+                    continue
+                seen_ids.add(rule.id)
+                seen_text.add(text)
+                pairs.append((rule, owner))
+        return pairs
+
     def get_recent_memories(
         self,
         project_path: str,
@@ -2924,10 +2970,19 @@ class MemoryStore:
 
         # Rerank top candidates by embedding similarity to query
         if candidates and query:
-            return self._rerank(query, candidates, limit, project_path=project_path)
+            reranked = self._rerank(query, candidates, limit, project_path=project_path)
+            # Drop the zero-score tail. Strategy 2 (score_and_rank) contributes
+            # candidates for ANY query -- it ranks by file/tag/recency, never by
+            # the query -- and _rerank scores an entry that has no vector 0.0.
+            # Together they answered a no-match query with three unrelated
+            # mistakes at 0.000 (2026-09-10), which reads as a match and is not
+            # one. A zero is "no evidence", so it is not a result.
+            return [(e, s) for e, s in reranked if s > 0]
 
         return [
-            (entry_map[eid], score) for eid, score in ranked[:limit] if eid in entry_map
+            (entry_map[eid], score)
+            for eid, score in ranked[:limit]
+            if eid in entry_map and score > 0
         ]
 
     def pending_embedding_count(self, project_path: str) -> int:

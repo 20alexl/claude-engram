@@ -255,6 +255,16 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Fix:** `MSYS_NO_PATHCONV=1 claude -p "/goal …"`. The report's `goal_outcome` will read `met`, `failed` or `unresolved` once the goal is real.
 
+### Gotcha: `session_mine` for a sub-project shows the whole workspace
+
+**Symptom:** `session_mine(overview, project_path="E:/workspace/claude-engram")` reports 248 sessions and lists files like `page.tsx` and `make_slice.py` that belong to other projects in the workspace.
+
+**Cause:** Claude Code stores a transcript under the directory the session was STARTED from, not the directory the edits landed in — one folder per cwd under `~/.claude/projects/`. Sessions run from a workspace root therefore all index under the root, and every session-mining view for a sub-project under it (overview, timeline, patterns, search, reflect) is really the workspace's view. Nothing in engram can re-cut that: the transcripts carry no per-project split.
+
+**Fix:** Read the mining views as workspace-wide when you work from a root, and start a session inside the sub-project when you want its history alone. What IS attributed per project is `memory`: since v0.8.36 (rule corrected in v0.8.37) every mined mistake and decision is filed under the sub-project the files it names belong to, so `memory(list_mistakes)`, `memory(recall)` and the session banner are project-scoped even when the mining views are not.
+
+**Lesson:** Mining is indexed by where the session started; memory is attributed by which files the entry names. Two different keys, and only the second one follows the work.
+
 ## Common Mistakes
 
 | Mistake | What They Do | What They Should Do |

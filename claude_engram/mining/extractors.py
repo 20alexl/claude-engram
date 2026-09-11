@@ -26,6 +26,11 @@ from claude_engram.mining.jsonl_reader import (
 )
 
 
+# Projects that received mined entries during the current pipeline run — read
+# by background.run_mining to embed exactly those (see projects_fed_last_run).
+_fed_projects: set[str] = set()
+
+
 # ─── Data structures ─────────────────────────────────────────────────────
 
 
@@ -755,6 +760,8 @@ def run_extraction_pipeline(
         iter_messages,
     )
 
+    _fed_projects.clear()
+
     jsonl_dir = resolve_jsonl_dir(project_path)
     if not jsonl_dir:
         return 0
@@ -884,6 +891,18 @@ def run_extraction_pipeline(
     return total_extractions
 
 
+def projects_fed_last_run() -> list[str]:
+    """Projects that received mined entries since the last pipeline start.
+
+    Mined entries go in with ``auto_embed=False`` (bulk insert), so somebody has
+    to embed them afterwards or the vector half of hybrid_search stays empty
+    forever. The miner is the only process allowed to do that work, and it only
+    knows WHICH projects to embed because attribution routes entries to
+    sub-projects. background.run_mining reads this right after extraction.
+    """
+    return sorted(_fed_projects)
+
+
 def _feed_to_memory_store(
     project_path: str,
     extractions: SessionExtractions,
@@ -897,7 +916,21 @@ def _feed_to_memory_store(
         # Each entry is filed under the sub-project its files name, not the
         # session's cwd: a workspace-root session pooled every sibling's
         # mistakes in the root store (hooks/paths.target_project_for_files).
-        from claude_engram.hooks.paths import target_project_for_files as _target
+        from claude_engram.hooks.paths import target_project_for_files
+
+        # Only a REGISTERED project can receive an entry. Marker-walking alone
+        # sent files under a git worktree (E:/ws/trade-lab/.scratch/stack/... —
+        # a `.git` FILE is a marker) to the worktree directory, which is not a
+        # project anybody asks about, so the entries surfaced under whichever
+        # store the walk happened to land in.
+        known = list((store._manifest.get("projects", {}) or {}).keys())
+
+        def _target(files: list, content: str) -> str:
+            dst = target_project_for_files(
+                project_path, files, content, known_projects=known
+            )
+            _fed_projects.add(dst)
+            return dst
 
         # High-confidence decisions
         for d in extractions.decisions:
@@ -906,7 +939,7 @@ def _feed_to_memory_store(
                 if d.reasoning:
                     content += f" (reason: {d.reasoning})"
                 store.remember_discovery(
-                    _target(project_path, d.related_files, content),
+                    _target(d.related_files, content),
                     content,
                     category="decision",
                     source="session_mining",
@@ -922,7 +955,7 @@ def _feed_to_memory_store(
                 if m.fix:
                     content += f" — Fix: {m.fix}"
                 store.remember_discovery(
-                    _target(project_path, m.related_files, content),
+                    _target(m.related_files, content),
                     content,
                     category="mistake",
                     source="session_mining",
@@ -952,6 +985,7 @@ def _feed_to_memory_store(
                 ]
             )
             if has_directive and len(c.preference) > 15:
+                _fed_projects.add(project_path)
                 store.remember_discovery(
                     project_path,
                     f"USER PREFERENCE: {c.preference[:200]}",

@@ -235,6 +235,12 @@ Every substantial session leaves one auditable artifact in the repo: `<project>/
 
 Headless goal runs leave the same report: `claude -p "/goal <condition>"` runs the loop to completion and SessionEnd writes it. From Git Bash on Windows, set `MSYS_NO_PATHCONV=1` or the leading `/goal` is rewritten into a filesystem path and Claude gets a plain prompt. `/goal` and `/loop` compose only when the goal is parked. Scheduled tasks fire while the session is idle, and a not-met goal re-prompts at once, so a goal with nothing to do burns turns and starves the loop (seen live: nine verdicts in two minutes, a cron fire lost). A goal idles while it waits on background work, a Monitor or a self-paced wakeup, and the loop fires then. Tell the model to park on such a primitive instead of polling.
 
+## Session mining scope
+
+Claude Code files a transcript under the directory the session was **started from**, one folder per cwd. So a session run from a workspace root indexes under the root, and `session_mine` views for a sub-project under it (`overview`, `timeline`, `patterns`, `search`, `reflect`) are really the workspace's views — the counts and the touched files include every sibling project worked on from that root. Start the session inside a project when you want its history alone.
+
+Memory does not work that way. Since v0.8.36 (routing corrected in v0.8.37) each mined mistake and decision is attributed by the **files it names**: it is stored under the sub-project those files belong to — a registered project only, never a git worktree or a vendored checkout that merely carries a marker file. `memory(list_mistakes)`, `memory(recall)` and the session banner are therefore per project even when the mining views are workspace-wide.
+
 ## Reindexing
 
 If search quality degrades or after a big update:

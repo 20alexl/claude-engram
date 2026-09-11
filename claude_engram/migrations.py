@@ -320,12 +320,18 @@ def _modernize_mistake_store(storage: Path, manifest: dict) -> None:
 
 def _reattribute_pooled(storage: Path, manifest: dict) -> None:
     """Move mined mistakes and decisions to the sub-project their files name
-    (v0.8.36). Sessions run from a workspace root mined everything into the
-    root store; a sub-project's own store stayed empty while the root
-    pooled every sibling's tracebacks. Heavy: uses the pydantic store
-    (delete + re-add, keeping id, timestamps and flags), so it runs in the
-    background, never inline in a hook. Idempotent: an entry whose files
-    resolve to its own project does not move."""
+    (v0.8.36, rule corrected in v0.8.37). Sessions run from a workspace root
+    mined everything into the root store; a sub-project's own store stayed
+    empty while the root pooled every sibling's tracebacks. Heavy: uses the
+    pydantic store (delete + re-add, keeping id, timestamps and flags), so it
+    runs in the background, never inline in a hook. Idempotent: an entry whose
+    files resolve to its own project does not move.
+
+    Destinations are restricted to the manifest's own projects (v0.8.37).
+    Marker-walking alone routed files under a git worktree
+    (``<proj>/.scratch/stack/<wt>``, whose ``.git`` FILE is a marker) to the
+    worktree, so trade-lab's and kaggriculture's errors ended up listed as
+    claude-engram's own."""
     from claude_engram.hooks.paths import target_project_for_files
     from claude_engram.tools.memory import MemoryStore
 
@@ -359,7 +365,12 @@ def _reattribute_pooled(storage: Path, manifest: dict) -> None:
                 continue
             if entry.source not in (None, "", "session_mining", "auto-detected"):
                 continue  # a person's own entry stays where they put it
-            dst = target_project_for_files(root, list(entry.related_files), entry.content)
+            dst = target_project_for_files(
+                root,
+                list(entry.related_files),
+                entry.content,
+                known_projects=projects,
+            )
             if not dst or store._normalize_path(dst) == store._normalize_path(src):
                 continue
             if store._normalize_path(dst) == store._normalize_path(root) and store._normalize_path(src) != store._normalize_path(root):
@@ -411,7 +422,9 @@ STEPS = [
         _redate_downrank_stale_consolidations,
     ),
     ("0.8.4:modernize_mistake_store", False, _modernize_mistake_store),
-    ("0.8.36:reattribute_pooled", True, _reattribute_pooled),
+    # Re-run under 0.8.37: the routing rule changed (registered projects only,
+    # never a worktree or vendor dir), so the 0.8.36 pass has to be redone.
+    ("0.8.37:reattribute_pooled", True, _reattribute_pooled),
 ]
 
 

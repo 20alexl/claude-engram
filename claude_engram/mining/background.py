@@ -319,6 +319,29 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             except Exception as e:
                 phase_errors["extracting"] = str(e)[:200]
 
+            # Mined entries are inserted with auto_embed=False (bulk path), so
+            # nothing gave them vectors until the next post_session sweep of
+            # the session's OWN project -- and attribution files them under
+            # sub-projects, which that sweep never touched. The vector half of
+            # hybrid_search stayed empty there, leaving only the keyword half's
+            # zero-score tail (2026-09-10). Embed exactly the projects that
+            # just received entries. This is the background miner: a hook
+            # process never reaches run_mining (it spawns this module), so the
+            # cost never lands in the edit path.
+            try:
+                from claude_engram.mining.extractors import projects_fed_last_run
+                from claude_engram.tools.memory import MemoryStore
+
+                fed = projects_fed_last_run()
+                if fed:
+                    _mstore = MemoryStore(storage_dir=engram_storage_dir)
+                    for _fed_project in fed:
+                        _mstore.embed_all_memories(_fed_project)
+            except ImportError:
+                pass
+            except Exception as e:
+                phase_errors["mined_embedding"] = str(e)[:200]
+
         # Phase 3: Generate embeddings (incremental -- watermarks mean only
         # the new transcript tail embeds, so it is cheap to refresh every
         # session end and every live tick)

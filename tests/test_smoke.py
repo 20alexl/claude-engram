@@ -164,6 +164,35 @@ def test_mined_entries_file_under_the_project_their_files_name(tmp_path: Path):
     got = target_project_for_files(str(ws), [str(a / "src" / "x.py")], "the toolset broke; tools were fine")
     assert _normalize_path(got) == _normalize_path(str(a))
 
+    # A git WORKTREE carries a `.git` FILE, which is a project marker, so
+    # marker-walking filed everything under E:/ws/trade-lab/.scratch/stack/<wt>
+    # as its own project — and those entries then surfaced under whatever store
+    # the walk landed in (2026-09-10: trade-lab errors listed as engram's).
+    wt = a / ".scratch" / "wt"
+    wt.mkdir(parents=True, exist_ok=True)
+    (wt / ".git").write_text("gitdir: ../../../.git/worktrees/wt\n", encoding="utf-8")
+    known = [str(ws), str(a), str(b)]
+    report = str(wt / "m-cut-report.md")
+    assert _normalize_path(target_project_for_files(str(ws), [report], known_projects=known)) == _normalize_path(str(a))
+    # ...and even without the known list, the walk is pulled back out of .scratch
+    assert _normalize_path(target_project_for_files(str(ws), [report])) == _normalize_path(str(a))
+    # a registered project that IS a worktree is never a destination
+    assert _normalize_path(
+        target_project_for_files(str(ws), [report], known_projects=known + [str(wt)])
+    ) == _normalize_path(str(a))
+    # a file under no known project does not vote at all
+    (ws / "loose").mkdir(exist_ok=True)
+    assert target_project_for_files(str(ws), [str(ws / "loose" / "x.py")], known_projects=known) == str(ws)
+    # A RELATIVE path is no evidence: it resolves against the CALLING process's
+    # cwd, so mined 'v2/tests/test_orders.py' and 'SUBMISSION.ts' voted for the
+    # checkout the miner ran in and became that project's own mistakes.
+    for rel in ("v2/tests/test_orders.py", "SUBMISSION.ts", r"src\README.md"):
+        assert target_project_for_files(str(ws), [rel], known_projects=known) == str(ws)
+        assert target_project_for_files(str(ws), [rel]) == str(ws)
+    # one absolute file among relative ones still decides
+    mixed = ["record/journal/score/x.jsonl", str(b / "src" / "y.py")]
+    assert _normalize_path(target_project_for_files(str(ws), mixed, known_projects=known)) == _normalize_path(str(b))
+
 
 def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
@@ -172,6 +201,10 @@ def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monke
 
     ws, a, b = _workspace(tmp_path)
     store = MemoryStore(storage_dir=str(tmp_path / "store"))
+    # Only a REGISTERED project can receive an entry (0.8.37) — a worktree or a
+    # vendored checkout carries project markers but is nobody's store.
+    store.remember_project(str(a))
+    store.remember_project(str(b))
     store.remember_discovery(str(ws), "MISTAKE: KeyError in a", category="mistake", source="session_mining",
                              relevance=8, related_files=[str(a / "src" / "x.py")], auto_embed=False)
     store.remember_discovery(str(ws), "DECISION: b uses sqlite", category="decision", source="session_mining",
@@ -180,8 +213,12 @@ def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monke
                              relevance=8, auto_embed=False)
     store.remember_discovery(str(ws), "MISTAKE: a person's own note", category="mistake", source="work_tracker",
                              relevance=8, related_files=[str(a / "src" / "x.py")], auto_embed=False)
+    (ws / "proj-c" / ".git").mkdir(parents=True, exist_ok=True)
+    store.remember_discovery(str(ws), "MISTAKE: TypeError somewhere unregistered", category="mistake",
+                             source="session_mining", relevance=8,
+                             related_files=[str(ws / "proj-c" / "src" / "q.py")], auto_embed=False)
     root = store.get_project(str(ws))
-    assert root is not None and len(root.entries) == 4
+    assert root is not None and len(root.entries) == 5
     ids = {e.content: (e.id, e.created_at) for e in root.entries}
 
     manifest = json.loads((tmp_path / "store" / "manifest.json").read_text(encoding="utf-8"))
@@ -191,7 +228,11 @@ def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monke
     root = fresh.get_project(str(ws))
     pa, pb = fresh.get_project(str(a)), fresh.get_project(str(b))
     assert root is not None and pa is not None and pb is not None
-    assert sorted(e.content for e in root.entries) == ["MISTAKE: a person's own note", "MISTAKE: no file named"]
+    assert sorted(e.content for e in root.entries) == [
+        "MISTAKE: TypeError somewhere unregistered",  # its project is not in the manifest
+        "MISTAKE: a person's own note",
+        "MISTAKE: no file named",
+    ]
     assert [e.content for e in pa.entries] == ["MISTAKE: KeyError in a"]
     assert [e.content for e in pb.entries] == ["DECISION: b uses sqlite"]
     moved = pa.entries[0]
@@ -200,6 +241,112 @@ def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monke
     migrations._reattribute_pooled(tmp_path / "store", manifest)
     again = MemoryStore(storage_dir=str(tmp_path / "store")).get_project(str(a))
     assert again is not None and len(again.entries) == 1
+
+
+def _pyproject_version() -> str:
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # py3.10
+        pytest.skip("tomllib needs python 3.11+")
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    if not pyproject.is_file():
+        pytest.skip("installed package, no pyproject alongside")
+    return tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+
+def test_status_version_matches_pyproject(tmp_path: Path, monkeypatch):
+    # claude_engram_status reported v0.8.20 from a 0.8.36 checkout for sixteen
+    # releases: it read the dist metadata, which an editable install freezes at
+    # install time. The literal ships with the code; this is the guard that
+    # keeps it equal to pyproject.
+    import asyncio
+
+    import claude_engram
+
+    want = _pyproject_version()
+    assert claude_engram.__version__ == want
+
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.handlers import Handlers
+
+    h = Handlers()
+    try:
+        monkeypatch.setattr(h.llm, "health_check", lambda: {"healthy": True})
+        text = asyncio.run(h.status())[0].text
+    finally:
+        h.close()
+    assert f"v{want} is ready" in text
+
+
+def test_hybrid_search_drops_the_zero_score_tail(tmp_path: Path, monkeypatch):
+    # A no-match query answered with three unrelated mistakes at 0.000: the
+    # score-based half contributes candidates for ANY query, and _rerank scores
+    # an entry that has no vector 0.0. A zero is not a result.
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.tools.memory import MemoryStore
+
+    store = MemoryStore(storage_dir=str(tmp_path / "store"))
+    proj = str(tmp_path / "proj")
+    for text in ("MISTAKE: rmtree ate the fixture", "DECISION: sqlite over json",
+                 "MISTAKE: CRLF on write_text"):
+        store.remember_discovery(proj, text, category="mistake", relevance=8, auto_embed=False)
+    # The scorer is up (a query vector exists) but no entry has one — the exact
+    # live state that produced the zero-score tail.
+    monkeypatch.setattr(store, "_get_embedding", lambda text: [1.0, 0.0, 0.0])
+    results = store.hybrid_search(proj, query="auto-compaction fires below the output reserve")
+    assert results == []
+    assert all(score > 0 for _, score in store.hybrid_search(proj, query=""))
+
+
+def test_list_rules_includes_inherited_workspace_rules(tmp_path: Path, monkeypatch):
+    # list_rules said "No rules defined for this project" while the same
+    # session's banner listed 35: the op read only the project's own store.
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.tools.memory import MemoryStore
+
+    store = MemoryStore(storage_dir=str(tmp_path / "store"))
+    ws, a, _ = _workspace(tmp_path)
+    store.add_rule(str(ws), "Never Path.write_text a file in this repo")
+    store.add_rule(str(a), "Edit files with the Edit tool")
+
+    pairs = store.get_rules_with_inheritance(str(a))
+    assert [(r.content, src) for r, src in pairs] == [
+        ("Edit files with the Edit tool", ""),
+        ("Never Path.write_text a file in this repo", store._normalize_path(str(ws))),
+    ]
+    # the workspace root itself inherits nothing
+    assert [src for _, src in store.get_rules_with_inheritance(str(ws))] == [""]
+
+
+def test_commitments_read_the_asking_sessions_transcript(tmp_path: Path, monkeypatch):
+    # A session started from the workspace root writes its JSONL under the
+    # ROOT's projects dir, so the sub-project lookup found nothing and the op
+    # answered "no live transcript found for this project" mid-session.
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.hooks import remind
+    from claude_engram.mining import commitments
+
+    transcript = tmp_path / "root-session.jsonl"
+    rows = [
+        {"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "text", "text": "I'll add the tests next."}]}},
+    ]
+    transcript.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(remind, "_session_id", "s-commitments")
+    state = remind.load_state()
+    state["run"] = {"transcript_path": str(transcript)}
+    remind.save_state(state)
+
+    sub = tmp_path / "ws" / "sub-project"  # no transcript dir of its own
+    sub.mkdir(parents=True, exist_ok=True)
+    assert commitments.session_transcript(str(sub)) == transcript
+    out = commitments.extract_commitments(str(sub))
+    assert "error" not in out
+    assert any("add the tests" in c for c in out["inflight_open"])
+    assert "no live transcript" in commitments.format_commitments(
+        commitments.extract_commitments(str(sub), transcript=tmp_path / "gone.jsonl")
+    )
 
 
 def test_goal_turn_cap_from_config_and_env(tmp_path: Path, monkeypatch):
