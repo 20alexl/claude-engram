@@ -292,7 +292,7 @@ def mark_session_started(
         pass
 
     # Also create the marker file (in ~/.claude_engram/ for Windows compatibility)
-    marker = Path.home() / ".claude_engram" / "session_active"
+    marker = get_engram_storage_dir() / "session_active"  # honors CLAUDE_ENGRAM_DIR like every store path
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(project_dir)
@@ -556,18 +556,19 @@ def check_session_active(project_dir: str) -> bool:
     """Check if a Claude Engram session is active."""
     state = load_state()
 
-    # Check if session was started recently (within 4 hours)
+    # Check if session was started recently (within 4 hours). The state is
+    # keyed by the Claude Code session id (0.8.6), so one session is one
+    # session whichever sub-project its last edit resolved to. The old
+    # project-equality gate here re-ran the full auto-start banner -- the
+    # restored checkpoint, the rules, the mistakes, ~430 tokens -- every
+    # time the resolved project flipped between the workspace root and a
+    # sub-project: 7 of 21 prompts in one measured stretch (2026-09-10).
     last_start = state.get("last_session_start")
     if last_start and (time.time() - last_start) < 14400:  # 4 hours
-        active_project = state.get("active_project", "")
-        if (
-            active_project == project_dir
-            or Path(active_project).name == Path(project_dir).name
-        ):
-            return True
+        return True
 
     # Fallback to marker file (in ~/.claude_engram/ for Windows compatibility)
-    marker = Path.home() / ".claude_engram" / "session_active"
+    marker = get_engram_storage_dir() / "session_active"  # honors CLAUDE_ENGRAM_DIR like every store path
     if marker.exists():
         try:
             active_project = marker.read_text().strip()

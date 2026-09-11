@@ -111,6 +111,27 @@ def test_every_subprocess_detaches_stdin():
     assert offenders == [], offenders
 
 
+def test_session_stays_active_across_sub_projects(tmp_path: Path, monkeypatch):
+    # One Claude Code session is one session whichever sub-project the last
+    # edit resolved to; the old project-equality gate re-ran the full
+    # auto-start banner on every flip (~430 tokens, 7 of 21 prompts).
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path))
+    from claude_engram.hooks import remind
+
+    monkeypatch.setattr(remind, "_session_id", "s-active-test")
+    remind.mark_session_started(str(tmp_path / "ws" / "engram"))
+    assert remind.check_session_active(str(tmp_path / "ws" / "engram"))
+    assert remind.check_session_active(str(tmp_path / "ws"))
+    assert remind.check_session_active(str(tmp_path / "ws" / "other-project"))
+    st = remind.load_state()
+    st["last_session_start"] = 0
+    remind.save_state(st)
+    # Past the window only the marker file (legacy, under the store dir) answers,
+    # and it names the project it was written for.
+    assert (tmp_path / "session_active").is_file()
+    assert not remind.check_session_active(str(tmp_path / "ws" / "other-project"))
+
+
 def test_goal_turn_cap_from_config_and_env(tmp_path: Path, monkeypatch):
     proj = tmp_path / "p"
     (proj / ".engram").mkdir(parents=True)

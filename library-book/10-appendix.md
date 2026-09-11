@@ -247,6 +247,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.35 — 2026-09-10
+
+- **Engram's context cost, measured, and the largest recurring item removed.** On the build session since its last compaction (21 prompts, ~545K context) engram had injected 80 blocks, ~12.9K tokens, 2.4% of the context: the session banner and the prompt reminder ~430 tokens each, pressure and milestone nudges ~110, pre-edit reminders ~70, post-edit and test notes ~20. The prompt reminder had fired 7 times in 21 prompts, re-injecting the restored checkpoint, the rules and the mistakes, because `check_session_active` gated on the resolved project equalling the one the session started in, and the resolved project flips between the workspace root and a sub-project with every edit. The state has been keyed by the Claude Code session id since 0.8.6, so the gate is gone: one session is one session for four hours whichever sub-project its last edit named. The legacy `session_active` marker file moves under the store directory so it honors `CLAUDE_ENGRAM_DIR` (a test had overwritten the live marker through `Path.home()`). Expected steady-state cost: one banner per session start or compaction plus ~100 tokens per working turn.
+
 ### v0.8.34 — 2026-09-10
 
 - **The banner lists only the project's own mistakes.** Ranking by file was not enough: 94 of the 148 pooled mistakes name no file at all, so the top of the list was still another project's tracebacks. `load_project_memory` now marks entries that come from an ancestor store (`_inherited`, in memory only); `get_past_mistakes` scopes them 0 (the project's own, or pooled but naming a file here), 1 (pooled, no file), 2 (pooled, a file elsewhere); the prompt banner lists scope 0 only and says how many are pooled — they still surface before an edit when they name the file. A project whose sessions ran from the workspace root reads "none recorded for this project; N pooled".
