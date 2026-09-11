@@ -1395,9 +1395,23 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
         # Show past mistakes (newest first) - with IDs for management
         mistakes = get_past_mistakes(project_memory, project_dir)
         if mistakes:
-            lines.append(f"PAST MISTAKES ({len(mistakes)}) - avoid repeating:")
-            for m in mistakes[:5]:  # Already sorted newest first
-                lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
+            # Only this project's own mistakes (or pooled ones that name a
+            # file here) are listed; the workspace store's pool from every
+            # sibling session is counted, not shown -- it surfaces before an
+            # edit when it names the file being edited.
+            own = [m for m in mistakes if m.get("scope", 0) == 0]
+            pooled = len(mistakes) - len(own)
+            if own:
+                lines.append(f"PAST MISTAKES ({len(own)} of this project) - avoid repeating:")
+                for m in own[:5]:  # newest first within the project
+                    lines.append(f"  [{m['id']}] {_truncate(m['content'], 100)}")
+                if pooled:
+                    lines.append(f"  (+{pooled} pooled from the workspace store; shown before edits when they name the file)")
+            else:
+                lines.append(
+                    f"PAST MISTAKES: none recorded for this project; {pooled} pooled from the workspace "
+                    "store surface before edits when they name the file."
+                )
             lines.append("")
 
         # Show memory summary and management hints

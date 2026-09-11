@@ -81,15 +81,17 @@ def test_past_mistakes_rank_this_project_first():
     from claude_engram.hooks import storage
 
     mem = {"entries": [
-        {"id": "a", "category": "mistake", "content": "MISTAKE: newest, another project", "created_at": 300,
-         "related_files": ["E:/ws/trade-lab/x.py"]},
-        {"id": "b", "category": "mistake", "content": "MISTAKE: middle, no file", "created_at": 200},
-        {"id": "c", "category": "mistake", "content": "MISTAKE: oldest, this project", "created_at": 100,
-         "related_files": ["E:\\ws\\engram\\claude_engram\\y.py"]},
+        {"id": "a", "category": "mistake", "content": "MISTAKE: newest, pooled, another project", "created_at": 400,
+         "related_files": ["E:/ws/trade-lab/x.py"], "_inherited": True},
+        {"id": "b", "category": "mistake", "content": "MISTAKE: pooled, no file", "created_at": 300, "_inherited": True},
+        {"id": "c", "category": "mistake", "content": "MISTAKE: pooled but names a file here", "created_at": 200,
+         "related_files": ["E:\\ws\\engram\\claude_engram\\y.py"], "_inherited": True},
+        {"id": "d", "category": "mistake", "content": "MISTAKE: oldest, the project's own", "created_at": 100},
     ]}
-    ids = [m["id"] for m in storage.get_past_mistakes(mem, "E:/ws/engram")]
-    assert ids == ["c", "b", "a"]
-    assert [m["id"] for m in storage.get_past_mistakes(mem)] == ["a", "b", "c"]  # no project: newest first
+    ms = storage.get_past_mistakes(mem, "E:/ws/engram")
+    assert [m["id"] for m in ms] == ["c", "d", "b", "a"]
+    assert [m["scope"] for m in ms] == [0, 0, 1, 2]
+    assert [m["id"] for m in storage.get_past_mistakes(mem)] == ["a", "b", "c", "d"]  # no project: newest first
 
 
 def test_every_subprocess_detaches_stdin():

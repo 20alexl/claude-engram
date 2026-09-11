@@ -247,6 +247,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.34 — 2026-09-10
+
+- **The banner lists only the project's own mistakes.** Ranking by file was not enough: 94 of the 148 pooled mistakes name no file at all, so the top of the list was still another project's tracebacks. `load_project_memory` now marks entries that come from an ancestor store (`_inherited`, in memory only); `get_past_mistakes` scopes them 0 (the project's own, or pooled but naming a file here), 1 (pooled, no file), 2 (pooled, a file elsewhere); the prompt banner lists scope 0 only and says how many are pooled — they still surface before an edit when they name the file. A project whose sessions ran from the workspace root reads "none recorded for this project; N pooled".
+
 ### v0.8.33 — 2026-09-10
 
 - **The MCP checkpoint hang, found and fixed.** Since 0.8.26 a `context(checkpoint_save)` through the MCP server could run for minutes (Claude Code's log: "Tool 'context' still running (210s elapsed)") and the user had to reconnect the server. Driven over stdio with the MCP client library, a fresh server's save took exactly 4.0 s — the git timeout — while the same handler took 40 ms in-process; with no `project_path` (no git call) it took 0 s. Cause: the git child inherited the server's stdin, the JSON-RPC pipe from Claude Code, and stalled inside the stdio server; `stdin=subprocess.DEVNULL` on that call brought the save to 0.0 s. Every `subprocess` call in the package now detaches stdin (repo_state, the stall fingerprint, the report's git, the launcher, alerts), a smoke test guards the rule, and `CLAUDE_ENGRAM_GIT_TRACE=<file>` logs each git call's outcome and time for the next such hunt. Reconnect the server (`/mcp`) once to load it.

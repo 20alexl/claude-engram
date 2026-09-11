@@ -108,7 +108,13 @@ def load_project_memory(project_dir: str) -> dict:
             if norm_check in manifest_projects:
                 hash_id = manifest_projects[norm_check]["hash"]
                 pdir = storage / "projects" / hash_id
-                ancestor_entries.extend(_load_project_entries_from_dir(pdir))
+                for _e in _load_project_entries_from_dir(pdir):
+                    # In-memory mark only (never written back): the banner
+                    # and the pre-edit context rank a project's own entries
+                    # above what the workspace store pools from every
+                    # sibling session.
+                    _e["_inherited"] = True
+                    ancestor_entries.append(_e)
             parent = str(Path(check_path).parent)
             if parent == check_path:
                 break
@@ -188,8 +194,12 @@ def load_project_memory(project_dir: str) -> dict:
 
 
 def _mistake_scope(entry: dict, project_dir: str) -> int:
-    """0 = names a file under this project, 1 = names no file, 2 = names a
-    file elsewhere (another project's mistake pooled in an ancestor store)."""
+    """0 = the project's own entry, or an inherited one that names a file
+    under the project; 1 = inherited and names no file; 2 = inherited and
+    names a file elsewhere (another project's mistake pooled in the
+    workspace store)."""
+    if not entry.get("_inherited"):
+        return 0
     files = entry.get("related_files") or []
     if isinstance(files, str):
         files = [files]
