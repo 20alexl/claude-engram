@@ -2203,6 +2203,15 @@ class Handlers:
                 return [TextContent(type="text", text="No matching decisions found.")]
             lines = [f"Found {len(results)} decision(s):"]
             for r in results:
+                if r.msg_type == "git":
+                    # The commit line, then the diff lines around the
+                    # needle on their own line: the reason lives there.
+                    head, _, excerpt = r.chunk_text.partition(" -- diff: ")
+                    lines.append(f"\n[{r.score:.2f}] {head[:200]}")
+                    if excerpt:
+                        lines.append(f"  Diff: {excerpt[:500]}")
+                    lines.append(f"  Source: {r.session_id} | {r.timestamp[:10]}")
+                    continue
                 lines.append(f"\n[{r.score:.2f}] {r.chunk_text[:200]}")
                 lines.append(f"  Session: {r.session_id[:12]} | {r.timestamp[:19]}")
                 if r.surrounding:
@@ -2225,6 +2234,10 @@ class Handlers:
                 ]
             lines = [f"Found {len(results)} discussion(s):"]
             for r in results:
+                if r.msg_type == "git":
+                    lines.append(f"  [{r.score:.2f}] {r.chunk_text[:220]}")
+                    lines.append(f"    {r.timestamp[:10]} | {r.session_id}")
+                    continue
                 lines.append(f"  [{r.score:.2f}] {r.chunk_text[:150]}")
                 lines.append(f"    {r.timestamp[:19]} | {r.msg_type}")
             return [TextContent(type="text", text="\n".join(lines))]
