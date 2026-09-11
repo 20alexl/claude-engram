@@ -1183,8 +1183,56 @@ def _git_log(project_path: str, args: list[str], limit: int) -> list[SearchResul
         text = f"commit {sha} ({date}): {subject}"
         if body:
             text += f" -- {body[:400]}"
-        out.append(SearchResult(chunk_text=text, score=0.9, session_id="git", timestamp=date, msg_type="git"))
+        out.append(SearchResult(chunk_text=text, score=0.9, session_id=f"git:{sha}", timestamp=date, msg_type="git"))
     return out
+
+
+def _diff_excerpt(project_path: str, sha: str, needle_regex: str, paths: list, window: int = 10) -> str:
+    """The added lines around the needle in one commit's diff: the reason
+    for a constant is usually a comment a few lines above it, in the diff,
+    not in the message (trade-lab's `PACE = 0.15`: "We stay well under"
+    sat eleven lines up, in the same hunk)."""
+    import subprocess
+
+    if not os.path.isdir(project_path or "") or not sha:
+        return ""
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", "show", "--format=", f"--unified={window}", sha, "--", *paths],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_GIT_LOG_TIMEOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return ""
+    if r.returncode != 0:
+        return ""
+    lines = r.stdout.splitlines()
+    try:
+        pat = re.compile(needle_regex, re.IGNORECASE)
+    except re.error:
+        return ""
+    hits = [i for i, ln in enumerate(lines) if ln.startswith("+") and not ln.startswith("+++") and pat.search(ln[1:])]
+    if not hits:
+        return ""
+    i = hits[0]
+    picked: list[str] = []
+    # The needle line and the added comment lines above it in the hunk.
+    for j in range(max(0, i - window), i + 1):
+        ln = lines[j]
+        if ln.startswith("@@"):
+            picked = []
+            continue
+        if not ln.startswith("+") or ln.startswith("+++"):
+            continue
+        body = ln[1:].strip()
+        if j == i or body.startswith(("#", "//", '"""', "'''", "*", "--")) or " # " in body:
+            picked.append(body)
+    return " | ".join(picked[-5:])[:400]
 
 
 def git_pickaxe(project_path: str, query: str, limit: int = 5) -> list[SearchResult]:
@@ -1194,26 +1242,81 @@ def git_pickaxe(project_path: str, query: str, limit: int = 5) -> list[SearchRes
     q = (query or "").strip()
     if not q:
         return []
+    tokens = [t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_.]{3,}|\d+(?:\.\d+)?", q) if t.lower() not in _STOPWORDS]
+    numbers = [t for t in tokens if re.fullmatch(r"\d+(?:\.\d+)?", t)]
+    idents = [t for t in tokens if t not in numbers and ("_" in t or t.isupper())]
+    words = [t for t in tokens if t not in numbers and t not in idents]
+    words.sort(key=lambda t: (-len(t), t))
+    # A token that names a file narrows the search to that file: "why is
+    # sync_edgar's PACE 0.15" is answered inside sync_edgar.py, and a
+    # bare "0.15" over the whole history matches every diff that ever
+    # carried the digits (three unrelated commits on the live repo).
+    paths: list[str] = []
+    for t in idents + words[:2]:
+        for p in _git_ls_files(project_path, t):
+            if p not in paths:
+                paths.append(p)
+    scope = ["--", *paths] if paths else []
+    # Needles, most specific first: identifier near number as a regex,
+    # then the number, then the identifiers, then the longest words.
+    needles: list[list[str]] = []
+    for ident in idents[:2]:
+        for num in numbers[:2]:
+            needles.append(["--pickaxe-regex", "-S", f"{re.escape(ident)}.{{0,60}}{re.escape(num)}"])
+    for num in numbers[:2]:
+        needles.append(["-S", num])
+    for ident in idents[:2]:
+        needles.append(["-S", ident])
+    for w in words[:2]:
+        needles.append(["-S", w])
     seen: set = set()
     results: list[SearchResult] = []
-    candidates = [q] if len(q) <= 60 else []
-    tokens = [t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_.]{3,}|\d+(?:\.\d+)?", q) if t.lower() not in _STOPWORDS]
-    # A number first ("why 0.15"), then an identifier with an underscore,
-    # then the longest word: the most specific needle finds the commit.
-    tokens.sort(key=lambda t: (0 if re.fullmatch(r"\d+(?:\.\d+)?", t) else 1 if "_" in t else 2, -len(t), t))
-    for t in tokens[:3]:
-        if t not in candidates:
-            candidates.append(t)
-    for needle in candidates:
-        for res in _git_log(project_path, ["-S", needle], limit):
-            key = res.chunk_text[:20]
-            if key in seen:
-                continue
-            seen.add(key)
-            results.append(res)
-        if len(results) >= limit:
-            break
+    # Scoped to the named files first, then the whole repository.
+    for scoped in ([scope] if scope else []) + [[]]:
+        for needle in needles:
+            rx = needle[-1] if needle[0] == "--pickaxe-regex" else re.escape(needle[-1])
+            for res in _git_log(project_path, [*needle, *scoped], limit):
+                key = res.chunk_text[:20]
+                if key in seen:
+                    continue
+                seen.add(key)
+                # The added lines around the needle: where the reason is.
+                sha = res.session_id.split(":", 1)[-1]
+                excerpt = _diff_excerpt(project_path, sha, rx, paths)
+                if excerpt:
+                    res.chunk_text += f" -- diff: {excerpt}"
+                results.append(res)
+            if len(results) >= limit:
+                return results[:limit]
     return results[:limit]
+
+
+def _git_ls_files(project_path: str, token: str) -> list[str]:
+    """Tracked files whose name contains the token (a few at most)."""
+    import subprocess
+
+    tok = (token or "").strip().lower()
+    if len(tok) < 4 or not os.path.isdir(project_path or ""):
+        return []
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", "ls-files", "--", f"*{tok}*"],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_GIT_LOG_TIMEOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return []
+    if r.returncode != 0:
+        return []
+    out = [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    # The token must name the FILE, not a directory it lives in.
+    out = [p for p in out if tok in p.rsplit("/", 1)[-1].lower()]
+    return out[:4]
 
 
 def git_file_history(project_path: str, file_path: str, limit: int = 8) -> list[SearchResult]:

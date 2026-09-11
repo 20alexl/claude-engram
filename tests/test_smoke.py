@@ -280,8 +280,11 @@ def _git_repo_with_a_reason(tmp_path: Path) -> Path:
     git("init", "-q")
     (repo / "src" / "sync.py").write_text("PACE = 0.5\n", encoding="utf-8")
     git("add", "."); git("commit", "-q", "-m", "sync: first cut")
-    (repo / "src" / "sync.py").write_text("PACE = 0.15  # seconds between requests\n", encoding="utf-8")
-    git("add", "."); git("commit", "-q", "-m", "sync: pace 0.15", "-m", "SEC allows ten requests a second; we stay well under.")
+    (repo / "src" / "sync.py").write_text(
+        "# Fair-access policy: a declared UA, max 10 req/s. We stay well under.\n\nPACE = 0.15  # seconds between requests\n",
+        encoding="utf-8",
+    )
+    git("add", "."); git("commit", "-q", "-m", "sync: pace 0.15", "-m", "The rate limit chosen against the published policy.")
     return repo
 
 
@@ -294,8 +297,10 @@ def test_decisions_read_the_repos_history_and_never_crash_on_a_missing_index(tmp
     (store / "manifest.json").write_text(json.dumps({"projects": {search._normalize_path(str(repo)): {"hash": "sub"}}}), encoding="utf-8")
     res = search.find_decision(str(repo), "PACE 0.15 seconds between requests", engram_storage_dir=str(store))
     texts = [r.chunk_text for r in res]
-    assert any("we stay well under" in t for t in texts), texts
-    assert all(r.msg_type == "git" for r in res)
+    # The reason lives in the diff (a comment above the constant), not in
+    # the message: the pickaxe hit carries the added lines around the needle.
+    assert any("we stay well under" in t and "diff:" in t for t in texts), texts
+    assert all(r.msg_type == "git" and r.session_id.startswith("git:") for r in res)
     # The file's history rides along with replay.
     hist = search.git_file_history(str(repo), str(repo / "src" / "sync.py"))
     assert len(hist) == 2 and hist[0].chunk_text.startswith("commit ") and hist[0].related_files == ["src/sync.py"]
