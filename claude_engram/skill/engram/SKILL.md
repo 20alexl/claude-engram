@@ -1,7 +1,7 @@
 ---
 name: engram
-description: Claude Engram persistent memory — quick reference for all MCP tools and automatic hook behaviors, plus the unattended-run commands (/engram run, status, release, report). Use when you need to remember how to store, search, or manage memories, query session history, or launch and supervise an unattended run.
-argument-hint: "[run <goal> | status <session> | release <session> | report <session>]"
+description: Claude Engram persistent memory — quick reference for all MCP tools and automatic hook behaviors, plus the /goal bracket commands (/engram run, stop, status, release, report). Use when you need to remember how to store, search, or manage memories, query session history, or supervise a /goal run that engram brackets.
+argument-hint: "[run <goal> | stop | status <session> | release <session> | report <session>]"
 ---
 
 # Claude Engram — Quick Reference

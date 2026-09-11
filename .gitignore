@@ -43,6 +43,10 @@ htmlcov/
 # Claude Engram runtime state (local to each user)
 # ~/.claude_engram/ contains persistent state
 
+# Run reports and manifests engram writes into the project: per-machine
+# facts (session ids, costs, local paths). .engram/config.json stays tracked.
+.engram/runs/
+
 # Test repos (used for testing search functionality)
 _test_repos/
 

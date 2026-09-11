@@ -222,7 +222,7 @@ Engram ships an opinion about how a project is kept, on by default and one line 
 
 ## Run report
 
-Every substantial session leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session>.md` plus a `.json` twin, written at SessionEnd or on demand with `session_mine(run_report)` / `python -m claude_engram.run_report --session <id>`. Every line is hook-captured or read from the transcript, never self-reported by the model:
+Every substantial session leaves one auditable artifact in the repo: `<project>/.engram/runs/<date>-<session>.md` plus a `.json` twin, written at SessionEnd or on demand with `session_mine(run_report)` / `python -m claude_engram.run_report --session <id>`. Add `.engram/runs/` to the project's `.gitignore` (the reports carry session ids, costs and local paths; `.engram/config.json` is the file worth tracking). Every line is hook-captured or read from the transcript, never self-reported by the model:
 
 - the `/goal` condition, every evaluator verdict with its reason, and the outcome (met / failed / unresolved), read from the transcript's own goal records; model, permission mode, branch, start → end commit
 - wall time, turns, prompts, context at end and cost
