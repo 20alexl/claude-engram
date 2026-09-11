@@ -213,6 +213,63 @@ def test_rule_context_sees_approval_and_session_created_paths():
     assert _rule_context({"last_prompt": "what is the plan?"}, {"command": "rm -rf E:/ws/tl/src"}) == ""
 
 
+def test_session_project_is_one_loader_for_every_hook(tmp_path: Path, monkeypatch):
+    from claude_engram.hooks import remind
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    ws = tmp_path / "ws"
+    proj = ws / "proj-a"
+    (proj / ".git").mkdir(parents=True)
+    (ws / ".git").mkdir()
+    t = tmp_path / "t.jsonl"
+    def tu(name, fp):
+        return json.dumps({"type": "assistant", "timestamp": "2026-09-11T10:00:00.000Z",
+                           "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "x", "name": name, "input": {"file_path": fp}}]}})
+    # The memory file outside the workspace is edited last and must not vote.
+    t.write_text("\n".join([tu("Edit", str(proj / "a.py")), tu("Write", str(proj / "b.py")), tu("Edit", "C:/Users/x/.claude/memory.md")]) + "\n", encoding="utf-8")
+    norm = remind._normalize_path
+    st: dict = {"run": {"transcript_path": str(t)}}
+    assert remind.session_project(str(ws), st) == norm(str(proj))
+    assert st["session_project_cache"]["value"] == norm(str(proj))
+    # Cached: a changed transcript path with the same size is not re-read.
+    st["run"]["transcript_path"] = str(tmp_path / "missing.jsonl")
+    assert remind.session_project(str(ws), st) == norm(str(proj))
+    # No transcript, no state lists: the cwd mapped to its repository.
+    assert remind.session_project(str(proj / "src"), {}) == norm(str(proj / "src")) or remind.session_project(str(proj), {}) == norm(str(proj))
+    # Files outside the root never vote for the root.
+    assert remind._resolve_session_project(str(ws), ["C:/Users/x/.claude/memory.md", str(proj / "a.py")]) == norm(str(proj))
+
+
+def test_recurring_errors_are_scoped_to_the_sessions_project(tmp_path: Path, monkeypatch):
+    from claude_engram.hooks import remind, paths
+    store = tmp_path / "store"
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store))
+    ws = tmp_path / "ws"
+    for name in ("trade-lab", "chappie"):
+        (ws / name / ".git").mkdir(parents=True)
+    (ws / ".git").mkdir()
+    root = paths._normalize_path(str(ws))
+    tl = paths._normalize_path(str(ws / "trade-lab"))
+    v11 = paths._normalize_path(str(ws / "chappie"))
+    (store / "projects" / "roothash").mkdir(parents=True)
+    (store / "manifest.json").write_text(json.dumps({"projects": {root: {"hash": "roothash"}}}), encoding="utf-8")
+    (store / "projects" / "roothash" / "patterns.json").write_text(json.dumps({
+        "struggles": [],
+        "recurring_errors": [
+            {"error_type": "AttributeError", "example": "AttributeError: InputEncoderRegistry", "session_count": 8, "projects": [root, v11]},
+            {"error_type": "KeyError", "example": "KeyError: 'sue'", "session_count": 3, "projects": [root, tl]},
+            {"error_type": "FileNotFoundError", "example": "FileNotFoundError: /c/Users/x/.claude_engram/projects/h//session_index.json", "session_count": 7, "projects": [root, tl]},
+            {"error_type": "ValueError", "example": "ValueError: legacy, unattributed", "session_count": 2},
+        ],
+    }), encoding="utf-8")
+    text = "\n".join(remind._recurring_lines(tl, []))
+    assert "KeyError: 'sue'" in text          # attributed to this project
+    assert "InputEncoderRegistry" not in text  # another project's
+    assert ".claude_engram" not in text        # engram's own failure
+    assert "legacy, unattributed" in text      # no attribution: shown
+    text_v11 = "\n".join(remind._recurring_lines(v11, []))
+    assert "InputEncoderRegistry" in text_v11 and "KeyError" not in text_v11
+
+
 def test_generic_basenames_need_a_full_path():
     gate = 0.35 * 0.5  # a bare-name match would score 0.5 under the 0.35 file weight
     assert hot_reader._file_match_score("E:/ws/engram/README.md", [], "FileNotFoundError: src/README.md") == 0.0

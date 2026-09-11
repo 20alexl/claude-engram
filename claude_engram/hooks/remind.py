@@ -739,6 +739,50 @@ def _session_edit_files(state: dict) -> list:
     return [f for f in counts if isinstance(f, str) and os.path.isabs(f)]
 
 
+def session_project(project_dir: str, state: "dict | None" = None) -> str:
+    """THE project this session is about, for every hook that files, reads
+    or scopes anything by project. One loader, used everywhere the cwd used
+    to stand in: the cwd under Claude Code is the workspace root (or a
+    worktree) more often than the project, and each place that used it
+    grew its own bug (the wrong ring teased, the root's errors, a run
+    filed under the root). Order: the transcript's own Edit/Write calls,
+    then the hook state's lists, then the cwd mapped to its repository
+    (``canonical_project_root``). Cached in the session state against the
+    transcript's size, so a hook pays the tail read only when the
+    transcript grew."""
+    st = state if isinstance(state, dict) else load_state()
+    root = _normalize_path(project_dir) if project_dir else ""
+    _run = st.get("run")
+    tp = str((_run if isinstance(_run, dict) else {}).get("transcript_path") or "")
+    size = 0
+    if tp:
+        try:
+            size = os.path.getsize(tp)
+        except OSError:
+            size = 0
+    cache = st.get("session_project_cache")
+    if (
+        isinstance(cache, dict)
+        and cache.get("root") == root
+        and cache.get("value")
+        and abs(int(cache.get("size") or 0) - size) < 65536
+    ):
+        return str(cache["value"])
+    value = ""
+    try:
+        files = _session_edit_files(st)
+        if files:
+            value = _resolve_session_project(root, files)
+    except Exception:
+        value = ""
+    if not value:
+        from claude_engram.hooks.paths import canonical_project_root
+
+        value = canonical_project_root(root) if root else root
+    st["session_project_cache"] = {"root": root, "size": size, "value": value}
+    return value
+
+
 def _resolve_session_project(project_dir: str, files: list) -> str:
     """Dominant sub-project of a session's edited files (majority vote over
     the most recent ten). Falls back to ``project_dir`` (the cwd) when there
@@ -746,8 +790,14 @@ def _resolve_session_project(project_dir: str, files: list) -> str:
     exactly how per-turn auto handoffs ended up in the wrong ring, so the
     files win whenever they exist."""
     counts: dict = {}
+    root_l = _normalize_path(project_dir).lower().rstrip("/") + "/" if project_dir else ""
     for f in files[-10:]:
         try:
+            # A file outside the root (the memory dir under ~/.claude, a
+            # temp file) says nothing about which project this is; it
+            # used to vote for the root. Skip it.
+            if root_l and not _normalize_path(str(f)).lower().startswith(root_l):
+                continue
             # Pass the root explicitly — the resolver's cwd default matches
             # production hooks, but being explicit keeps this correct from
             # any process (tests, the MCP server, a future daemon route).
@@ -2853,6 +2903,10 @@ def _with_pressure(result: str, project_dir: str) -> str:
         from claude_engram.hooks import stall as _stall
 
         state = load_state()
+        # Every nudge that reads a ring or a rule set reads the session's
+        # project, not the cwd (the strike-2 bearings teased another
+        # session's checkpoint into an engram session, 2026-09-11).
+        project_dir = session_project(project_dir, state)
         text, changed = _cp.nudge(state, _session_id, project_dir)
         # A staged stall strike (hooks/stall.py) rides the same delivery:
         # the Stop hook that judged the turn cannot add context itself.
@@ -2903,7 +2957,7 @@ def _goal_bracket(state: dict, data: dict, project_dir: str, turn: bool) -> None
         # edited files name the sub-project the run is about (the first live
         # goal run filed its manifest and report under the workspace root).
         try:
-            project_dir = _resolve_session_project(project_dir, _session_edit_files(state))
+            project_dir = session_project(project_dir, state)
         except Exception:
             pass
         ev = _ar.observe(state, tp, project_dir, turn=turn)
@@ -3066,6 +3120,7 @@ def _hook_pre_bash(project_dir: str) -> None:
             return
         data = json_module.loads(stdin_data)
         tool_name = str(data.get("tool_name") or "Bash")
+        project_dir = session_project(project_dir)  # the rules in scope are the session's project's
         new, state = _compliance_check(project_dir, data, tool_name, data.get("tool_input"))
         from claude_engram.hooks import compliance as _cpl
 
@@ -3254,6 +3309,7 @@ def _hook_post_batch(project_dir: str) -> None:
         from claude_engram.hooks import stall as _stall
 
         state = load_state()
+        project_dir = session_project(project_dir, state)
         _stall.note_batch(state, calls if isinstance(calls, list) else [])
         _note_created_paths(state, calls if isinstance(calls, list) else [])
         # Compliance on every non-shell call (path globs on edits, MCP tools
@@ -3430,6 +3486,86 @@ def _hook_pre_read() -> None:
         pass
 
 
+def _recurring_lines(work_project: str, predicted_files: list) -> list:
+    """Recurring struggles, recurring errors and known-good test commands
+    for ``work_project``: the mined patterns report walked up the ancestors
+    (mining pools at the workspace root) and filtered to this project.
+    Printed at session start on a resume, and at the first edit of a fresh
+    session, when the project is first known (the user's ruling,
+    2026-09-11: the root's errors at a root-cwd start were noise)."""
+    lines: list = []
+    try:
+        pdata = _find_patterns_report(work_project)
+        if pdata:
+            predicted = set()
+            try:
+                for f in predicted_files or []:
+                    predicted.add(_normalize_path(resolve_project_for_file(f)))
+            except Exception:
+                predicted = set()
+            norm_root = _normalize_path(work_project)
+            if norm_root not in predicted:
+                predicted.add(norm_root)
+            _own_errors = Path(work_project).name.lower() == "claude-engram"
+
+            def _in_scope(projs, example=""):
+                # Engram's own failures (paths inside its store) are
+                # nobody's recurring errors but engram's.
+                if not _own_errors and ".claude_engram" in str(example or "").replace("\\", "/"):
+                    return False
+                # No attribution -> show (legacy patterns.json has no
+                # projects field). Otherwise the error must name this
+                # project or one the last session touched.
+                if not projs:
+                    return True
+                return bool(set(projs) & predicted)
+
+            def _struggle_scope(s):
+                try:
+                    return _in_scope([_normalize_path(resolve_project_for_file(s.get("file_path", "")))])
+                except Exception:
+                    return True
+
+            struggles = [s for s in pdata.get("struggles", []) if _struggle_scope(s)][:3]
+            recurring = [
+                e
+                for e in pdata.get("recurring_errors", [])
+                if _in_scope(e.get("projects") or [], e.get("example") or "")
+            ][:3]
+            if struggles:
+                lines.append("Recurring struggles:")
+                for s in struggles:
+                    try:
+                        proj = Path(resolve_project_for_file(s["file_path"])).name
+                    except Exception:
+                        proj = ""
+                    loc = f"{proj}/{Path(s['file_path']).name}" if proj else s["file_path"]
+                    lines.append(f"  - {loc} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)")
+            if recurring:
+                lines.append("Recurring errors:")
+                for e in recurring:
+                    # A concrete instance over the templated signature
+                    # (which strips the identifiers that make it actionable).
+                    label = e.get("example") or e.get("message_pattern") or e["error_type"]
+                    lines.append(f"  - {label} ({e['session_count']} sessions)")
+                    fix = e.get("fix")
+                    if fix:
+                        lines.append(f"    fix: {fix}")
+    except Exception:
+        pass
+    # Known-good test commands: what passed here before, so verification
+    # does not start from a guess.
+    try:
+        top = _top_test_commands(work_project)
+        if top:
+            lines.append("Known-good test commands:")
+            for cmd, rec in top:
+                lines.append(f"  - {cmd} ({rec.get('pass_count', 0)}x pass)")
+    except Exception:
+        pass
+    return lines
+
+
 def _hook_session_start(project_dir: str) -> None:
     """SessionStart: start the session, migrations, the scorer daemon, and
     print the orientation banner (rules, mistakes, restored checkpoint, last
@@ -3475,7 +3611,7 @@ def _hook_session_start(project_dir: str) -> None:
         work_project = project_dir
         if resume_files:
             try:
-                work_project = _resolve_session_project(project_dir, resume_files)
+                work_project = session_project(project_dir)
             except Exception:
                 work_project = project_dir
 
@@ -3583,9 +3719,7 @@ def _hook_session_start(project_dir: str) -> None:
         #              model had just banked was not shown to it.
         restored = {}
         if resume_files:
-            restored = get_handoff_data(
-                _resolve_session_project(project_dir, resume_files)
-            )
+            restored = get_handoff_data(work_project)
         if not restored:
             restored = _subtree_manual_handoff(project_dir)
         if not restored:
@@ -3681,125 +3815,26 @@ def _hook_session_start(project_dir: str) -> None:
                             parts.append(f"{errs} tool errors")
                         lines.append(f"  Activity: {', '.join(parts)}")
 
-                # Auto-inject patterns if available. _hash_dir is None for an
-                # unregistered project — without this guard the join raised
-                # TypeError into the enclosing except, so pattern injection
-                # silently never ran there.
-                patterns_path = (
-                    (_hash_dir / "patterns.json") if _hash_dir else None
-                )
-                if patterns_path is not None and patterns_path.exists():
+                # Recurring errors, struggles and known-good commands are
+                # scoped to the session's project. On a resume the
+                # transcript names it; on a fresh start nothing does until
+                # the first edit, so the block waits for the pre-edit hook
+                # (state["patterns_deferred"]) instead of printing the
+                # cwd's (the root's) errors.
+                if resume_files:
+                    lines.extend(
+                        _recurring_lines(
+                            work_project, (summary or {}).get("files_edited_full", [])
+                        )
+                    )
+                else:
                     try:
-                        pdata = json_module.loads(patterns_path.read_text())
-
-                        # Predict the session's sub-projects from what
-                        # the LAST session touched: mining pools at the
-                        # workspace root, and without scoping a vzip
-                        # session gets CORTEX errors injected at start.
-                        predicted = set()
-                        try:
-                            for f in (summary or {}).get(
-                                "files_edited_full", []
-                            ):
-                                predicted.add(
-                                    _normalize_path(
-                                        resolve_project_for_file(f)
-                                    )
-                                )
-                        except Exception:
-                            predicted = set()
-                        norm_root = _normalize_path(work_project)
-                        _own_errors = Path(work_project).name.lower() == "claude-engram"
-
-                        def _in_scope(projs, example=""):
-                            # Engram's own failures (paths inside its store)
-                            # are nobody's recurring errors but engram's.
-                            if not _own_errors and ".claude_engram" in str(example or "").replace("\\", "/"):
-                                return False
-                            # No prediction or no attribution -> show
-                            # (legacy patterns.json has no projects field);
-                            # workspace-root errors are generic -> show.
-                            if not predicted or not projs:
-                                return True
-                            pset = set(projs)
-                            return bool(pset & predicted) or norm_root in pset
-
-                        def _struggle_scope(s):
-                            try:
-                                return _in_scope(
-                                    [
-                                        _normalize_path(
-                                            resolve_project_for_file(
-                                                s.get("file_path", "")
-                                            )
-                                        )
-                                    ]
-                                )
-                            except Exception:
-                                return True
-
-                        struggles = [
-                            s
-                            for s in pdata.get("struggles", [])
-                            if _struggle_scope(s)
-                        ][:3]
-                        recurring = [
-                            e
-                            for e in pdata.get("recurring_errors", [])
-                            if _in_scope(e.get("projects") or [], e.get("example") or "")
-                        ][:3]
-                        if struggles:
-                            lines.append("Recurring struggles:")
-                            for s in struggles:
-                                # Label with the sub-project so a struggle from
-                                # the other concurrent session's project (mining
-                                # is workspace-pooled) is obvious, not mistaken
-                                # for this one's.
-                                try:
-                                    proj = Path(
-                                        resolve_project_for_file(s["file_path"])
-                                    ).name
-                                except Exception:
-                                    proj = ""
-                                loc = (
-                                    f"{proj}/{Path(s['file_path']).name}"
-                                    if proj
-                                    else s["file_path"]
-                                )
-                                lines.append(
-                                    f"  - {loc} ({s['sessions_affected']} sessions, {s['errors_nearby']} errors)"
-                                )
-                        if recurring:
-                            lines.append("Recurring errors:")
-                            for e in recurring:
-                                # Prefer a concrete instance over the
-                                # templated signature (which strips the
-                                # identifiers that make it actionable).
-                                label = (
-                                    e.get("example")
-                                    or e.get("message_pattern")
-                                    or e["error_type"]
-                                )
-                                lines.append(
-                                    f"  - {label} ({e['session_count']} sessions)"
-                                )
-                                fix = e.get("fix")
-                                if fix:
-                                    lines.append(f"    fix: {fix}")
+                        _dst = load_state()
+                        _dst["patterns_deferred"] = True
+                        save_state(_dst)
                     except Exception:
                         pass
 
-            # Known-good test commands — what actually passed here before,
-            # so verification doesn't start from a guess.
-            try:
-                top = _top_test_commands(work_project)
-                if top:
-                    lines.append("Known-good test commands:")
-                    for cmd, rec in top:
-                        n = rec.get("pass_count", 0)
-                        lines.append(f"  - {cmd} ({n}x pass)")
-            except Exception:
-                pass
 
             # Schema canary: the miner flags when Claude Code's log format
             # stops being recognized (mining would degrade silently).
@@ -4189,7 +4224,7 @@ def main():
 
             # Target the ring of the sub-project this session worked in, not
             # the cwd (same resolution the stop hook uses).
-            handoff_project = _resolve_session_project(project_dir, files_edited)
+            handoff_project = session_project(project_dir, state)
 
             # Build rich handoff with session context
             ctx = _get_session_context_for_handoff(handoff_project)
@@ -4294,11 +4329,7 @@ def main():
                 save_state(state)
             # A goal set or ended since the last stop (hooks/autorun.py).
             _goal_bracket(state, data if isinstance(data, dict) else {}, project_dir, turn=False)
-            recent_files = state.get("files_edited_this_session", []) or state.get(
-                "last_session_files", []
-            )
-            if recent_files:
-                project_dir = get_project_dir(recent_files[-1])
+            project_dir = session_project(project_dir, state)
 
             # Auto-capture decisions from user prompts
             if prompt_text and len(prompt_text) > 20:
@@ -4344,9 +4375,7 @@ def main():
                     # root under Claude Code) — cwd-targeting is how autos
                     # piled into the root ring while manuals went to the
                     # sub-project ring, and the two teasers diverged.
-                    handoff_project = _resolve_session_project(
-                        project_dir, files_edited
-                    )
+                    handoff_project = session_project(project_dir, state)
                     ctx = _get_session_context_for_handoff(handoff_project)
                     summary_parts = [
                         f"Session stopped. {len(files_edited)} files edited."
@@ -4488,7 +4517,7 @@ def main():
                 if _rr.substantial(state):
                     _rr.write_report(
                         _session_id,
-                        _resolve_session_project(project_dir, files_edited),
+                        session_project(project_dir, state),
                         state,
                     )
             except Exception:
@@ -4499,7 +4528,7 @@ def main():
             try:
                 from claude_engram import rotation as _rot
 
-                _rot.run_at_session_end(_resolve_session_project(project_dir, files_edited))
+                _rot.run_at_session_end(session_project(project_dir, state))
             except Exception:
                 pass
 
@@ -4561,6 +4590,18 @@ def main():
                 # Resolve sub-project from the file being edited
                 project_dir = get_project_dir(file_path)
                 result = reminder_for_edit(project_dir, file_path)
+                # A fresh start deferred the recurring-errors block until
+                # the project was known; the first edit names it.
+                try:
+                    _dst = load_state()
+                    if _dst.get("patterns_deferred"):
+                        _dst["patterns_deferred"] = False
+                        save_state(_dst)
+                        _pl = _recurring_lines(session_project(project_dir, _dst), [])
+                        if _pl:
+                            result = "\n".join(_pl) + ("\n" + result if result else "")
+                except Exception:
+                    pass
                 # Track the injection channels separately for the outcome loop:
                 # memory/struggle context vs predictive context (vs the
                 # code-index banners below). Coarse "context" hid which earns

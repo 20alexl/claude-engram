@@ -270,6 +270,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.41 (2026-09-11)
+
+The third report from the trade-lab session: the restore after the machine went down carried the exact state back three and a half hours later, the compaction resume re-injected the loader checkpoint, and since 0.8.40 the noise had dropped (no test-tracker false positives, quieter edit reminders, the nudge once instead of every message). Still there: the rule count at start and the cross-project errors in a fresh banner. The user's rulings: the rules stay in the banner (a model that does not see them does not follow them); the checkpoint gate before a commit stays off; the cwd-is-not-the-project bug gets fixed everywhere with one loader.
+
+- **One loader for the session's project.** `session_project(project_dir, state)` in `hooks/remind.py`: the transcript's own Edit and Write calls first, the hook state's lists second, the cwd mapped to its repository last, cached in the session state against the transcript's size. Every hook that files, reads or scopes by project goes through it: the pressure and stall delivery (`_with_pressure`, whose strike-2 bearings had teased another session's checkpoint into an engram session), the goal bracket, the Stop and compaction handoffs, the session-end report and rotation, the prompt hook, the shell-command and batch compliance checks, and the session-start banner. A file outside the workspace (the memory directory under `~/.claude`) no longer votes for the root.
+- **Recurring errors wait for the first edit on a fresh start.** The block (struggles, recurring errors, known-good test commands) is one function, `_recurring_lines`, that walks the ancestors for the mined report and keeps only what names the session's project; on a resume it prints at start, on a fresh start it is deferred (`patterns_deferred`) to the first pre-edit, when the file names the project, instead of printing the root's errors at a root-cwd start. The known-good commands for a project now come through even when the project has no store of its own (the ancestor walk finds the root's file).
+- Not built, by ruling: a smaller rules banner; the commit gate.
+
 ### v0.8.40 (2026-09-11)
 
 The second trial report, written from inside the trade-lab session by the model that lived it, checked against that session's transcript before anything was changed: four milestone nudges, all quoting status-report lines to the person; about four hundred "edits without running tests" warnings on frontend files; about three hundred and eighty "PASS Test tracked" lines; edit reminders carrying a 128-day-old workspace rule; a banner listing another project's web UI files as the last session and V11's error as recurring. The session ran from the workspace root, so every banner block was the root's.

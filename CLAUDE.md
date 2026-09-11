@@ -12,7 +12,7 @@ These happen via hooks. You don't call anything:
 
 | What | When It Fires | What You See |
 |---|---|---|
-| **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff. On resume/compact the banner's recurring errors, last session and test commands are scoped to the project the session's own edits name (`autorun.recent_edit_files` from the transcript, then the hook state); engram's own `.claude_engram` failures never listed as a project's |
+| **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff. Every hook scopes by `session_project(project_dir, state)` (the transcript's Edit/Write calls via `autorun.recent_edit_files`, then the hook state, then the cwd mapped to its repo; cached against the transcript size), never by the cwd. The recurring-errors block (`_recurring_lines`) prints at start on resume/compact and is deferred to the first pre-edit on a fresh start (`patterns_deferred`); engram's own `.claude_engram` failures never listed as a project's |
 | **Edit tracking** | PostToolUse Edit/Write | Nothing printed; the count feeds the loop warning before the next edit (files under node_modules/, venvs, or a `non_project_dirs` name from `~/.claude_engram/config.json` never warn) |
 | **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times (state lives in per-session hook state, so concurrent sessions don't cross-contaminate) |
 | **Scored memory injection** | PreToolUse Edit/Write | Top 3 file-relevant memories; a rule rides along only when it names the file; an entry older than 30 days (`STALE_CONTEXT_DAYS`) only with a full-path match; ERRORS.md / LEARNINGS.md / plan.md are generic basenames |
