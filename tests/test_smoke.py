@@ -65,9 +65,27 @@ def test_observe_arms_and_ends_a_goal_run(tmp_path: Path):
     assert autorun.env_or_state_autonomy(state) is True
     t.write_text(json.dumps(sentinel) + "\n" + json.dumps({"type": "attachment", "timestamp": "2026-09-10T22:46:09.000Z",
                  "attachment": {"type": "goal_status", "met": True, "condition": "g", "reason": "done"}}) + "\n", encoding="utf-8")
+    state["run"]["transcript_path"] = str(t)
+    from claude_engram import repo_state
+    assert repo_state.goal_for_session(state) == "g"  # running: every checkpoint carries it
     ev = autorun.observe(state, str(t), str(tmp_path), turn=True)
     assert ev and ev["event"] == "ended" and state["run"]["auto"]["status"] == "met"
     assert autorun.env_or_state_autonomy(state) is False
+    # A met goal is not stamped on later checkpoints (seen live: the banner
+    # showed a goal met hours earlier as the checkpoint's goal).
+    assert "goal" not in state["run"]
+    assert repo_state.goal_for_session(state) == ""
+
+
+def test_goal_bracket_resolves_from_the_sessions_edits_not_the_turns():
+    from claude_engram.hooks import remind
+    # Every Stop moves files_edited_this_session into last_session_files and
+    # clears it, so a turn with no edits must not send the bracket to the cwd.
+    assert remind._session_edit_files({"files_edited_this_session": ["E:/ws/p/a.py"]}) == ["E:/ws/p/a.py"]
+    assert remind._session_edit_files({"files_edited_this_session": [], "last_session_files": ["E:/ws/p/b.py"]}) == ["E:/ws/p/b.py"]
+    st = {"files_edited_this_session": [], "last_session_files": [], "loop": {"edit_counts": {"E:/ws/p/c.py": 3, "c.py": 3}}}
+    assert remind._session_edit_files(st) == ["E:/ws/p/c.py"]
+    assert remind._session_edit_files({}) == []
 
 
 def test_generic_basenames_need_a_full_path():

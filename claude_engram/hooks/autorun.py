@@ -204,6 +204,10 @@ def stop(state: dict, status: str = "stopped", why: str = "") -> dict:
     a["status"] = status if status in ENDED else "stopped"
     a["why"] = str(why or "")[:300]
     a["ended_at"] = time.time()
+    if a.get("source") == "goal":
+        # The goal is over: later checkpoints must not carry it (seen live:
+        # a met goal stamped on every checkpoint for the rest of the day).
+        _run(state).pop("goal", None)
     return {"ok": True, "auto": a}
 
 

@@ -107,8 +107,9 @@ def since_text(info: Optional[dict]) -> str:
 
 
 def goal_for_session(state: dict) -> str:
-    """The active /goal condition: what the launcher recorded, else the last
-    sentinel in the session's transcript (verified shape, run_report)."""
+    """The active /goal condition: what the launcher recorded, else the goal
+    the session's transcript shows as still open (hooks/autorun.scan_goal:
+    a met, failed or cleared goal is not active and is not stamped)."""
     _run = state.get("run")
     run: dict = _run if isinstance(_run, dict) else {}
     goal = str(run.get("goal") or "").strip()
@@ -118,9 +119,11 @@ def goal_for_session(state: dict) -> str:
     if not tp or not Path(tp).is_file():
         return ""
     try:
-        from claude_engram.run_report import _read_transcript
+        from claude_engram.hooks.autorun import scan_goal
 
-        tr = _read_transcript(Path(tp), str(state.get("session_id") or ""))
-        return str(tr.get("goal_text") or "").strip()
+        s = scan_goal(tp)
+        if not s.get("active"):
+            return ""
+        return " ".join(str(s.get("condition") or "").split()).strip()
     except Exception:
         return ""

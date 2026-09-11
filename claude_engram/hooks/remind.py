@@ -705,6 +705,26 @@ def get_handoff_data(project_dir: str = "") -> dict:
         return {}
 
 
+def _session_edit_files(state: dict) -> list:
+    """The files this SESSION edited, for project resolution. Every Stop
+    calls mark_session_ended(), which moves ``files_edited_this_session``
+    into ``last_session_files`` and clears it, so at a Stop the live list
+    holds only the turn that just ended and is empty after a turn with no
+    edits (seen live: the /goal bracket filed a run under the workspace
+    root because the turn that set the goal edited nothing). Fall back to
+    the previous turn's files, then to every absolute path the loop tracker
+    counted this session."""
+    live = list(state.get("files_edited_this_session") or [])
+    if live:
+        return live
+    prev = list(state.get("last_session_files") or [])
+    if prev:
+        return prev
+    _loop = state.get("loop")
+    counts = (_loop if isinstance(_loop, dict) else {}).get("edit_counts") or {}
+    return [f for f in counts if isinstance(f, str) and os.path.isabs(f)]
+
+
 def _resolve_session_project(project_dir: str, files: list) -> str:
     """Dominant sub-project of a session's edited files (majority vote over
     the most recent ten). Falls back to ``project_dir`` (the cwd) when there
@@ -2818,7 +2838,7 @@ def _goal_bracket(state: dict, data: dict, project_dir: str, turn: bool) -> None
         # edited files name the sub-project the run is about (the first live
         # goal run filed its manifest and report under the workspace root).
         try:
-            project_dir = _resolve_session_project(project_dir, list(state.get("files_edited_this_session") or []))
+            project_dir = _resolve_session_project(project_dir, _session_edit_files(state))
         except Exception:
             pass
         ev = _ar.observe(state, tp, project_dir, turn=turn)
