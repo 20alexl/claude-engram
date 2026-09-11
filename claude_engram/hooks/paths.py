@@ -55,7 +55,36 @@ _project_dir_cache: dict[str, str] = {}
 # so marker-walking alone happily resolved E:/ws/trade-lab/.scratch/stack/<wt>
 # to the worktree and filed trade-lab's errors under a directory nobody asks
 # about (they then surfaced as claude-engram's own, 2026-09-10).
-_NON_PROJECT_SEGMENTS = {".scratch", "node_modules", ".venv", "venv", "__pycache__"}
+_NON_PROJECT_DEFAULTS = frozenset({"node_modules", ".venv", "venv", "__pycache__"})
+_non_project_cache: "tuple[str, frozenset[str]] | None" = None
+
+
+def _non_project_segments() -> "frozenset[str]":
+    """The directory names that are never a project of their own: the
+    universal ones above, plus whatever the person adds as
+    ``non_project_dirs`` in ``~/.claude_engram/config.json`` or as a
+    comma-separated ``CLAUDE_ENGRAM_NON_PROJECT_DIRS``. A workspace's own
+    scratch convention (``.scratch`` here) is configuration, not a rule
+    engram ships."""
+    global _non_project_cache
+    env = os.environ.get("CLAUDE_ENGRAM_NON_PROJECT_DIRS", "")
+    try:
+        cfg_path = get_engram_storage_dir() / "config.json"
+        key = f"{cfg_path}|{env}"
+        if _non_project_cache and _non_project_cache[0] == key:
+            return _non_project_cache[1]
+        extra: set[str] = set()
+        if cfg_path.is_file():
+            data = json.loads(cfg_path.read_text(encoding="utf-8"))
+            raw = data.get("non_project_dirs") if isinstance(data, dict) else None
+            if isinstance(raw, list):
+                extra.update(str(x).strip() for x in raw if str(x).strip())
+        extra.update(s.strip() for s in env.split(",") if s.strip())
+        segs = frozenset(_NON_PROJECT_DEFAULTS | extra)
+        _non_project_cache = (key, segs)
+        return segs
+    except Exception:
+        return _NON_PROJECT_DEFAULTS
 
 
 def _is_absolute_path(raw: str) -> bool:
@@ -88,7 +117,67 @@ def _inside_non_project_dir(path: str, root: str) -> bool:
     rel = path.lower().rstrip("/")
     if rel.startswith(base + "/"):
         rel = rel[len(base) + 1 :]
-    return any(seg in _NON_PROJECT_SEGMENTS for seg in rel.split("/"))
+    return any(seg in _non_project_segments() for seg in rel.split("/"))
+
+
+def worktree_main(path: str) -> str:
+    """The main repository's working directory when ``path`` is a git
+    WORKTREE (its ``.git`` is a file: ``gitdir: <main>/.git/worktrees/<name>``),
+    else ''. A session started inside ``trade-lab/.scratch/<wt>`` belongs to
+    trade-lab: its rules, its ring, its patterns (a trial session run from a
+    worktree got claude-engram's checkpoint teased at it, 2026-09-10)."""
+    try:
+        dotgit = Path(path) / ".git"
+        if not dotgit.is_file():
+            return ""
+        text = dotgit.read_text(encoding="utf-8", errors="replace").strip()
+        m = re.match(r"gitdir:\s*(.+)$", text, re.I)
+        if not m:
+            return ""
+        gitdir = m.group(1).strip().replace("\\", "/")
+        if not os.path.isabs(gitdir):
+            gitdir = str((Path(path) / gitdir).resolve()).replace("\\", "/")
+        idx = gitdir.lower().find("/.git/worktrees/")
+        if idx < 0 or not Path(gitdir).is_dir():
+            return ""  # not a worktree git can see: leave the walk alone
+        main = gitdir[:idx]
+        return _normalize_path(main) if (Path(main) / ".git").exists() else ""
+    except Exception:
+        return ""
+
+
+def under_non_project_dir(path: str) -> bool:
+    """True when any directory segment of ``path`` is a scratch/vendor/cache
+    name (``.scratch/plan.md`` is working notes, never an edit loop)."""
+    parts = (path or "").replace("\\", "/").split("/")
+    return any(seg in _non_project_segments() for seg in parts[1:-1])
+
+
+def canonical_project_root(path: str) -> str:
+    """A cwd (or marker dir) mapped to the project it belongs to: a worktree
+    to its main repository, a path inside a scratch/vendor dir to the nearest
+    real project above it. Otherwise the path itself, normalized."""
+    p = _normalize_path(path)
+    main = worktree_main(p)
+    if main:
+        return main
+    cur = p
+    segs = _non_project_segments()
+    while True:
+        parts = cur.split("/")
+        if not any(seg in segs for seg in parts[1:]):
+            return cur
+        # Cut at the first non-project segment and continue above it.
+        for i, seg in enumerate(parts):
+            if i and seg in segs:
+                cur = "/".join(parts[:i]) or cur
+                break
+        main = worktree_main(cur)
+        if main:
+            return main
+        if cur == p:
+            return cur
+        p = cur
 
 
 def _nearest_real_project(sub: str, root: str) -> str:
@@ -249,10 +338,9 @@ def resolve_project_for_file(file_path: str, workspace_root: str = "") -> str:
         for marker in _PROJECT_MARKERS:
             if (current / marker).exists():
                 best_project = current
-                # Don't break — keep walking up. We want the CLOSEST marker
-                # to the file, but if we're at workspace level that's just cwd.
-                # So we actually want to stop at the first marker we find.
-                result = _normalize_path(str(current))
+                # The closest marker wins, except a git worktree's `.git`
+                # file: that directory belongs to the main repository.
+                result = worktree_main(str(current)) or _normalize_path(str(current))
                 _project_dir_cache[file_path] = result
                 return result
         if current == workspace:
@@ -277,7 +365,9 @@ def get_project_dir(file_path: str = "") -> str:
     if explicit:
         return _normalize_path(explicit)
 
-    workspace_root = _normalize_path(os.getcwd())
+    # The cwd is a worktree or a scratch path more often than one would like:
+    # Claude Code started under trade-lab/.scratch/<wt> is a trade-lab session.
+    workspace_root = canonical_project_root(os.getcwd())
 
     if file_path:
         return resolve_project_for_file(file_path, workspace_root)

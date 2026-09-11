@@ -502,6 +502,7 @@ from .paths import (  # noqa: E402,F401
     get_project_dir,
     get_project_memory_dir,
     resolve_project_for_file,
+    under_non_project_dir,
 )
 from .storage import (  # noqa: E402,F401
     _load_project_data_from_dir,
@@ -924,8 +925,11 @@ def _auto_run_pre_edit_check(project_dir: str, file_path: str) -> dict:
 
     # Only warn with evidence of trouble. "Without running tests" is a code
     # signal: eight edits to a markdown, config or data file are a document
-    # being written, and tests have nothing to say about it.
-    if test_results:
+    # being written, and tests have nothing to say about it. A file under a
+    # scratch or vendored tree is somebody's working notes, never a loop.
+    if under_non_project_dir(file_path):
+        pass
+    elif test_results:
         last_failing = not test_results[-1].get("passed", True)
         if last_failing and edit_count >= 3 and _is_code_file(file_path):
             results["loop_warnings"].append(
@@ -1192,6 +1196,36 @@ _TEST_RUNNER_PREFIXES = (
     "python -m pytest",
     "python -m unittest",
 )
+
+
+_READ_ONLY_EXECUTABLES = frozenset(
+    {
+        "grep", "rg", "egrep", "fgrep", "cat", "head", "tail", "sed", "awk", "less",
+        "more", "find", "ls", "dir", "echo", "printf", "wc", "sort", "uniq", "cut",
+        "tr", "diff", "git", "gh", "type", "which", "where", "stat", "file", "tree",
+        "jq", "curl", "wget", "select-string", "get-content", "get-childitem",
+    }
+)
+
+
+def _command_can_run_tests(first_cmd: str) -> bool:
+    """Can this command's OUTPUT be a test verdict? The output markers below
+    ("3 passed", "collected 2 items") are read only when the command could
+    have run something: a grep, cat or git log whose OUTPUT quotes a test
+    line is not a test run (a grep over this file's own source was tracked
+    as "PASS Test tracked", 2026-09-10; so was a git log whose path carried
+    the word pytest)."""
+    seg = (first_cmd or "").strip()
+    while True:
+        m = re.match(r"^(?:[a-z_][a-z0-9_]*=\S*\s+|sudo\s+|cd\s+\S+\s*(?:&&|;)\s*)", seg)
+        if not m:
+            break
+        seg = seg[m.end() :]
+    exe = seg.split()[0] if seg.split() else ""
+    exe = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if exe.endswith(".exe"):
+        exe = exe[:-4]
+    return bool(exe) and exe not in _READ_ONLY_EXECUTABLES
 
 
 def _is_test_invocation(command: str) -> bool:
@@ -1605,7 +1639,7 @@ def reminder_for_bash(
     # - "collected N items" (pytest)
     # This catches: python bench_X.py, python -m tests.run, python script.py
     # that contains assertions, etc. Skips probes like `python -c "print(...)"`.
-    if not is_full_suite and output:
+    if not is_full_suite and output and _command_can_run_tests(first_cmd):
         output_lower = output.lower()
         test_markers = [
             re.search(r"\d+ passed", output_lower),
@@ -3883,10 +3917,11 @@ def main():
                         # keys on, and the point where "you keep editing this" is
                         # worth saying. Tracking above still runs for every edit;
                         # only the output is gated.
-                        result = ""
-                        if edit_count >= 3:
-                            result = f"<engram-edit-tracked>Edit tracked: {file_name} (edit #{edit_count})</engram-edit-tracked>"
-                        result = _with_pressure(result, project_dir)
+                        # No per-edit line: "Edit tracked: x (edit #3)" carried
+                        # no decision (the trial's verdict, 2026-09-10). The
+                        # count still feeds the loop warning before the next
+                        # edit; only the pressure nudges ride this hook.
+                        result = _with_pressure("", project_dir)
 
                         if result:
                             hook_output = {

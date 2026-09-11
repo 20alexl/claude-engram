@@ -88,6 +88,43 @@ def test_goal_bracket_resolves_from_the_sessions_edits_not_the_turns():
     assert remind._session_edit_files({}) == []
 
 
+def test_a_worktree_session_belongs_to_the_main_repo(tmp_path: Path, monkeypatch):
+    from claude_engram.hooks import paths
+    # .scratch is this workspace's convention, configured, not shipped.
+    monkeypatch.setenv("CLAUDE_ENGRAM_NON_PROJECT_DIRS", ".scratch")
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    ws = tmp_path / "ws"
+    main = ws / "trade-lab"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    wt = main / ".scratch" / "wt"
+    wt.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    (wt / "plan.md").write_text("x", encoding="utf-8")
+    norm = paths._normalize_path
+    assert paths.worktree_main(str(wt)) == norm(str(main))
+    assert paths.worktree_main(str(main)) == ""  # a real .git dir, not a worktree
+    assert paths.canonical_project_root(str(wt)) == norm(str(main))
+    # A plain scratch dir (no .git) still maps to the project above it.
+    assert paths.canonical_project_root(str(main / ".scratch" / "notes")) == norm(str(main))
+    assert paths.canonical_project_root(str(main)) == norm(str(main))
+    # A file inside the worktree resolves to the main repo, not the worktree.
+    assert paths.resolve_project_for_file(str(wt / "plan.md"), str(ws)) == norm(str(main))
+    assert paths.under_non_project_dir(str(wt / "plan.md")) is True
+    assert paths.under_non_project_dir(str(main / "src" / "a.py")) is False
+
+
+def test_output_markers_count_only_for_commands_that_can_run_tests():
+    from claude_engram.hooks.remind import _command_can_run_tests as can
+    assert can("grep -n 'passed' tests/test_x.py") is False
+    assert can("git log --oneline -- scripts/pytest_dots.py") is False
+    assert can("cat out.txt") is False
+    assert can("venv/Scripts/python.exe scripts/pytest_dots.py") is True
+    assert can("python -m pytest -q tests") is True
+    assert can("FOO=1 python check.py") is True
+    assert can("./run_tests.sh") is True
+    assert can("") is False
+
+
 def test_generic_basenames_need_a_full_path():
     gate = 0.35 * 0.5  # a bare-name match would score 0.5 under the 0.35 file weight
     assert hot_reader._file_match_score("E:/ws/engram/README.md", [], "FileNotFoundError: src/README.md") == 0.0
@@ -160,9 +197,11 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path, Path]:
     return ws, a, b
 
 
-def test_mined_entries_file_under_the_project_their_files_name(tmp_path: Path):
+def test_mined_entries_file_under_the_project_their_files_name(tmp_path: Path, monkeypatch):
     from claude_engram.hooks.paths import target_project_for_files, _normalize_path
 
+    monkeypatch.setenv("CLAUDE_ENGRAM_NON_PROJECT_DIRS", ".scratch")  # the workspace's convention, configured
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
     ws, a, b = _workspace(tmp_path)
     assert _normalize_path(target_project_for_files(str(ws), [str(a / "src" / "x.py")])) == _normalize_path(str(a))
     # majority wins; a temp path outside the root does not vote

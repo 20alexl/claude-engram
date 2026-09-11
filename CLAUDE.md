@@ -13,7 +13,7 @@ These happen via hooks. You don't call anything:
 | What | When It Fires | What You See |
 |---|---|---|
 | **Session restore** | SessionStart hook | Rules, mistakes, checkpoint, handoff |
-| **Edit tracking** | PostToolUse Edit/Write | "Edit tracked: file.py (edit #3)" |
+| **Edit tracking** | PostToolUse Edit/Write | Nothing printed; the count feeds the loop warning before the next edit (files under node_modules/, venvs, or a `non_project_dirs` name from `~/.claude_engram/config.json` never warn) |
 | **Loop warnings** | PreToolUse Edit/Write | Warning when same file edited 3+ times (state lives in per-session hook state, so concurrent sessions don't cross-contaminate) |
 | **Scored memory injection** | PreToolUse Edit/Write | Top 3 relevant memories for the file |
 | **Test tracking** | PostToolUse Bash | "PASS/FAIL Test tracked" |

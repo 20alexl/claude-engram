@@ -318,6 +318,7 @@ Cheap steps run inline on SessionStart. Heavier steps run in a detached backgrou
 | `CLAUDE_ENGRAM_GOAL_TURN_CAP` | `150` | Turns under a `/goal` before the halt arms (also `goal_turn_cap` in `.engram/config.json`) |
 | `CLAUDE_ENGRAM_WORKFLOW_RULES` | on | `off` keeps the pack's workflow tier out of a project (or `"workflow_rules": false`) |
 | `CLAUDE_ENGRAM_GIT_TRACE` | unset | A file path; every git call the hooks make is appended there with its duration |
+| `CLAUDE_ENGRAM_NON_PROJECT_DIRS` | unset | Comma-separated directory names that are never a project of their own, added to `node_modules`, `.venv`, `venv`, `__pycache__`; also `non_project_dirs` in `~/.claude_engram/config.json` |
 
 Embedding stores (decision-template cache, memory embeddings, session-search
 embeddings) are stamped with the active `model@dim` signature. Changing the

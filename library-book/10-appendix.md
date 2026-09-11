@@ -177,6 +177,7 @@ All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 | `CLAUDE_ENGRAM_COMPLIANCE`, `_ROTATION`, `_STRUCTURE`, `_DEFAULT_RULES`, `_WORKFLOW_RULES`, `_CODE_RULES` | flag | on | Environment overrides for the `.engram/config.json` switches; `off` disables, `ROTATION` also takes `auto` |
 | `CLAUDE_ENGRAM_HOOK_DEBUG` | flag | unset | `1` prints a stderr breadcrumb per hook |
 | `CLAUDE_ENGRAM_GIT_TRACE` | `str` | unset | A file path; every git call the hooks make is appended there |
+| `CLAUDE_ENGRAM_NON_PROJECT_DIRS` | `str` | unset | Comma-separated directory names that are never a project of their own; also `non_project_dirs` in `config.json`. Built in: `node_modules`, `.venv`, `venv`, `__pycache__` |
 
 ## Memory categories
 
@@ -268,6 +269,16 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.39 (2026-09-10)
+
+The first trial on another project, a fourteen-hour trade-lab session run from a git worktree. Its report, most important first: checkpoints carried everything across a compaction and the resume, the context-pressure warning fired once at the right moment with an accurate number, the milestone nudge was right both times. Then the list to fix.
+
+- **A session started in a worktree belongs to its main repository.** The cwd was `trade-lab/.scratch/<worktree>`; the worktree's `.git` file is a project marker, so the resolver made the worktree the project, nothing was registered there, and the fallbacks reached the workspace root: claude-engram's checkpoint was teased at a trade-lab session, two checkpoint blocks from two projects on the resume, another project's rule count, another project's recurring errors and test commands at every start. `paths.worktree_main` reads the `gitdir:` pointer and maps the worktree to the main working directory when git can see it; `canonical_project_root` also pulls a cwd inside a vendored or virtualenv directory up to the project above it. `get_project_dir` and the marker walk both use it. Smoke test with a real worktree layout. The scratch name is configuration now, not a rule engram ships: `.scratch` was this workspace's convention, so the built-in list is `node_modules`, `.venv`, `venv` and `__pycache__`, and `non_project_dirs` in `~/.claude_engram/config.json` (or `CLAUDE_ENGRAM_NON_PROJECT_DIRS`) adds a workspace's own.
+- **Output-based test detection only for commands that can run something.** A grep over a test file, a `git log` on a path containing the word pytest, a `cat` of a report: their OUTPUT quoted "3 passed" or "collected 2 items" and the tracker logged a passing test. The markers are now read only when the first command's executable is not a read-only tool (`grep`, `rg`, `cat`, `sed`, `git`, `find`, `jq`, and the like).
+- **No loop warning for files under a scratch directory.** Eighteen "edits without running tests" for a markdown plan under `.scratch/`. The warning already ignored non-code suffixes; it now also skips any path with a scratch, vendored or virtualenv segment.
+- **The per-edit "Edit tracked: x (edit #3)" line is gone.** It carried no decision. The count still feeds the loop warning; only the pressure nudges ride the post-edit hook.
+- The skill tells the model to keep `task_description` a title and put the state in the structured checkpoint fields, which restore as lists rather than one paragraph.
 
 ### v0.8.38 (2026-09-10)
 

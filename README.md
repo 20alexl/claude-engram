@@ -17,7 +17,7 @@ Every row is a hook. You call nothing.
 | Before an edit | Injects the three memories most relevant to the file, warns before a past mistake tied to that file, warns after three edits to the same file in one session (edit loop), verifies that a proposed import resolves against the per-project code index (`<engram-precheck>`, with the closest name), lists the modules that import the file (`<engram-blast-radius>`), shows related files and likely errors from history, and checks the declared task scope |
 | Before a read | Once per file per session: an orientation from the code index plus the file's most relevant memories (`<engram-read-context>`) |
 | Before a shell command | Matches the command against every rule that carries a detector and injects the rule before the command runs (`<engram-rule>`). Under a goal run a deny detector refuses the command |
-| After an edit | Tracks the edit and its count |
+| After an edit | Counts the edit for the loop warning and prints nothing. Files under `node_modules`, a virtualenv or a listed `non_project_dirs` name never warn |
 | After a shell command | Tracks test runs and their status, warns after three failed searches in a row (search spiral), and records which injections preceded a passing test (the outcome feedback loop) |
 | After any batch of tool calls | Accounts the calls to the turn for stall detection and records detector matches on non-shell tools (path globs on edits, MCP tools by name) |
 | After a failed tool | Logs the error as a mistake, unless it was a failing test run. When the failure matches a recurring error from past sessions or a stored mistake, injects the past fix at once ("Deja vu: TypeError hit in 3 past sessions, fix: ...") |
@@ -139,7 +139,7 @@ Two tiers. The hot tier (`memory.json`) holds rules, mistakes and recent memorie
 
 Before every edit the hot memories are scored against the file: 35% file path match, 20% tag overlap, 20% recency (30-day decay), 15% importance, 10% access frequency, plus a bonus of 0.3 for rules, 0.25 for lessons and 0.2 for mistakes. Path matching is path-aware, so a shared basename across diverging paths is not a match, and generic names (`__init__.py`, `index.js`, `README.md`, `main.py`) need a full-path signal to score. The top three are injected. The outcome feedback loop applies a bounded multiplier (0.8 to 1.2) to the kinds of injection that precede passing tests.
 
-In a workspace with several projects, memories are scoped to the sub-project of the file being edited, detected by markers like `pyproject.toml`, `package.json`, `.git` or `CLAUDE.md`. Rules and mistakes at the workspace root are inherited by every project under it, and `memory(list_rules)` marks the inherited ones. Mined mistakes and decisions are filed under the registered project whose files they name, so `list_mistakes`, `recall` and the banner are per project.
+In a workspace with several projects, memories are scoped to the sub-project of the file being edited, detected by markers like `pyproject.toml`, `package.json`, `.git` or `CLAUDE.md`. Rules and mistakes at the workspace root are inherited by every project under it, and `memory(list_rules)` marks the inherited ones. A session started inside a git worktree, or under `node_modules`, a virtualenv or a directory you list in `non_project_dirs`, belongs to the repository above it: its rules, its checkpoint ring, its patterns. Mined mistakes and decisions are filed under the registered project whose files they name, so `list_mistakes`, `recall` and the banner are per project.
 
 ## Checkpoints and compaction
 
@@ -321,10 +321,11 @@ All optional. The [library book](./library-book/) has the detail on each.
 | `CLAUDE_ENGRAM_ALERT_COMMAND` | unset | Shell command for alerts; `{message}` is replaced |
 | `CLAUDE_ENGRAM_RESUME_SLACK` | `90` | Seconds the launcher waits past a usage-window reset before resuming |
 | `CLAUDE_ENGRAM_COMPLIANCE`, `CLAUDE_ENGRAM_ROTATION`, `CLAUDE_ENGRAM_STRUCTURE`, `CLAUDE_ENGRAM_DEFAULT_RULES`, `CLAUDE_ENGRAM_WORKFLOW_RULES`, `CLAUDE_ENGRAM_CODE_RULES` | on | Environment overrides for the project config switches (`off` disables; `ROTATION` also takes `auto`) |
+| `CLAUDE_ENGRAM_NON_PROJECT_DIRS` | unset | Comma-separated directory names that are never a project (adds to `non_project_dirs` in the config file) |
 | `CLAUDE_ENGRAM_HOOK_DEBUG` | unset | `1` prints a stderr breadcrumb per hook |
 | `CLAUDE_ENGRAM_GIT_TRACE` | unset | A file path; every git call the hooks make is logged there |
 
-`~/.claude_engram/config.json` accepts `embed_model`, `embed_dim` and `lessons_globs` (a list of globs, for example `["docs/lessons/*.md"]`; no default path). `<project>/.engram/config.json` holds the per-project switches listed under [Project defaults](#project-defaults).
+`~/.claude_engram/config.json` accepts `embed_model`, `embed_dim`, `lessons_globs` (a list of globs, for example `["docs/lessons/*.md"]`; no default path) and `non_project_dirs` (directory names that are never a project of their own, added to the built-in `node_modules`, `.venv`, `venv` and `__pycache__`; a workspace with a `.scratch/` convention lists it here). `<project>/.engram/config.json` holds the per-project switches listed under [Project defaults](#project-defaults).
 
 ## Storage
 
