@@ -270,8 +270,8 @@ The hooks capture what happens inside a session. The miner reads the transcripts
 `session_mine` operations:
 
 - `search(query, method=hybrid|semantic|keyword, kind=decision|next-step|error|narration, since, until)`: every past conversation, tool content included
-- `decisions(query)`: when and why a decision was made
-- `replay(file_path)`: discussions about a file; `predict(file_path)`: the context an edit will need
+- `decisions(query)`: when and why a decision was made, from the transcripts and from the repository's own history (`git log -S` on the query and its most specific tokens, with the commit messages)
+- `replay(file_path)`: discussions about a file, followed by the commits that touched it; `predict(file_path)`: the context an edit will need
 - `struggles`, `errors`, `correlations` (files always edited together), `timeline`, `summaries`, `overview`, `status` (index coverage), `cross_project`
 - `reflect`: which injection kinds precede passing tests, plus insights from recurring mistakes synthesized by the local model
 - `commitments`: what you said you would do this session and whether it is done, from the live transcript

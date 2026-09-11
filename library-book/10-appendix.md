@@ -270,6 +270,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.42 (2026-09-11)
+
+The trade-lab model's honest answer to "did engram find why the constant is 0.15": no. `session_mine(decisions)` raised `FileNotFoundError` on the sub-project's missing embeddings index; `replay` returned edit timestamps with no reasons. Git found it: a pickaxe on the constant led to the introducing commit of 2026-08-16, whose message carried the only reason ever written.
+
+- **Decisions never crash on a missing index.** `search_sessions` had already walked up to the workspace root's index; the context expansion then reopened the sub-project's own store and died. `_resolve_project_with_inheritance` returns the project that actually holds the index and its store dir, and the expansion reads that index and that project's transcript folder. The search runs hybrid, not semantic-only, so a scorer that is down or a store built by another model still answers by keyword.
+- **The repository is a record engram now reads.** `git_pickaxe(project, query)` runs `git log -S` for the query and its most specific tokens (a number first, then an identifier, then the longest word) and returns the commits with their messages as results of kind `git`; `find_decision` appends them. `git_file_history` (`git log --follow`) rides along with `replay`, so an edit chunk's "when" comes with the commit's "why". Replayed on the live store: the failed query now returns ten results, and the file replay lists the 2026-08-16 introducing commit.
+- **The MCP layer maps a worktree to its repository.** `server.call_tool` passes every `project_path` through `canonical_project_root`, so a tool called from `trade-lab/.scratch/<wt>` reads trade-lab's store, not an unregistered worktree's.
+
 ### v0.8.41 (2026-09-11)
 
 The third report from the trade-lab session: the restore after the machine went down carried the exact state back three and a half hours later, the compaction resume re-injected the loader checkpoint, and since 0.8.40 the noise had dropped (no test-tracker false positives, quieter edit reminders, the nudge once instead of every message). Still there: the rule count at start and the cross-project errors in a fresh banner. The user's rulings: the rules stay in the banner (a model that does not see them does not follow them); the checkpoint gate before a commit stays off; the cwd-is-not-the-project bug gets fixed everywhere with one loader.

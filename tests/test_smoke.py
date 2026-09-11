@@ -270,6 +270,43 @@ def test_recurring_errors_are_scoped_to_the_sessions_project(tmp_path: Path, mon
     assert "InputEncoderRegistry" in text_v11 and "KeyError" not in text_v11
 
 
+def _git_repo_with_a_reason(tmp_path: Path) -> Path:
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    def git(*a):
+        subprocess.run(["git", *a], cwd=str(repo), check=True, capture_output=True, env=env, stdin=subprocess.DEVNULL)
+    git("init", "-q")
+    (repo / "src" / "sync.py").write_text("PACE = 0.5\n", encoding="utf-8")
+    git("add", "."); git("commit", "-q", "-m", "sync: first cut")
+    (repo / "src" / "sync.py").write_text("PACE = 0.15  # seconds between requests\n", encoding="utf-8")
+    git("add", "."); git("commit", "-q", "-m", "sync: pace 0.15", "-m", "SEC allows ten requests a second; we stay well under.")
+    return repo
+
+
+def test_decisions_read_the_repos_history_and_never_crash_on_a_missing_index(tmp_path: Path):
+    from claude_engram.mining import search
+    repo = _git_repo_with_a_reason(tmp_path)
+    store = tmp_path / "store"
+    (store / "projects" / "sub").mkdir(parents=True)
+    # The project is registered with a memory store only (no embeddings index): the trade-lab shape.
+    (store / "manifest.json").write_text(json.dumps({"projects": {search._normalize_path(str(repo)): {"hash": "sub"}}}), encoding="utf-8")
+    res = search.find_decision(str(repo), "PACE 0.15 seconds between requests", engram_storage_dir=str(store))
+    texts = [r.chunk_text for r in res]
+    assert any("we stay well under" in t for t in texts), texts
+    assert all(r.msg_type == "git" for r in res)
+    # The file's history rides along with replay.
+    hist = search.git_file_history(str(repo), str(repo / "src" / "sync.py"))
+    assert len(hist) == 2 and hist[0].chunk_text.startswith("commit ") and hist[0].related_files == ["src/sync.py"]
+    # Inheritance resolves the ancestor that holds the index.
+    (store / "projects" / "root").mkdir()
+    (store / "projects" / "root" / "session_embeddings_index.json").write_text('{"chunks": []}', encoding="utf-8")
+    manifest = {"projects": {search._normalize_path(str(tmp_path)): {"hash": "root"}, search._normalize_path(str(repo)): {"hash": "sub"}}}
+    got = search._resolve_project_with_inheritance(str(repo), manifest, store, require_file="session_embeddings_index.json")
+    assert got is not None and got[0] == search._normalize_path(str(tmp_path)) and got[1].name == "root"
+
+
 def test_generic_basenames_need_a_full_path():
     gate = 0.35 * 0.5  # a bare-name match would score 0.5 under the 0.35 file weight
     assert hot_reader._file_match_score("E:/ws/engram/README.md", [], "FileNotFoundError: src/README.md") == 0.0

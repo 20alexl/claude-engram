@@ -45,6 +45,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     This is a thin routing layer - all logic is in handlers.py.
     """
+    # A worktree or scratch path names its repository: the model passes the
+    # cwd it works in, and that is a worktree more often than a project.
+    try:
+        _pp = arguments.get("project_path") if isinstance(arguments, dict) else None
+        if _pp:
+            from claude_engram.hooks.paths import canonical_project_root
+
+            arguments = dict(arguments)
+            arguments["project_path"] = canonical_project_root(str(_pp))
+    except Exception:
+        pass
     # Route to handler based on tool name
     match name:
         # =====================================================================

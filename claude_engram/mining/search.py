@@ -947,42 +947,58 @@ def find_decision(
     Searches across sessions with context expansion — returns the decision
     plus surrounding conversation for full reasoning.
     """
+    # Hybrid, not semantic-only: with the scorer down or the store built
+    # by another model the semantic half is zero and keyword still answers.
     results = search_sessions(
         project_path,
         query,
         limit=5,
-        method="semantic",
+        method="hybrid",
         engram_storage_dir=engram_storage_dir,
     )
+    # The repository's own history is the other record: the commit that
+    # introduced a constant carries the reason more often than a transcript.
+    try:
+        results.extend(git_pickaxe(project_path, query, limit=5))
+    except Exception:
+        pass
 
-    # Expand context: for each result, load surrounding messages
-    jsonl_dir = resolve_jsonl_dir(project_path)
-    if not jsonl_dir:
+    # Expand context from the index the search actually used (the project's
+    # own, else the ancestor's) and THAT project's transcript folder.
+    try:
+        storage = Path(engram_storage_dir).expanduser()
+        manifest = json.loads((storage / "manifest.json").read_text(encoding="utf-8"))
+        resolved = _resolve_project_with_inheritance(
+            project_path, manifest, storage, require_file="session_embeddings_index.json"
+        )
+        if not resolved:
+            return results
+        owner_path, hash_dir = resolved
+        jsonl_dir = resolve_jsonl_dir(owner_path)
+        idx_path = hash_dir / "session_embeddings_index.json"
+        if not jsonl_dir or not idx_path.exists():
+            return results
+        idx_data = json.loads(idx_path.read_text(encoding="utf-8"))
+        chunks = list(_iter_index_chunks(idx_data))
+    except Exception:
         return results
 
     for result in results:
-        # Find the JSONL file for this session
-        storage = Path(engram_storage_dir).expanduser()
-        manifest = json.loads((storage / "manifest.json").read_text())
-        norm_path = _normalize_path(project_path)
-        proj_info = manifest.get("projects", {}).get(norm_path)
-        if not proj_info:
+        if result.msg_type == "git":
             continue
-
-        hash_dir = storage / "projects" / proj_info["hash"]
-        idx_data = json.loads((hash_dir / "session_embeddings_index.json").read_text())
-
-        # Find the chunk's JSONL file
-        for chunk in _iter_index_chunks(idx_data):
+        for chunk in chunks:
             if (
                 chunk.get("session_id") == result.session_id
                 and chunk.get("preview") == result.chunk_text
             ):
-                jsonl_file = jsonl_dir / chunk["jsonl_file"]
-                if jsonl_file.exists():
-                    result.surrounding = _get_surrounding_messages(
-                        jsonl_file, chunk["msg_offset"], window=3
-                    )
+                jsonl_file = jsonl_dir / str(chunk.get("jsonl_file") or "")
+                if chunk.get("jsonl_file") and jsonl_file.exists():
+                    try:
+                        result.surrounding = _get_surrounding_messages(
+                            jsonl_file, chunk["msg_offset"], window=3
+                        )
+                    except Exception:
+                        pass
                 break
 
     return results
@@ -1047,7 +1063,14 @@ def find_file_discussions(
             )
 
     results.sort(key=lambda r: (-r.score, r.timestamp))
-    return results[:limit]
+    out = results[:limit]
+    # An edit chunk says WHEN; the commit that carried it says WHY. The
+    # file's own history rides along after the transcript hits.
+    try:
+        out.extend(git_file_history(project_path, file_path, limit=8))
+    except Exception:
+        pass
+    return out
 
 
 def _get_surrounding_messages(
@@ -1083,6 +1106,129 @@ def _normalize_path(project_path: str) -> str:
     if len(norm) >= 2 and norm[1] == ":":
         norm = norm[0].lower() + norm[1:]
     return norm
+
+
+def _resolve_project_with_inheritance(
+    project_path: str,
+    manifest: dict,
+    storage: Path,
+    require_file: str = "",
+) -> "Optional[tuple[str, Path]]":
+    """The registered project (normalized path) and its store dir that
+    actually holds ``require_file``: the project itself, else the nearest
+    ancestor. A sub-project with only a memory store (trade-lab, whose
+    sessions run from the workspace root) searches the root's index; every
+    later read of that index must use THIS dir and THIS project's
+    transcript folder, not the sub-project's (2026-09-11: a decisions
+    query crashed on the sub-project's missing embeddings index after the
+    search itself had already used the root's)."""
+    norm = _normalize_path(project_path)
+    projects = manifest.get("projects", {})
+    current = norm
+    while True:
+        if current in projects:
+            hash_dir = storage / "projects" / projects[current]["hash"]
+            if not require_file or (hash_dir / require_file).exists():
+                return current, hash_dir
+        parent = str(Path(current).parent).replace("\\", "/")
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
+_GIT_LOG_TIMEOUT = 15.0
+_STOPWORDS = frozenset(
+    "the a an and or of to in on for with by from at as is are was were be this that "
+    "it its we our you your they their not no yes between per when why how what which "
+    "seconds second minutes minute hours hour rate limit requests request".split()
+)
+
+
+def _git_log(project_path: str, args: list[str], limit: int) -> list[SearchResult]:
+    """Commits from the project's own history, as search results. The
+    trade-lab trial's answer to "why 0.15 seconds" was in the introducing
+    commit's message, found by a pickaxe, not in any transcript: the
+    repository is a record engram had never read."""
+    import subprocess
+
+    cwd = project_path if os.path.isdir(project_path or "") else ""
+    if not cwd:
+        return []
+    try:
+        r = subprocess.run(
+            ["git", "--no-optional-locks", "log", f"-n{limit}", "--date=short",
+             "--format=%h%x1f%ad%x1f%s%x1f%b%x1e", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_GIT_LOG_TIMEOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return []
+    if r.returncode != 0 or not r.stdout.strip():
+        return []
+    out: list[SearchResult] = []
+    for rec in r.stdout.split("\x1e"):
+        parts = rec.strip("\n").split("\x1f")
+        if len(parts) < 3:
+            continue
+        sha, date, subject = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        body = " ".join(parts[3].split()) if len(parts) > 3 else ""
+        if not sha:
+            continue
+        text = f"commit {sha} ({date}): {subject}"
+        if body:
+            text += f" -- {body[:400]}"
+        out.append(SearchResult(chunk_text=text, score=0.9, session_id="git", timestamp=date, msg_type="git"))
+    return out
+
+
+def git_pickaxe(project_path: str, query: str, limit: int = 5) -> list[SearchResult]:
+    """Commits whose diff introduced or removed the query (or its most
+    specific token), with their messages: where a number's reason usually
+    lives."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    seen: set = set()
+    results: list[SearchResult] = []
+    candidates = [q] if len(q) <= 60 else []
+    tokens = [t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_.]{3,}|\d+(?:\.\d+)?", q) if t.lower() not in _STOPWORDS]
+    # A number first ("why 0.15"), then an identifier with an underscore,
+    # then the longest word: the most specific needle finds the commit.
+    tokens.sort(key=lambda t: (0 if re.fullmatch(r"\d+(?:\.\d+)?", t) else 1 if "_" in t else 2, -len(t), t))
+    for t in tokens[:3]:
+        if t not in candidates:
+            candidates.append(t)
+    for needle in candidates:
+        for res in _git_log(project_path, ["-S", needle], limit):
+            key = res.chunk_text[:20]
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(res)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def git_file_history(project_path: str, file_path: str, limit: int = 8) -> list[SearchResult]:
+    """The commits that touched a file, with their messages."""
+    fp = (file_path or "").replace("\\", "/")
+    root = _normalize_path(project_path).rstrip("/").lower() if project_path else ""
+    if root and fp.lower().startswith(root + "/"):
+        fp = fp[len(root) + 1 :]
+    if not fp:
+        return []
+    out = _git_log(project_path, ["--follow", "--", fp], limit)
+    for r in out:
+        r.score = 0.8
+        r.related_files = [fp]
+    return out
 
 
 def _resolve_hash_dir_with_inheritance(
