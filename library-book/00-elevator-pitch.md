@@ -1,4 +1,4 @@
-# Chapter 0 — The Elevator Pitch
+# Chapter 0: The elevator pitch
 
 [← Back to Table of Contents](./README.md) · [Next: The Why →](./01-the-why.md)
 
@@ -6,7 +6,7 @@
 
 ## What is Claude Engram?
 
-Claude Engram gives Claude Code persistent memory across sessions. It automatically tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time — before you edit a file, after an error, or when context gets compacted. It also builds a per-project code index (symbol table, imports, reverse-dependency edges) and uses it to warn proactively about broken imports before edits land. Ollama is an optional flavor — a local LLM powers `scout_search`'s semantic mode and the background `memory(consolidate)` / `session_mine(reflect)` insight synthesis — but the whole proactive system (hooks, memory, code index, pre-edit checks, scoring) runs without it.
+Claude Engram gives Claude Code persistent memory across sessions. It tracks your mistakes, decisions, and context through Claude Code's hook system, then surfaces the right information at the right time: before you edit a file, after an error, or when context gets compacted. It also builds a per-project code index (symbol table, imports, reverse-dependency edges) and uses it to warn about broken imports before edits land. It brackets Claude Code's `/goal` loop so an unattended run cannot poll all night or die silently. Ollama is optional. A local LLM powers `scout_search`'s semantic mode and the background `memory(consolidate)` and `session_mine(reflect)` insight synthesis, and the whole proactive system (hooks, memory, code index, pre-edit checks, scoring) runs without it.
 
 ## Who is it for?
 
@@ -20,7 +20,7 @@ Before Claude Engram, you either:
 - Lost all working context when the conversation compacted
 - Had no way to detect when Claude was stuck in an edit loop
 
-## Show Me
+## Show me
 
 ```python
 # Everything below happens automatically via hooks. Zero invocations needed.
@@ -53,9 +53,9 @@ Before Claude Engram, you either:
 #   → Code index updated incrementally (changed files only)
 ```
 
-## The One-Liner
+## The one-liner
 
-> Persistent memory, mistake tracking, proactive code-awareness, and context survival for Claude Code — mostly automatic, powered by hooks.
+> Persistent memory, mistake tracking, code awareness, context survival and a bracket around `/goal` for Claude Code, mostly automatic, powered by hooks.
 
 ---
 

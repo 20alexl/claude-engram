@@ -1,10 +1,10 @@
-# Chapter 8 — Contributing
+# Chapter 8: Contributing
 
 [← Back to Table of Contents](./README.md) · [Previous: The Gotchas](./07-the-gotchas.md) · [Next: The Roadmap →](./09-the-roadmap.md)
 
 ---
 
-## Development Setup
+## Development setup
 
 ```bash
 # Clone
@@ -23,9 +23,9 @@ pip install -e ".[semantic]"
 ollama pull gemma3:12b
 ```
 
-## Running Tests
+## Running tests
 
-Testing is done via inline verification and benchmark scripts in `tests/`:
+Testing runs through inline verification and benchmark scripts in `tests/`:
 
 ```bash
 # Basic import check
@@ -62,7 +62,7 @@ print(f'All {len(types)} handlers present')
 | Script | What it tests |
 |--------|--------------|
 | `bench_handoff_durability.py` | Ring buffer, promotion guard, walk-up resolution, manual-wins semantics |
-| `bench_path_relevance.py` | Path-aware `file_match` — no cross-version false positives, generic basenames require full-path signal |
+| `bench_path_relevance.py` | Path-aware `file_match`: no cross-version false positives, and generic basenames require a full-path signal |
 | `bench_migrations.py` | Idempotent migration steps: seed handoff history, re-extract related_files |
 | `bench_decision_capture.py` | Decision intent scoring (semantic + regex) |
 | `bench_scoring.py` | Memory relevance scoring weights |
@@ -72,15 +72,15 @@ print(f'All {len(types)} handlers present')
 
 A formal pytest suite is an ongoing roadmap item; coverage is partial.
 
-## Code Style
+## Code style
 
 No formal linter configured yet. Follow existing patterns:
 - Type hints on function signatures
 - Docstrings on public methods
 - `snake_case` for everything
-- Silent failure in hooks (`try/except: pass`) — hooks must never block Claude
+- Silent failure in hooks (`try/except: pass`): hooks must never block Claude
 
-## Before Submitting a PR
+## Before submitting a PR
 
 - [ ] All existing imports still work (`python -c "from claude_engram.server import server"`)
 - [ ] `hooks_config.json` handler types match `main()` in `remind.py`
@@ -89,7 +89,7 @@ No formal linter configured yet. Follow existing patterns:
 - [ ] Memory changes preserve backward compatibility (existing `memory.json` files still load)
 - [ ] No new dependencies in the base install (use `[optional]` extras)
 
-## Project Structure for Contributors
+## Project structure for contributors
 
 | I want to... | Look in / Add to |
 |--------------|-----------------|
@@ -117,9 +117,9 @@ The session miner runs as a background subprocess. Phases in order:
 | 5 | Auto-refresh embeddings for hybrid_search | `mining/search.py` (embed refresh) |
 | 6 | Incremental code index update (symbol table per project) | `mining/code_index.py` |
 
-## How Decisions Are Made
+## How decisions are made
 
-Feature requests and bug reports go to the [GitHub issues page](https://github.com/20alexl/claude-engram/issues). PRs are welcome for bug fixes and improvements that align with the design principles in [Chapter 2](./02-the-design.md).
+Feature requests and bug reports go to the [GitHub issues page](https://github.com/20alexl/claude-engram/issues). PRs are welcome for bug fixes and improvements that fit the design principles in [Chapter 2](./02-the-design.md).
 
 ---
 

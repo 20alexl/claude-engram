@@ -1,4 +1,4 @@
-# Chapter 7 — The Gotchas
+# Chapter 7: The Gotchas
 
 [← Back to Table of Contents](./README.md) · [Previous: Advanced Usage](./06-advanced-usage.md) · [Next: Contributing →](./08-contributing.md)
 
@@ -8,7 +8,7 @@
 
 **Symptom:** You call `memory(remember, project_path="/home/user/projects")` then wonder why the memory doesn't show up when editing `~/projects/my-project/app.py`.
 
-**Cause:** It actually does show up — sub-projects inherit workspace-level memories via parent-path fallback. But if you store everything at workspace level, there's no per-project scoping.
+**Cause:** It does show up: sub-projects inherit workspace-level memories via parent-path fallback. But if you store everything at workspace level, there's no per-project scoping.
 
 **Fix:** Let the hooks handle it. When hooks auto-capture mistakes or decisions, they resolve the sub-project automatically from the file being edited. For manual `memory(remember)` calls, pass the sub-project path.
 
@@ -34,7 +34,7 @@ If you upgraded and still see stale cross-version warnings, run `python -m claud
 
 **Symptom:** Decision capture only works via regex. Semantic scoring returns 0.0.
 
-**Cause:** `sentence-transformers` is not installed, or the server failed to start. The server auto-starts on SessionStart but is fire-and-forget — if it fails, there's no error shown.
+**Cause:** `sentence-transformers` is not installed, or the server failed to start. The server auto-starts on SessionStart but is fire-and-forget, so if it fails, there's no error shown.
 
 **Fix:**
 ```bash
@@ -59,7 +59,7 @@ memory(operation="archive_status", project_path="/path")  # Check hot tier size
 memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot entries
 ```
 
-**Lesson:** Keep the hot tier under ~50 entries. Archive aggressively. The archive is unlimited — searches are fast because they only happen on explicit request.
+**Lesson:** Keep the hot tier under ~50 entries. Archive aggressively. The archive is unlimited, and searches are fast because they only happen on explicit request.
 
 ---
 
@@ -79,7 +79,7 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Reduce hot e
 
 **Symptom:** You set `CLAUDE_ENGRAM_MODEL=gemma3:4b` but the status tool still shows `gemma3:12b`.
 
-**Cause:** The MCP server runs as a separate process launched by Claude Code. Setting env vars in your terminal only affects that terminal — not the MCP server process. The `.mcp.json` `env` field exists but has a known issue on Windows where values arrive empty.
+**Cause:** The MCP server runs as a separate process launched by Claude Code. Setting env vars in your terminal only affects that terminal, not the MCP server process. The `.mcp.json` `env` field exists but has a known issue on Windows where values arrive empty.
 
 **Fix:** Set the env var system-wide, then restart Claude Code:
 ```bash
@@ -110,11 +110,11 @@ export CLAUDE_ENGRAM_MODEL="gemma3:4b"
 
 **Symptom:** Ollama isn't running but Claude Engram seems to work fine.
 
-**Cause:** Ollama is only needed by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently without it), plus `scout_search` when available. Everything else — all hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving, code index, pre-edit import verification, blast-radius) plus `convention(check)`, `file_summarize`, `audit_batch`, and `find_similar_issues` — is LLM-free.
+**Cause:** Ollama is only needed by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently without it), plus `scout_search` when available. Everything else is LLM-free: all hook-based features (mistake tracking, decision capture, loop detection, scoring, archiving, code index, pre-edit import verification, blast-radius) plus `convention(check)`, `file_summarize`, `audit_batch`, and `find_similar_issues`.
 
 **Fix:** Nothing to fix. Just know that `claude_engram_status` will report "failed" if Ollama is down, but that only affects the two optional insight paths and `scout_search`'s semantic mode.
 
-**Lesson:** Claude Engram has two layers: the proactive/analysis system (no external deps — pure ast/regex) and an optional LLM flavor (Ollama, for `consolidate`/`reflect` synthesis and `scout_search`). They're independent.
+**Lesson:** Claude Engram has two layers: the proactive/analysis system (no external deps, pure ast/regex) and an optional LLM flavor (Ollama, for `consolidate`/`reflect` synthesis and `scout_search`). They're independent.
 
 ---
 
@@ -143,17 +143,17 @@ python install.py
 
 **Cause:** The code index (`mining/code_index.py`) uses Python's `ast` module. It only indexes `.py` files. Non-Python files are not parsed, and `hooks/precheck.py` silently degrades to no output for them.
 
-**Fix:** Nothing to fix — it's intentional scope. For non-Python projects, `impact_analyze` and `deps_map` still provide blast-radius and dependency info, just without the symbol-level import check.
+**Fix:** Nothing to fix; this is the intended scope. For non-Python projects, `impact_analyze` and `deps_map` still provide blast-radius and dependency info, just without the symbol-level import check.
 
 **Lesson:** Pre-edit import verification is Python-only. It is also advisory: it warns but never blocks. A missing warning doesn't mean the import is valid.
 
 ---
 
-### Gotcha: Code index is sub-project scoped — workspace root won't index sibling projects
+### Gotcha: Code index is sub-project scoped, so a workspace root won't index sibling projects
 
 **Symptom:** You run from a workspace root containing `projectA/` and `projectB/`. The code index built for the workspace doesn't know about symbols in `projectB/` when you're working in `projectA/`.
 
-**Cause:** The index walk stops at project boundaries (dirs containing `pyproject.toml`, `package.json`, `.git`, `CLAUDE.md`, etc.). Each sub-project gets its own index. This is deliberate — a pooled cross-project symbol table would cause service-a/service-b-style cross-pollution.
+**Cause:** The index walk stops at project boundaries (dirs containing `pyproject.toml`, `package.json`, `.git`, `CLAUDE.md`, etc.). Each sub-project gets its own index. This is deliberate: a pooled cross-project symbol table would cause service-a/service-b-style cross-pollution.
 
 **Fix:** Nothing to fix. When the hook fires for a file in `projectA/`, it resolves the index for `projectA/` only. Impact analysis across projects still works via `impact_analyze` with an explicit `project_root`.
 
@@ -165,9 +165,9 @@ python install.py
 
 **Symptom:** `session_mine(reflect)` shows injection precision that seems slightly off, missing a few injections or test results.
 
-**Cause:** The outcome log (`mining/outcomes.py`) is a single global file (the edit hook and bash hook see different cwds, so per-project attribution is ambiguous). Under two concurrent Claude Code sessions, the last writer wins on each atomic write, so a small number of outcome events from the other session can be overwritten. Note: loop-detection state is NOT affected — it moved to per-session files (`sessions/<sid>.json`) in v0.8.0, so edit counts and test results never cross-contaminate.
+**Cause:** The outcome log (`mining/outcomes.py`) is a single global file (the edit hook and bash hook see different cwds, so per-project attribution is ambiguous). Under two concurrent Claude Code sessions, the last writer wins on each atomic write, so a small number of outcome events from the other session can be overwritten. Note: loop-detection state is NOT affected: it moved to per-session files (`sessions/<sid>.json`) in v0.8.0, so edit counts and test results never cross-contaminate.
 
-**Fix:** Nothing to fix. The outcome log is bounded (1000 events) and atomic per write, so it's correct for single sessions. For concurrent sessions, precision metrics are approximate — tolerable for a tuning signal.
+**Fix:** Nothing to fix. The outcome log is bounded (1000 events) and atomic per write, so it's correct for single sessions. For concurrent sessions, precision metrics are approximate, which is tolerable for a tuning signal.
 
 **Lesson:** Don't run two sessions doing heavy editing simultaneously if you care about precise reflect metrics. One-session workflows are fully accurate.
 
@@ -195,7 +195,7 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Symptom:** Claude Code shows the call as still running (its MCP log: "Tool 'context' still running (210s elapsed)"), the model gets "Connection closed", and yet the checkpoint IS in the ring afterwards. Reconnecting the server (`/mcp`) clears it until the next save.
 
-**Cause:** The save runs one git call (`repo_state.head`) for the commit stamp. Inside a stdio MCP server the git child inherited the server's stdin — the JSON-RPC pipe from Claude Code — and stalled for the whole git timeout; the same handler takes 40 ms in-process. Measured by driving a fresh server over stdio with the MCP client library: 4.0 s per save with a project path, 0.0 s without one.
+**Cause:** The save runs one git call (`repo_state.head`) for the commit stamp. Inside a stdio MCP server the git child inherited the server's stdin, the JSON-RPC pipe from Claude Code, and stalled for the whole git timeout; the same handler takes 40 ms in-process. Measured by driving a fresh server over stdio with the MCP client library: 4.0 s per save with a project path, 0.0 s without one.
 
 **Fix (0.8.33):** every `subprocess` call in the package passes `stdin=subprocess.DEVNULL` (a smoke test guards the rule). To see git from inside a long-lived process, set `CLAUDE_ENGRAM_GIT_TRACE=<file>`: one line per call with cwd, exit code and seconds.
 
@@ -203,7 +203,7 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Symptom:** The heads-up arrived, the model banked a checkpoint, and then the session compacted with no `CHECKPOINT NOW` in between. After the compaction the session-start banner showed rules and mistakes but not the checkpoint the model had just written; the model resumed from Claude Code's own summary. (Seen on the engram build session itself, 2026-09-10: heads-up at 651K, compaction at 717,578 against a 750K setting.)
 
-**Cause:** Two. Auto-compaction fires below the configured number — Claude Code keeps room for the model's output first, ~32K — so a band placed "3% out" (30K on a 1M window) sat inside that reserve and could not fire; the 5% band on a 200K window (10K) is inside it too. And `PostCompact` printed plain stdout on the belief that the hook had no structured output; per the hooks reference plain stdout on exit 0 is shown to the person, never added to Claude's context, while `hookSpecificOutput.additionalContext` is. A manual `/compact` looked fine only because the terminal echoed the command's output into the user turn. The SessionStart(compact) banner, which does reach the model, skipped the restored checkpoint because "PostCompact handles it."
+**Cause:** Two. Auto-compaction fires below the configured number, because Claude Code keeps room for the model's output first (~32K), so a band placed "3% out" (30K on a 1M window) sat inside that reserve and could not fire; the 5% band on a 200K window (10K) is inside it too. And `PostCompact` printed plain stdout on the belief that the hook had no structured output; per the hooks reference plain stdout on exit 0 is shown to the person, never added to Claude's context, while `hookSpecificOutput.additionalContext` is. A manual `/compact` looked fine only because the terminal echoed the command's output into the user turn. The SessionStart(compact) banner, which does reach the model, skipped the restored checkpoint because "PostCompact handles it."
 
 **Fix (0.8.29):** The last band is an absolute distance above the measured trigger (`OUTPUT_RESERVE` 32K, `CHECKPOINT_MARGIN` 20K; 10K on ≤ 200K windows), so on 750K it fires at ~698K, before the 717K compaction. PostCompact emits `additionalContext`. SessionStart(compact) shows the banked checkpoint with its goal and the repo's movement since. `bench_context_pressure` replays the session's numbers through the real hooks.
 
@@ -219,7 +219,7 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Symptom:** `python -m claude_engram …` (or a hook) writes a rule or memory; the running session's `memory(delete)` on that id says not found, or a later save from the session quietly drops what the CLI wrote.
 
-**Cause (fixed in 0.8.22):** The MCP server is one long-lived `MemoryStore`. It loaded each project's `memory.json` once and kept serving that copy, and its save path fell back to "write every loaded project" for callers that never marked a project dirty — so a save for one project rewrote the others from a stale copy.
+**Cause (fixed in 0.8.22):** The MCP server is one long-lived `MemoryStore`. It loaded each project's `memory.json` once and kept serving that copy, and its save path fell back to "write every loaded project" for callers that never marked a project dirty, so a save for one project rewrote the others from a stale copy.
 
 **Fix:** Upgrade. Each loaded file carries a disk stamp; reads reload a copy the disk moved past, the manifest is re-read when another writer extended it, a stale project this process never touched is not written, and a mutation on a stale base merges by entry id. If you are on an older version, use one writer per session.
 
@@ -227,9 +227,9 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Symptom:** In a run launched with autonomy mode on, every tool call comes back denied with `engram halt: 3 strikes …`, and the run ends a few turns later with the goal still set.
 
-**Cause:** That is the design working. The run used tools for the whole strike ladder without changing a file, a test status or a commit — the overnight failure autonomy mode exists for — so engram starved it: every tool denied except PushNotification, ToolSearch and the checkpoint call. With no tool use the goal's own stall rule closes the loop; the launcher's turn cap is the backstop.
+**Cause:** That is the design working. The run used tools for the whole strike ladder without changing a file, a test status or a commit. That is the overnight failure autonomy mode exists for, so engram starved the run: every tool denied except PushNotification, ToolSearch and the checkpoint call. With no tool use the goal's own stall rule closes the loop; the launcher's turn cap is the backstop.
 
-**Fix:** Read the run report's Stalls section and the checkpoint the model left, decide what the run was missing, and either change the task or lift the halt with `python -m claude_engram.hooks.stall release <session_id>` (strikes reset) and resume the session. A halt that fires on a healthy run means the effect detector missed how the work lands — a script writing files under a name it does not recognise, say — and the fix is the detector, not the cap.
+**Fix:** Read the run report's Stalls section and the checkpoint the model left, decide what the run was missing, and either change the task or lift the halt with `python -m claude_engram.hooks.stall release <session_id>` (strikes reset) and resume the session. A halt that fires on a healthy run means the effect detector missed how the work lands (a script writing files under a name it does not recognise, say), and the fix is the detector, not the cap.
 
 ### Gotcha: an unattended run gets "refused by rule" on a push or a delete
 
@@ -245,7 +245,7 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Cause:** PushNotification is the model's tool: a desktop notification, and a phone push only when Remote Control is connected. A `claude -p` process has no desktop session to notify, and hooks cannot call the tool at all (verified).
 
-**Fix:** Configure `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command`) with the thing that reaches you — an ntfy topic, a webhook, a mail command — and `{message}` where the text goes. Every alert is recorded in the run report either way, so a missing command shows as `sent: no (no alert_command configured)`.
+**Fix:** Configure `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command`) with the thing that reaches you (an ntfy topic, a webhook, a mail command) and `{message}` where the text goes. Every alert is recorded in the run report either way, so a missing command shows as `sent: no (no alert_command configured)`.
 
 ### Gotcha: `claude -p "/goal …"` from Git Bash sets no goal
 
@@ -259,22 +259,22 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Symptom:** `session_mine(overview, project_path="E:/workspace/claude-engram")` reports 248 sessions and lists files like `page.tsx` and `make_slice.py` that belong to other projects in the workspace.
 
-**Cause:** Claude Code stores a transcript under the directory the session was STARTED from, not the directory the edits landed in — one folder per cwd under `~/.claude/projects/`. Sessions run from a workspace root therefore all index under the root, and every session-mining view for a sub-project under it (overview, timeline, patterns, search, reflect) is really the workspace's view. Nothing in engram can re-cut that: the transcripts carry no per-project split.
+**Cause:** Claude Code stores a transcript under the directory the session was STARTED from, not the directory the edits landed in: one folder per cwd under `~/.claude/projects/`. Sessions run from a workspace root therefore all index under the root, and every session-mining view for a sub-project under it (overview, timeline, patterns, search, reflect) is really the workspace's view. Nothing in engram can re-cut that: the transcripts carry no per-project split.
 
 **Fix:** Read the mining views as workspace-wide when you work from a root, and start a session inside the sub-project when you want its history alone. What IS attributed per project is `memory`: since v0.8.36 (rule corrected in v0.8.37) every mined mistake and decision is filed under the sub-project the files it names belong to, so `memory(list_mistakes)`, `memory(recall)` and the session banner are project-scoped even when the mining views are not.
 
 **Lesson:** Mining is indexed by where the session started; memory is attributed by which files the entry names. Two different keys, and only the second one follows the work.
 
-## Common Mistakes
+## Common mistakes
 
 | Mistake | What They Do | What They Should Do |
 |---------|-------------|-------------------|
 | Pass workspace root for everything | `project_path="/home/user/projects"` for all operations | Let hooks auto-resolve, or pass sub-project path |
 | Manually call `pre_edit_check` | Invokes it before every edit | It's automatic via PreToolUse hook. Only call for impact analysis. |
 | Never run cleanup | Hot tier grows to 100+ entries, hooks slow down | Run `cleanup` periodically, or it runs automatically on `session_start` |
-| Forget to install hooks | Copies `.mcp.json` but not hooks | Run `python install.py` — it installs both |
+| Forget to install hooks | Copies `.mcp.json` but not hooks | Run `python install.py`, which installs both |
 
-## Things That Look Like Bugs But Aren't
+## Things that look like bugs but aren't
 
 | Behavior | Why It Looks Wrong | Why It's Intentional |
 |----------|-------------------|---------------------|

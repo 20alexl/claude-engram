@@ -1,4 +1,4 @@
-# Chapter 4 — The Internals
+# Chapter 4: The Internals
 
 [← Back to Table of Contents](./README.md) · [Previous: Quick Start](./03-quick-start.md) · [Next: Usage Guide →](./05-usage-guide.md)
 
@@ -76,7 +76,7 @@ Storage: ~/.claude_engram/
     └── scorer_device        ← Device the loaded encoder runs on (cuda/cpu)
 ```
 
-## Core Components
+## Core components
 
 ### MemoryStore (`tools/memory.py`)
 
@@ -89,7 +89,7 @@ Storage: ~/.claude_engram/
 - Path normalization (`D:\Code` → `d:/Code`, lowercase drive, forward slashes) prevents duplicate project buckets
 - Deduplication uses Jaccard similarity (word-set overlap) with 0.85 threshold
 - Scoring: `0.35*file_match + 0.20*tag_overlap + 0.20*recency + 0.15*relevance + 0.10*access_freq` plus category bonuses
-- Archive: entries with `last_accessed > 14 days` and `relevance < 7` move to `archive.json`. Rules never archive. Mistakes: manual `log_mistake` entries never archive; stale auto-captured one-offs (3+ weeks old, never recurred per `patterns.json`, no overlap with recently-edited files) are moved to the archive by the miner — restorable via `memory(restore)`. Hook readers skip anything with `archived_at` set, which is also what makes `acknowledge_mistake` stick.
+- Archive: entries with `last_accessed > 14 days` and `relevance < 7` move to `archive.json`. Rules never archive. Mistakes: manual `log_mistake` entries never archive; stale auto-captured one-offs (3+ weeks old, never recurred per `patterns.json`, no overlap with recently-edited files) are moved to the archive by the miner and stay restorable via `memory(restore)`. Hook readers skip anything with `archived_at` set, which is also what makes `acknowledge_mistake` stick.
 
 ### HotMemoryReader (`tools/memory.py`)
 
@@ -103,7 +103,7 @@ Storage: ~/.claude_engram/
 - Shared constants (`SCORE_WEIGHTS`, `CATEGORY_BONUSES`) keep the two implementations in sync
 - Path-aware `file_match` (v0.5.0): a shared basename across diverging paths (`service-a/.../foo.py` vs `service-b/.../foo.py`) is not treated as a match. Generic basenames (`__init__.py`, `index.js`, `__main__.py`, etc.) require a full-path signal to match; specific filenames still match by name. Scoring weights are unchanged.
 
-### Hook System (`hooks/remind.py`)
+### Hook system (`hooks/remind.py`)
 
 **What it does:** Entry point for all Claude Code hooks. Routes hook events to handlers that auto-capture data and inject context.
 
@@ -111,24 +111,24 @@ Storage: ~/.claude_engram/
 
 **Key internals:**
 - `main()` dispatches on `hook_type` argument (e.g., `prompt_json`, `pre_edit_json`, `bash_json`)
-- All JSON hooks read stdin via `_read_stdin_with_timeout(0.5)` — a cross-platform reader with a daemon thread
+- All JSON hooks read stdin via `_read_stdin_with_timeout(0.5)`, a cross-platform reader with a daemon thread
 - `get_project_dir(file_path)` resolves sub-projects by walking up from the file looking for project markers
 - `_auto_capture_from_prompt()` uses two-tier scoring: semantic via scorer server (if available) → regex fallback
 - Hook output uses Claude Code's `hookSpecificOutput.additionalContext` format for conversation injection
 - `main()` sits at pyright's complexity ceiling; the SessionStart, PostCompact and Read branches are `_hook_session_start` / `_hook_post_compact` / `_hook_pre_read`. New hook logic goes in a function
 
-### Context Pressure (`hooks/context_pressure.py`)
+### Context pressure (`hooks/context_pressure.py`)
 
 **What it does:** Tells the model when compaction is near, as a distance to the compaction point, and nudges it to write a deliberate checkpoint before the automatic one.
 
-**Why it's separate:** Hooks receive no context-usage numbers at all. The statusline does (`context_window.total_input_tokens`, `context_window_size`, on every update). So the signal has to cross from the statusline to the hooks through a file, and the arithmetic has to know where compaction actually fires — which is not 100% of the window.
+**Why it's separate:** Hooks receive no context-usage numbers at all. The statusline does (`context_window.total_input_tokens`, `context_window_size`, on every update). So the signal has to cross from the statusline to the hooks through a file, and the arithmetic has to know where compaction actually fires, which is not 100% of the window.
 
 **Key internals:**
 - `record_statusline(data)` writes `sessions/<session_id>.ctx.json` (eight flat fields); a statusline script calls it, or the shipped `statusline` subcommand does
-- `compaction_point(window, project_dir)` — `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (plain count, ≥100K), else `autoCompactWindow` from `.claude/settings.local.json` → `.claude/settings.json` → `~/.claude/settings.json` (any documented form), else the model default: the 200K boundary, or 967K on a window above 200K. Capped at the window. The `--autocompact` launch flag is invisible from a hook and reads as `model-default`
-- `thresholds()` — `trigger_at` = the point minus `OUTPUT_RESERVE` (32K: auto-compaction fires below the setting, measured at 717,578 against 750K on 2026-09-10); `checkpoint_at` = the trigger minus `CHECKPOINT_MARGIN` (20K; 10K on windows ≤ 200K); heads-up at 10% of the window below the point, pulled under the checkpoint band when a small window would put it above. A fraction-of-window band (the old 3%) sat inside the reserve and never fired. Env: `CLAUDE_ENGRAM_OUTPUT_RESERVE`, `CLAUDE_ENGRAM_CHECKPOINT_MARGIN`, `CLAUDE_ENGRAM_HEADSUP_FRACTION`
-- `nudge(state, session_id, project_dir)` — one text per call at most; each band latches in `state["pressure"]` so it fires once per compaction cycle; the cadence counter (`note_stop`, reset by `note_manual_checkpoint` from `checkpoint_save`) re-arms every 60 turns. The milestone nudge is answered by the state flag OR by the project's ring (`_ring_manual_after`: a deliberate entry newer than the claim) — a save made from another process reaches the ring but not the flag
-- The hook daemon (`scorer_server.serve`) exits when the package's newest source mtime moves (`_code_stamp`, checked every 10 s of activity or 60 s idle), so an edit is live at the next hook; `CLAUDE_ENGRAM_NO_DAEMON=1` stops both spawn paths (`start_server_background`, `hook_client._nudge_daemon`) — every bench that runs a hook against a temporary store sets it
+- `compaction_point(window, project_dir)`: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (plain count, ≥100K), else `autoCompactWindow` from `.claude/settings.local.json` → `.claude/settings.json` → `~/.claude/settings.json` (any documented form), else the model default: the 200K boundary, or 967K on a window above 200K. Capped at the window. The `--autocompact` launch flag is invisible from a hook and reads as `model-default`
+- `thresholds()`: `trigger_at` = the point minus `OUTPUT_RESERVE` (32K: auto-compaction fires below the setting, measured at 717,578 against 750K on 2026-09-10); `checkpoint_at` = the trigger minus `CHECKPOINT_MARGIN` (20K; 10K on windows ≤ 200K); heads-up at 10% of the window below the point, pulled under the checkpoint band when a small window would put it above. A fraction-of-window band (the old 3%) sat inside the reserve and never fired. Env: `CLAUDE_ENGRAM_OUTPUT_RESERVE`, `CLAUDE_ENGRAM_CHECKPOINT_MARGIN`, `CLAUDE_ENGRAM_HEADSUP_FRACTION`
+- `nudge(state, session_id, project_dir)`: one text per call at most; each band latches in `state["pressure"]` so it fires once per compaction cycle; the cadence counter (`note_stop`, reset by `note_manual_checkpoint` from `checkpoint_save`) re-arms every 60 turns. The milestone nudge is answered by the state flag OR by the project's ring (`_ring_manual_after`: a deliberate entry newer than the claim); a save made from another process reaches the ring but not the flag
+- The hook daemon (`scorer_server.serve`) exits when the package's newest source mtime moves (`_code_stamp`, checked every 10 s of activity or 60 s idle), so an edit is live at the next hook; `CLAUDE_ENGRAM_NO_DAEMON=1` stops both spawn paths (`start_server_background`, `hook_client._nudge_daemon`); every bench that runs a hook against a temporary store sets it
 - `note_compaction()` opens a cycle and records the moment; a mirror with an older timestamp is ignored, because right after `/compact` the statusline still shows the pre-compaction count until the next API response
 - Delivery: `_with_pressure()` in `remind.py` wraps every main-session injection site (UserPromptSubmit, PreToolUse Edit/Write/Read, PostToolUse Bash/Edit/Write). PostToolUse matters most: an unattended `/goal` loop has no user prompts. The Stop hook only counts and reads; it never injects (a Stop hook cannot add context, and engram never blocks there)
 
@@ -139,24 +139,24 @@ Storage: ~/.claude_engram/
 **Why it's separate:** A checkpoint is a call the model makes; engram never writes one from a commit or a timer. But the judgment that a unit closed is visible: the Stop hook receives `last_assistant_message` verbatim, and that is the sentence where a step gets declared done.
 
 **Key internals:**
-- `classify_completion(text)` — two-tier like decision capture. Regex first: a completion word (`done`, `complete`, `finished`, `landed`, `closes`, `green`, `all N tests pass`...) near a unit noun (`phase`, `step`, `part`, `milestone`, `round`, `section`, `feature`, `module`...) in one sentence is a strong match. Negation, partials and future markers before the completion word (`not`, `half`, `when`, `once`, `will be`, `I'll mark`) and `yet` after it reject the sentence; a `?` rejects it outright. Commit sentences are not a trigger by design
+- `classify_completion(text)`: two-tier like decision capture. Regex first: a completion word (`done`, `complete`, `finished`, `landed`, `closes`, `green`, `all N tests pass`...) near a unit noun (`phase`, `step`, `part`, `milestone`, `round`, `section`, `feature`, `module`...) in one sentence is a strong match. Negation, partials and future markers before the completion word (`not`, `half`, `when`, `once`, `will be`, `I'll mark`) and `yet` after it reject the sentence; a `?` rejects it outright. Commit sentences are not a trigger by design
 - A weak match (both words in the sentence, not adjacent) consults the semantic tier through the scorer daemon: cosine against completion vs non-completion templates, positive margin required. Scorer down: weak stays weak
 - `note_stop(state, last_message)` in `context_pressure` stages `milestone_pending` when a claim has no deliberate checkpoint this turn (compared against the previous Stop time). Subagent stops are ignored. A claim also resets the fallback counter: it is a unit boundary
 - Delivery is one turn late by construction and goes through the same `nudge()` slot as pressure; a pressure band outranks it, and a deliberate checkpoint that lands after the claim answers it silently
 - `PostToolUse` on `ExitPlanMode|TaskUpdate` (`post_milestone_json`, `_hook_post_milestone`) injects at once: bank the approved plan with its steps as `pending_steps`; a task marked `completed` is the same claim stated structurally. Claude Code leaves the task tools out on the newest models unless the user opts in, so that path is a bonus, not the design
 
-### Stall Detection (`hooks/stall.py`)
+### Stall detection (`hooks/stall.py`)
 
 **What it does:** Judges every assistant turn by its effect and climbs a strike ladder when turns keep using tools and changing nothing. `/goal`'s stall rule counts tool use; this counts what the tools did.
 
 **Why it's separate:** The judgment happens at Stop, but Stop cannot inject context, and the evidence arrives across the turn from several hooks. So the module is a small state machine over the session state: hooks account calls to the open turn, Stop closes it, the next injection point delivers.
 
 **Key internals:**
-- `classify_tool(name, input, response)` — `file` (Edit/Write/MultiEdit/NotebookEdit that did not error; a shell command `bash_mutates()` flags: redirects to a real path, in-place sed, file utilities, mutating git subcommands, installs, running a script file; an MCP tool whose name says create/write/set/update/delete), `test` (a test invocation with a readable verdict), `commit`, `delegate` (Agent/Task/Workflow), `park` (Monitor, ScheduleWakeup, CronCreate, TaskOutput, AskUserQuestion, SendMessage, a background Bash), `record` (engram's own durable writes: checkpoint_save, remember, log_mistake), `none` (everything else, and engram's reads)
-- `note_tool()` / `note_batch()` — idempotent accounting into `state["stall"]["turn"]`; the PostToolBatch handler sends every call, the Edit and Bash PostToolUse handlers send theirs as a fallback for settings that predate the batch hook
-- `close_turn(state, turn_no, project_dir)` at Stop — no tools or parked: *neutral*, both streaks untouched. A test verdict counts as progress only when it differs from the last one; a test run that is not a repeat of the last (command, verdict) pair is verification and *neutral*; the same pair again is the re-run-and-hope pattern and falls through to no effect. Test invocations are judged on what runs (`pytest`, `python tests/x.py`, `cargo test` …), never on a read that mentions a test path. Effects found: *good*; the good streak grows and, at `DECAY_GOOD_TURNS`, one strike comes off. Nothing found: `tree_fingerprint()` (HEAD + `git status --porcelain`, run only on this suspect path) is compared with the last effect-free reading, and a change rescues the turn as `tree`; otherwise *no effect*, the good streak resets, and at `STALL_TURNS` a strike is added (cap `STRIKE_CAP`) and staged in `pending`. A flagged effect invalidates the stored fingerprint so the next reading starts fresh
-- `nudge(state, bearings)` — delivers `pending` once. `_with_pressure()` in remind.py supplies `bearings` (the restored checkpoint lines and the top rules, the same material PostCompact injects) for strike 2 and above
-- `events` — one record per strike or decay with the turn number (`stops_total` from the pressure state), capped at 60; `summary()` feeds the run report's Stalls section
+- `classify_tool(name, input, response)`: `file` (Edit/Write/MultiEdit/NotebookEdit that did not error; a shell command `bash_mutates()` flags: redirects to a real path, in-place sed, file utilities, mutating git subcommands, installs, running a script file; an MCP tool whose name says create/write/set/update/delete), `test` (a test invocation with a readable verdict), `commit`, `delegate` (Agent/Task/Workflow), `park` (Monitor, ScheduleWakeup, CronCreate, TaskOutput, AskUserQuestion, SendMessage, a background Bash), `record` (engram's own durable writes: checkpoint_save, remember, log_mistake), `none` (everything else, and engram's reads)
+- `note_tool()` / `note_batch()`: idempotent accounting into `state["stall"]["turn"]`; the PostToolBatch handler sends every call, the Edit and Bash PostToolUse handlers send theirs as a fallback for settings that predate the batch hook
+- `close_turn(state, turn_no, project_dir)` at Stop. No tools or parked: *neutral*, both streaks untouched. A test verdict counts as progress only when it differs from the last one; a test run that is not a repeat of the last (command, verdict) pair is verification and *neutral*; the same pair again is the re-run-and-hope pattern and falls through to no effect. Test invocations are judged on what runs (`pytest`, `python tests/x.py`, `cargo test` …), never on a read that mentions a test path. Effects found: *good*; the good streak grows and, at `DECAY_GOOD_TURNS`, one strike comes off. Nothing found: `tree_fingerprint()` (HEAD + `git status --porcelain`, run only on this suspect path) is compared with the last effect-free reading, and a change rescues the turn as `tree`; otherwise *no effect*, the good streak resets, and at `STALL_TURNS` a strike is added (cap `STRIKE_CAP`) and staged in `pending`. A flagged effect invalidates the stored fingerprint so the next reading starts fresh
+- `nudge(state, bearings)`: delivers `pending` once. `_with_pressure()` in remind.py supplies `bearings` (the restored checkpoint lines and the top rules, the same material PostCompact injects) for strike 2 and above
+- `events`: one record per strike or decay with the turn number (`stops_total` from the pressure state), capped at 60; `summary()` feeds the run report's Stalls section
 
 ### Compliance (`hooks/compliance.py`)
 
@@ -165,57 +165,57 @@ Storage: ~/.claude_engram/
 **Why it's separate:** A rule is natural language; matching it against a call needs something mechanical, and inferring that mechanism from the words is where a dishonest trail creeps in. So the detector is written by a person, stored on the rule entry itself (`MemoryEntry.detector`, so it travels with the rule and inherits through ancestors), and the module only ever reports what a regex or a glob actually matched.
 
 **Key internals:**
-- `normalize_detector` / `compile_detector` — `tools` (names; empty = any), `command` (regex, shell tools only), `paths` (globs against `file_path`, relative, absolute or Windows), `input` (regex against the tool input JSON), `note`. A regex that fails to compile is refused at `set_detector` time and, if it reached the store another way, reported as BROKEN per rule
-- `rules_with_detectors(project_memory)` — every active rule in scope, once each, compiled where it has a detector
-- `record(state, rules, hits, ...)` — appends to `state["compliance"]["matches"]` (deduped by `tool_use_id`, capped at 200) and keeps `health[rule_id] = {ok, error, hits}`. The verdict comes from `permission_mode`: `unattended` (bypassPermissions / dontAsk / auto), `prompted` (default / acceptEdits), `plan`
-- `rule_text(hits, mode)` — the `<engram-rule>` block injected before a matching shell command runs; the wording differs by verdict
+- `normalize_detector` / `compile_detector`: `tools` (names; empty = any), `command` (regex, shell tools only), `paths` (globs against `file_path`, relative, absolute or Windows), `input` (regex against the tool input JSON), `note`. A regex that fails to compile is refused at `set_detector` time and, if it reached the store another way, reported as BROKEN per rule
+- `rules_with_detectors(project_memory)`: every active rule in scope, once each, compiled where it has a detector
+- `record(state, rules, hits, ...)`: appends to `state["compliance"]["matches"]` (deduped by `tool_use_id`, capped at 200) and keeps `health[rule_id] = {ok, error, hits}`. The verdict comes from `permission_mode`: `unattended` (bypassPermissions / dontAsk / auto), `prompted` (default / acceptEdits), `plan`
+- `rule_text(hits, mode)`: the `<engram-rule>` block injected before a matching shell command runs; the wording differs by verdict
 - In remind.py, `_compliance_check()` is called from `_hook_pre_bash` (PreToolUse `Bash|PowerShell`, daemon-served, injects) and from `_hook_post_batch` (every other tool, records only). Subagent calls are recorded and flagged, never nudged
 - `summary(state, project_memory)` feeds the run report's "Rules compliance" section
 - The pack (`default_pack.py`) ships `DESTRUCTIVE_DETECTOR`, `KILL_BY_NAME_DETECTOR` and `OUTBOUND_DETECTOR` on the rules that need them; `seed_rules` attaches a pack detector to a project's own covering rule that lacks one, walking up to the ancestor project that owns the rule id. `add_rule` does the same for a similar existing rule
 
-### Autonomy Mode (`hooks/stall.py` §halt, `alerts.py`, `run.py`)
+### Autonomy mode (`hooks/stall.py` §halt, `alerts.py`, `run.py`)
 
 **What it does:** Makes an unattended `/goal` run safe to leave: a run that keeps using tools and changing nothing is starved, not argued with; anything that needs a person is said out loud, out of the session; a usage-limit death is resumed when the window resets.
 
 **Why it's separate:** Hooks merge most-restrictive, so a `/goal` block on Stop would out-vote anything engram said there. The only lever that ends a turn against the loop's will is a PreToolUse deny, and the only channel that reaches a person when the session is dead is a process outside it. So the halt lives in the deny hook, the alerts in a command the owner configures, and the resume in a launcher process.
 
 **Key internals:**
-- `autonomy_on()` — `CLAUDE_ENGRAM_AUTONOMY=1`, set by the launcher for the child process (a person can set it by hand). Off, the strike cap is a loud warning and nothing here runs
-- `maybe_halt(state, turn)` — called right after `close_turn()` in the Stop branch; arms `state["stall"]["halted"] = {at, turn, strikes, denied}` once at the cap and logs a `halt` event; the Stop branch stages `pending_halt` and sends the halt alert
-- `_hook_pre_tool` (PreToolUse, matcher `""`, daemon-served) — one state read; not halted: no output. Halted: `permissionDecision: deny` with `deny_reason()` (names the release CLI and the two open calls) for every tool except `HALT_ALLOWED_TOOLS` = PushNotification, `mcp__claude-engram__context`, ToolSearch (PushNotification is deferred on the newest models and needs its schema loaded — seen on the first live halt). `note_denied()` counts. `close_turn()` returns `halted` afterwards, so denied attempts are not more strikes
+- `autonomy_on()`: `CLAUDE_ENGRAM_AUTONOMY=1`, set by the launcher for the child process (a person can set it by hand). Off, the strike cap is a loud warning and nothing here runs
+- `maybe_halt(state, turn)`: called right after `close_turn()` in the Stop branch; arms `state["stall"]["halted"] = {at, turn, strikes, denied}` once at the cap and logs a `halt` event; the Stop branch stages `pending_halt` and sends the halt alert
+- `_hook_pre_tool` (PreToolUse, matcher `""`, daemon-served): one state read; not halted: no output. Halted: `permissionDecision: deny` with `deny_reason()` (names the release CLI and the two open calls) for every tool except `HALT_ALLOWED_TOOLS` = PushNotification, `mcp__claude-engram__context`, ToolSearch (PushNotification is deferred on the newest models and needs its schema loaded, seen on the first live halt). `note_denied()` counts. `close_turn()` returns `halted` afterwards, so denied attempts are not more strikes
 - `halt_text()` rides `_with_pressure()` once (`pending_halt`): checkpoint, then notify, then stop
-- `release(state)` — lifts the halt, resets strikes, logs a `release` event; `python -m claude_engram.hooks.stall release <session_id>` (and `status`)
-- `alerts.send(message, project_dir, kind, state, command)` — runs `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command` passed explicitly, since the launcher's env is not the child's) with `{message}` shell-quoted or on stdin; 15 s timeout; the record `{at, kind, message, sent, detail}` lands in `state["alerts"]` either way. Callers: the halt, `_hook_stop_failure` (autonomy only), `_hook_notification` (`agent_needs_input`, `permission_prompt`, `idle_prompt`, autonomy only), the launcher (`paused`, `done`/`failed`)
-- `run.py` — `model_window()` (haiku 200K, else 1M, `--context-window` wins) → `compaction_env()` 75% → `build_env()` (autonomy, window, `MSYS_NO_PATHCONV`, the nested-session identity stripped) → `build_prompt()` (`/goal` line, task, `PARK_HINT`) → `build_cmd()` (`claude -p <prompt> --session-id <uuid> --output-format json --permission-mode bypassPermissions [--model] [--max-turns]`). After each exit: `session_state()`; a halt ends the loop; `resume_decision()` resumes only a `rate_limit` failure with a known reset inside six hours, after `reset + slack` (`CLAUDE_ENGRAM_RESUME_SLACK`), with `claude -p --resume <uuid> "Continue."` up to `--max-resumes`. Then `run_report.write_report()` and the closing alert. `--dry-run` prints the plan; `--claude-bin x.py` runs a stand-in under the interpreter (the bench)
-- `hooks/autorun.py` — the /goal bracket. `scan_goal(transcript_path)` reads the transcript tail (2 MB) for the verified record shapes: the `goal_status` sentinel (`sentinel: true`, `condition`) when a goal is set, a verdict (`met`, `reason`, `failed: true` when judged impossible) after each evaluation, and the `<command-name>/goal</command-name>` user record with `clear|stop|off|reset|none|cancel` in its args; a met goal clears itself. `observe(state, transcript_path, project_dir, turn)` at Stop (turn=True), UserPromptSubmit and SessionEnd keeps `run.auto` in step: `running` from the sentinel, `met`/`failed`/`cleared` from the transcript, `halted` from the strike cap, `capped` from `goal_turn_cap` (150, `.engram/config.json` or `CLAUDE_ENGRAM_GOAL_TURN_CAP`) — the cap arms the same halt with `reason: "turn cap"`, because engram cannot end a /goal loop (hooks merge most-restrictive) and the alert asks a person to `/goal clear`. `take_pending_text()` hands `_with_pressure` the directive once after the start. `remind._goal_bracket()` wraps it: manifest on start, alert + run report on end. Engram never blocks a Stop of its own; a goal is set only by typing `/goal`
+- `release(state)`: lifts the halt, resets strikes, logs a `release` event; `python -m claude_engram.hooks.stall release <session_id>` (and `status`)
+- `alerts.send(message, project_dir, kind, state, command)`: runs `alert_command` (`.engram/config.json`, `CLAUDE_ENGRAM_ALERT_COMMAND`, or the launcher's `--alert-command` passed explicitly, since the launcher's env is not the child's) with `{message}` shell-quoted or on stdin; 15 s timeout; the record `{at, kind, message, sent, detail}` lands in `state["alerts"]` either way. Callers: the halt, `_hook_stop_failure` (autonomy only), `_hook_notification` (`agent_needs_input`, `permission_prompt`, `idle_prompt`, autonomy only), the launcher (`paused`, `done`/`failed`)
+- `run.py`: `model_window()` (haiku 200K, else 1M, `--context-window` wins) → `compaction_env()` 75% → `build_env()` (autonomy, window, `MSYS_NO_PATHCONV`, the nested-session identity stripped) → `build_prompt()` (`/goal` line, task, `PARK_HINT`) → `build_cmd()` (`claude -p <prompt> --session-id <uuid> --output-format json --permission-mode bypassPermissions [--model] [--max-turns]`). After each exit: `session_state()`; a halt ends the loop; `resume_decision()` resumes only a `rate_limit` failure with a known reset inside six hours, after `reset + slack` (`CLAUDE_ENGRAM_RESUME_SLACK`), with `claude -p --resume <uuid> "Continue."` up to `--max-resumes`. Then `run_report.write_report()` and the closing alert. `--dry-run` prints the plan; `--claude-bin x.py` runs a stand-in under the interpreter (the bench)
+- `hooks/autorun.py`: the /goal bracket. `scan_goal(transcript_path)` reads the transcript tail (2 MB) for the verified record shapes: the `goal_status` sentinel (`sentinel: true`, `condition`) when a goal is set, a verdict (`met`, `reason`, `failed: true` when judged impossible) after each evaluation, and the `<command-name>/goal</command-name>` user record with `clear|stop|off|reset|none|cancel` in its args; a met goal clears itself. `observe(state, transcript_path, project_dir, turn)` at Stop (turn=True), UserPromptSubmit and SessionEnd keeps `run.auto` in step: `running` from the sentinel, `met`/`failed`/`cleared` from the transcript, `halted` from the strike cap, `capped` from `goal_turn_cap` (150, `.engram/config.json` or `CLAUDE_ENGRAM_GOAL_TURN_CAP`). The cap arms the same halt with `reason: "turn cap"`, because engram cannot end a /goal loop (hooks merge most-restrictive) and the alert asks a person to `/goal clear`. `take_pending_text()` hands `_with_pressure` the directive once after the start. `remind._goal_bracket()` wraps it: manifest on start, alert + run report on end. Engram never blocks a Stop of its own; a goal is set only by typing `/goal`
 - The skill's `/engram run|stop|status|release|report`: `run` hands the person the exact `/goal` line (Claude cannot type a slash command); `stop` says `/goal clear`
 
-### Checkpoint Provenance (`repo_state.py`)
+### Checkpoint provenance (`repo_state.py`)
 
 **What it does:** Stamps every deliberate checkpoint with where the repo stood (the commit) and what the run was working toward (the `/goal` condition), and has every restore say how far the repo moved since.
 
 **Why it's separate:** A handoff carries the last session's framing, and four sessions once inherited the same tunnel from one. The cheapest antidote is a line the model reads before the handoff: two commits and one file since, or nothing moved. It is git, not memory, so it lives beside the store rather than in it.
 
 **Key internals:**
-- `head(project)` — short HEAD sha at save time; `since(commit, project, files)` — `rev-list --count` and `diff --name-only` from that commit, the checkpoint's own files matched among the changed ones; a commit `cat-file` cannot find is reported as missing (rewritten history, another clone); no repo → `None`. Both bounded by a 4 s timeout, both silent on failure
-- `since_text()` — the one banner line, four shapes
-- `goal_for_session(state)` — the launcher's `run.goal` first (it is primed before launch and survives SessionStart), else the transcript's last `goal_status` sentinel via `run_report._read_transcript`, else `''`
+- `head(project)`: short HEAD sha at save time. `since(commit, project, files)`: `rev-list --count` and `diff --name-only` from that commit, the checkpoint's own files matched among the changed ones; a commit `cat-file` cannot find is reported as missing (rewritten history, another clone); no repo → `None`. Both bounded by a 4 s timeout, both silent on failure
+- `since_text()`: the one banner line, four shapes
+- `goal_for_session(state)`: the launcher's `run.goal` first (it is primed before launch and survives SessionStart), else the transcript's last `goal_status` sentinel via `run_report._read_transcript`, else `''`
 - `save_checkpoint` writes `commit` and `goal` into the task file and the ring entry; `restore_checkpoint` and the session-start banner print `Goal:` and the staleness line; older entries without the fields print neither
 
-### Run Report (`run_report.py`)
+### Run report (`run_report.py`)
 
 **What it does:** Writes one auditable artifact per session, `<project>/.engram/runs/<date>-<session8>.md` + `.json`, from data engram already holds. Nothing in it is self-reported by the model.
 
 **Why it's separate:** It joins four stores that nothing else joins: the per-session hook state, the transcript, the checkpoint ring, and the statusline mirror. Keeping it out of `remind.py` keeps the hook fast and the report testable without hooks.
 
 **Key internals:**
-- `collect(session_id, project_dir, state)` — the hook state gives files with per-file edit counts (`loop.edit_counts`, joined case-insensitively), test runs and results, prompts, the `run` block written at SessionStart (start commit, permission mode, transcript path, end reason) and the `pressure` block (turns, compactions with what each restored). The transcript gives model, branch, `/goal` command text, tool errors (`is_error` blocks and error-string `toolUseResult`s) and every `compact_boundary` with its `compactMetadata` (trigger, preTokens, postTokens, dropped, duration) — the verified real shape, so compaction sizes come from Claude Code itself. The ring gives this session's entries by `session_id` (manual entries carry it since 0.8.16). The mirror gives final tokens and cost. `patterns.json` says which errors were already known
-- Goal: the transcript records `/goal` as `attachment.type == "goal_status"` entries — a sentinel when the goal is set (`sentinel: true`, `condition`) and one per evaluator verdict (`met`, `reason`, `iterations`, `durationMs`, `tokens`; a goal judged impossible adds `failed: true`). Verified on real headless runs of both outcomes. The report carries the condition, every verdict, and the outcome (met / failed / unresolved / set-no-verdict)
+- `collect(session_id, project_dir, state)`: the hook state gives files with per-file edit counts (`loop.edit_counts`, joined case-insensitively), test runs and results, prompts, the `run` block written at SessionStart (start commit, permission mode, transcript path, end reason) and the `pressure` block (turns, compactions with what each restored). The transcript gives model, branch, `/goal` command text, tool errors (`is_error` blocks and error-string `toolUseResult`s) and every `compact_boundary` with its `compactMetadata` (trigger, preTokens, postTokens, dropped, duration), the verified real shape, so compaction sizes come from Claude Code itself. The ring gives this session's entries by `session_id` (manual entries carry it since 0.8.16). The mirror gives final tokens and cost. `patterns.json` says which errors were already known
+- Goal: the transcript records `/goal` as `attachment.type == "goal_status"` entries: a sentinel when the goal is set (`sentinel: true`, `condition`) and one per evaluator verdict (`met`, `reason`, `iterations`, `durationMs`, `tokens`; a goal judged impossible adds `failed: true`). Verified on real headless runs of both outcomes. The report carries the condition, every verdict, and the outcome (met / failed / unresolved / set-no-verdict)
 - `not_measured` names what is absent rather than dropping it: stall strikes (Phase 4), rules compliance (Phase 5), a missing transcript or mirror
-- `render_md()` / `write_report()` — atomic writes, idempotent per run id; `substantial()` gates the automatic SessionEnd write (an edit, a compaction, or five prompts)
+- `render_md()` / `write_report()`: atomic writes, idempotent per run id; `substantial()` gates the automatic SessionEnd write (an edit, a compaction, or five prompts)
 - Automatic per-turn saves contend only for the ring's latest pointer, so the report lists deliberate checkpoints as the record and at most the one surviving auto
 
-### Default Pack and Rotation (`default_pack.py`, `rotation.py`, `project_config.py`)
+### Default pack and rotation (`default_pack.py`, `rotation.py`, `project_config.py`)
 
 **What they do:** The opinion engram ships about how a project is kept. `default_pack` creates the workspace scaffold where pieces are missing and seeds ten working rules once; `rotation` keeps `session-logs/` and `.learnings/` from growing without bound; `project_config` is the one-line opt-out (`<project>/.engram/config.json`, env overrides).
 
@@ -227,18 +227,18 @@ Storage: ~/.claude_engram/
 - Rotation parses every heading shape seen in real files (`## date — title`, `### date — title`, date-only `##` with `###` children, `## Title (date)`); undated sections never move, STANDING / permanent / RULE sections never move. Files keep their line endings; each trimmed file gets one `> Rotated …` line under its H1 (replaced, not stacked). Session dailies move to `archive/<YYYY-MM>/` and the month digest is rebuilt from the archived originals. Per-person folders are units of their own
 - `plan()` is pure; `apply()` acts; `run_at_session_end()` applies only under `"rotation": "auto"`, else persists `.engram/rotation-plan.json` for `pending_notice()` at SessionStart. `session_mine(rotate, dry_run)` and `python -m claude_engram.rotation --project X [--apply]` expose the same two steps
 
-### Scorer/Hook Daemon (`hooks/scorer_server.py`)
+### Scorer/hook daemon (`hooks/scorer_server.py`)
 
-**What it does:** Persistent TCP server with two jobs: (1) keeps the embedding model loaded — decision scores and embeddings in ~5-25ms instead of ~500ms+ cold start; (2) runs high-frequency hook events in-process with warm imports, so a hook costs one round trip (~15-25ms in-daemon) instead of a full import chain.
+**What it does:** Persistent TCP server with two jobs: (1) keeps the embedding model loaded, so decision scores and embeddings take ~5-25ms instead of ~500ms+ cold start; (2) runs high-frequency hook events in-process with warm imports, so a hook costs one round trip (~15-25ms in-daemon) instead of a full import chain.
 
-**Why it's separate:** Hooks spawn a new process per event. The unavoidable cost is interpreter start (~150ms on Windows, far less on Linux); everything else — imports, model load, index reads — amortizes into the daemon. Measured on the heaviest hook (pre-edit): 313ms → 216ms median on Windows; Linux gains more since process spawn is cheaper there.
+**Why it's separate:** Hooks spawn a new process per event. The unavoidable cost is interpreter start (~150ms on Windows, far less on Linux); everything else (imports, model load, index reads) amortizes into the daemon. Measured on the heaviest hook (pre-edit): 313ms → 216ms median on Windows; Linux gains more since process spawn is cheaper there.
 
 **Key internals:**
 - Binds to `127.0.0.1:0` (OS picks port), writes port to `scorer_port` in engram storage (honors `CLAUDE_ENGRAM_DIR`)
 - Binds BEFORE loading the model: hook events are served from the first millisecond; embedding/scoring requests wait on the background model load
-- Protocol: JSON lines over TCP — `{"text": ...}` (score), `{"embed": ...}` / `{"embed_batch": [...]}` (vectors), `{"hook_event": ..., "stdin": ..., "env": {...}}` (hook dispatch)
+- Protocol: JSON lines over TCP. `{"text": ...}` (score), `{"embed": ...}` / `{"embed_batch": [...]}` (vectors), `{"hook_event": ..., "stdin": ..., "env": {...}}` (hook dispatch)
 - Hook dispatch is serialized under a lock (remind's per-event globals), ~5-30ms warm
-- Hooks are spawned as `python -S hooks/hook_client.py <event>` — stdlib-only thin client; any failure falls back to running the real handler in-process and fire-and-forgets a daemon restart (30s-TTL marker prevents spawn storms)
+- Hooks are spawned as `python -S hooks/hook_client.py <event>`, a stdlib-only thin client; any failure falls back to running the real handler in-process and fire-and-forgets a daemon restart (30s-TTL marker prevents spawn storms)
 - Lifecycle events (session start/end, stop, compaction) never route through the daemon
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
 - Auto-exits after 30 min idle (configurable via `CLAUDE_ENGRAM_SCORER_TIMEOUT`)
@@ -250,15 +250,15 @@ Storage: ~/.claude_engram/
 
 **Why it's separate:** Keeps `server.py` as a thin routing layer. All business logic lives in handlers, making it testable without the MCP protocol.
 
-### LLM Client (`llm.py`)
+### LLM client (`llm.py`)
 
 **What it does:** Communicates with Ollama for semantic search and code analysis. Includes retry logic, request queueing (serializes parallel requests to prevent GPU contention), and health checking.
 
-**Why it's separate:** Isolates the optional Ollama dependency. LLM (gemma3:12b via Ollama) is used only by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently if Ollama is down), plus `scout_search` when available. Everything else — all hooks, the code index, import precheck, blast-radius, the outcome log, `convention(check)`, `file_summarize`, `audit_batch`, `find_similar_issues` — is LLM-free.
+**Why it's separate:** Isolates the optional Ollama dependency. LLM (gemma3:12b via Ollama) is used only by `memory(consolidate)` and `session_mine(reflect)` insight synthesis (both background, both degrade silently if Ollama is down), plus `scout_search` when available. Everything else is LLM-free: all hooks, the code index, import precheck, blast-radius, the outcome log, `convention(check)`, `file_summarize`, `audit_batch` and `find_similar_issues`.
 
-### Code Index (`mining/code_index.py`)
+### Code index (`mining/code_index.py`)
 
-**What it does:** Builds and maintains an incremental, mtime-keyed symbol table for a project. For each Python module it records: dotted module path, public exports (`__all__` or all public top-level names), classes (bases, methods with signatures, `self.x` attributes), functions (with signatures), and raw imports. A derived `symbol_to_modules` reverse map enables O(1) name lookup. A `module_to_dependents` map records which modules import each module — the blast-radius cache.
+**What it does:** Builds and maintains an incremental, mtime-keyed symbol table for a project. For each Python module it records: dotted module path, public exports (`__all__` or all public top-level names), classes (bases, methods with signatures, `self.x` attributes), functions (with signatures), and raw imports. A derived `symbol_to_modules` reverse map enables O(1) name lookup. A `module_to_dependents` map records which modules import each module, and is the blast-radius cache.
 
 **Why it's separate:** The index is built in the background miner (Phase 6) after a session ends, then queried at pre-edit hook time with zero I/O overhead. Keeping build and query in one module keeps the hook import surface small.
 
@@ -270,22 +270,22 @@ Storage: ~/.claude_engram/
 - Storage: `~/.claude_engram/projects/<hash>/code_index.json`
 - `resolve_code_index()` walks up to a parent project if a sub-project has no index yet (workspace inheritance)
 
-### Pre-Edit Import Verification + Blast Radius (`hooks/precheck.py`)
+### Pre-edit import verification + blast radius (`hooks/precheck.py`)
 
 **What it does:** On `PreToolUse Edit/Write`, reads the proposed edit content and checks its import statements against the code index. Two banners may be injected:
 
-- `<engram-precheck>` — lists imports that won't resolve: name not exported by a known internal module (with closest-match suggestion), or internal module path not found. Capped at 2 findings.
-- `<engram-blast-radius>` — when editing a module imported by ≥2 others, lists those dependents from the cached reverse-edge map.
+- `<engram-precheck>` lists imports that won't resolve: name not exported by a known internal module (with closest-match suggestion), or internal module path not found. Capped at 2 findings.
+- `<engram-blast-radius>`, when editing a module imported by ≥2 others, lists those dependents from the cached reverse-edge map.
 
-**Why it's separate:** Keeps the import-checking logic isolated and testable independently of the main `remind.py` hook. The module is pure regex + index lookup — no AST parsing at hook time (that already happened during the miner phase).
+**Why it's separate:** Keeps the import-checking logic isolated and testable independently of the main `remind.py` hook. The module is pure regex + index lookup, with no AST parsing at hook time (that already happened during the miner phase).
 
 **Key internals:**
 - Conservative by design: silent on relative imports, external/stdlib imports, `import *`, multiline parenthesised imports, missing/stale index, or any exception
 - `check_imports()` uses `index.known_roots()` to decide which imports are internal (verifiable) vs external (leave alone)
-- `blast_radius()` reads `index.dependents_of(module_path)` — no filesystem walk
+- `blast_radius()` reads `index.dependents_of(module_path)`, with no filesystem walk
 - Both functions return `""` on any error, never raise
 
-### Session Mining Background Worker (`mining/background.py`)
+### Session mining background worker (`mining/background.py`)
 
 **What it does:** Spawns a detached background subprocess after `SessionEnd` to run the full mining pipeline without blocking the hook. The worker runs these phases in order:
 
@@ -301,11 +301,11 @@ Storage: ~/.claude_engram/
 **Why it matters:** Phases 3 and 4 previously ran only on bootstrap, leaving `patterns.json` and session embeddings stale between sessions. Moving them to every `post_session` keeps the recurring-errors banner and `hybrid_search` current without manual intervention.
 
 **Key internals:**
-- Single global lock (`~/.claude_engram/mining.lock`) — one miner process at a time
+- Single global lock (`~/.claude_engram/mining.lock`): one miner process at a time
 - Status written atomically to `mining_status.json` per phase
-- Each phase wrapped in its own try/except — a failure in one phase does not abort subsequent phases
+- Each phase wrapped in its own try/except, so a failure in one phase does not abort subsequent phases
 
-### Injection Outcome Log (`mining/outcomes.py`)
+### Injection outcome log (`mining/outcomes.py`)
 
 **What it does:** Records what the pre-edit hook injected (`memory`, `prediction`, `precheck`, `blast`) and the test outcomes that followed in the same session. `session_mine(reflect)` reads this log to compute injection precision per kind (how often each channel precedes a passing vs failing test), plus LLM-synthesized insights from recurring mistakes.
 
@@ -315,9 +315,9 @@ Storage: ~/.claude_engram/
 - Events are `{t:"inj", kinds:[...], sid, ts}` and `{t:"out", passed, sid, ts}`
 - Bounded ring: last 1000 events; atomic write
 - `reflect()` correlates outcomes with the most recent injection in the same session (resets per-session state after each outcome)
-- Under two concurrent sessions the last writer may drop a few events — acceptable for a precision metric
+- Under two concurrent sessions the last writer may drop a few events, which is acceptable for a precision metric
 
-## How a Hook Call Flows
+## How a hook call flows
 
 ```
 1. Claude calls Edit(file_path="auth.py")
@@ -358,7 +358,7 @@ Storage: ~/.claude_engram/
 10. post_edit_json handler: auto-records edit, updates loop counter
 ```
 
-## Directory Structure
+## Directory structure
 
 ```
 claude_engram/
@@ -416,13 +416,13 @@ claude_engram/
 └── library-book/             # You are here
 ```
 
-## Key Design Decisions
+## Key design decisions
 
 | Decision | Why | What Would Break If Changed |
 |----------|-----|---------------------------|
 | Flat JSON files, not SQLite | Zero dependencies, atomic writes, human-readable | Scale past ~1000 entries per project |
 | Separate hot/cold tiers | Hooks must be fast (<2s). Loading archive on every edit is too slow. | Hook timeouts if merged |
-| Hooks as separate processes | Claude Code's hook system spawns child processes. No choice. | N/A — this is a Claude Code constraint |
+| Hooks as separate processes | Claude Code's hook system spawns child processes. No choice. | N/A: this is a Claude Code constraint |
 | Scorer server as TCP, not HTTP | Minimal overhead, no web framework dependency | Harder to debug (no browser tools) |
 | Parent-path memory inheritance | Workspace-level rules must apply to all sub-projects | Sub-project isolation if someone wants it |
 | `remind.py` as single file | All hook logic in one place. No cross-file imports to slow startup. | Harder to maintain as it grows |

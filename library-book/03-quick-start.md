@@ -1,4 +1,4 @@
-# Chapter 3 — Quick Start
+# Chapter 3: Quick Start
 
 [← Back to Table of Contents](./README.md) · [Previous: The Design](./02-the-design.md) · [Next: The Internals →](./04-the-internals.md)
 
@@ -35,11 +35,11 @@ ollama pull gemma3:12b
 
 - Python 3.10+
 - Claude Code (CLI, desktop app, or IDE extension)
-- Ollama — optional, only for the LLM-backed paths (`scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis)
+- Ollama, optional and only for the LLM-backed paths (`scout_search`, `memory(consolidate)`, `session_mine(reflect)` synthesis)
 
-## First Use
+## First use
 
-After running `install.py`, open any project in Claude Code. Claude Engram starts working immediately — no commands needed.
+After running `install.py`, open any project in Claude Code. Claude Engram starts working immediately. You do not need to run any commands.
 
 You'll see hook output like:
 
@@ -52,7 +52,7 @@ Past mistakes (1):
   [g7h8i9] Broke the auth middleware by removing the session check
 ```
 
-## Verify It Works
+## Verify it works
 
 ```bash
 # Check that the MCP server responds
@@ -62,7 +62,7 @@ python -c "from claude_engram.server import server; print('OK')"
 python -m claude_engram.hooks.remind prompt_json < /dev/null
 ```
 
-## Set Up a Project
+## Set up a project
 
 ```bash
 # Option 1: Installer
@@ -73,20 +73,20 @@ python install.py --setup /path/to/your/project
 # (Hooks and the /engram skill are global; nothing else gets copied in.)
 ```
 
-## Common Setup Issues
+## Common setup issues
 
 | Issue | Fix |
 |-------|-----|
 | `ModuleNotFoundError: claude_engram` | Activate the venv: `source claude-engram/venv/bin/activate` |
 | MCP server not showing in Claude Code | Restart Claude Code. Check `.mcp.json` exists in project root. |
-| Ollama connection refused | Optional — only `scout_search` / `consolidate` / `reflect` use it. To enable: `ollama serve` |
+| Ollama connection refused | Optional: only `scout_search` / `consolidate` / `reflect` use it. To enable: `ollama serve` |
 | Hooks not firing | Run `python install.py` to reinstall hooks to `~/.claude/settings.json` |
 | `sentence-transformers` not found | Install with: `pip install -e ".[semantic]"` (optional, regex fallback works) |
 
-## What's Next
+## What's next
 
-- **[Usage Guide (Chapter 5)](./05-usage-guide.md)** — learn the main features
-- **[The Internals (Chapter 4)](./04-the-internals.md)** — understand how it works under the hood
+- **[Usage Guide (Chapter 5)](./05-usage-guide.md)** covers the main features
+- **[The Internals (Chapter 4)](./04-the-internals.md)** explains how it works under the hood
 
 ---
 

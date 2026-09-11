@@ -1,4 +1,4 @@
-# Chapter 5 — Usage Guide
+# Chapter 5: Usage Guide
 
 [← Back to Table of Contents](./README.md) · [Previous: The Internals](./04-the-internals.md) · [Next: Advanced Usage →](./06-advanced-usage.md)
 
@@ -6,13 +6,13 @@
 
 ## Overview
 
-Most of Claude Engram works automatically via hooks. This chapter covers the MCP tools you invoke manually — organized by what you're trying to do.
+Most of Claude Engram works automatically via hooks. This chapter covers the MCP tools you invoke manually, organized by what you're trying to do.
 
 ---
 
-## Saving Knowledge
+## Saving knowledge
 
-### Remember a Discovery
+### Remember a discovery
 
 ```python
 memory(operation="remember", content="The auth module validates JWTs in middleware, not in individual routes", project_path="/path")
@@ -20,7 +20,7 @@ memory(operation="remember", content="The auth module validates JWTs in middlewa
 
 Discoveries are auto-tagged by content (auth, testing, database, etc.) and scored for relevance injection.
 
-### Add a Permanent Rule
+### Add a permanent rule
 
 ```python
 memory(operation="add_rule", content="Always use parameterized queries, never string interpolation for SQL", reason="SQL injection prevention", project_path="/path")
@@ -28,7 +28,7 @@ memory(operation="add_rule", content="Always use parameterized queries, never st
 
 Rules are never archived, never decayed, and always surfaced at session start and in pre-edit injection with a +0.3 scoring bonus.
 
-### Log a Decision
+### Log a decision
 
 ```python
 work(operation="log_decision", decision="Use FastAPI instead of Flask", reason="Async support and auto-generated OpenAPI docs", alternatives=["Flask + async extensions", "Django REST"])
@@ -36,7 +36,7 @@ work(operation="log_decision", decision="Use FastAPI instead of Flask", reason="
 
 Decisions are also auto-captured from user prompts. Use manual logging for complex decisions with alternatives.
 
-### Log a Mistake
+### Log a mistake
 
 ```python
 work(operation="log_mistake", description="Removed the session validation middleware thinking it was unused", file_path="auth/middleware.py", how_to_avoid="Check all route files for middleware references before removing")
@@ -46,27 +46,27 @@ Most mistakes are auto-captured from `PostToolUseFailure` hooks. Use manual logg
 
 ---
 
-## Finding Memories
+## Finding memories
 
-### Search by Keyword
+### Search by keyword
 
 ```python
 memory(operation="search", query="authentication", project_path="/path")
 ```
 
-### Search by File
+### Search by file
 
 ```python
 memory(operation="search", file_path="auth/middleware.py", project_path="/path")
 ```
 
-### Search by Tags
+### Search by tags
 
 ```python
 memory(operation="search", tags=["auth", "security"], project_path="/path")
 ```
 
-### View Recent
+### View recent
 
 ```python
 memory(operation="recent", project_path="/path", limit=10)
@@ -76,11 +76,11 @@ Shows memories newest-first with IDs for management.
 
 ---
 
-## Managing Memories
+## Managing memories
 
 Memory IDs are shown in `[brackets]` at session start and in hook output.
 
-### Edit a Memory
+### Edit a memory
 
 ```python
 memory(operation="modify", memory_id="abc123", content="Updated understanding of auth flow", project_path="/path")
@@ -95,13 +95,13 @@ memory(operation="batch_delete", memory_ids=["id1", "id2"], project_path="/path"
 memory(operation="batch_delete", category="context", project_path="/path")  # Bulk by category
 ```
 
-### Promote to Rule
+### Promote to rule
 
 ```python
 memory(operation="promote", memory_id="abc123", reason="This applies to all future work", project_path="/path")
 ```
 
-### Cleanup (Dedupe + Archive)
+### Cleanup (dedupe + archive)
 
 ```python
 memory(operation="cleanup", dry_run=True, project_path="/path")   # Preview
@@ -110,16 +110,16 @@ memory(operation="cleanup", dry_run=False, project_path="/path")  # Apply
 
 ---
 
-## Safety Checks
+## Safety checks
 
-### Before Editing (automatic)
+### Before editing (automatic)
 
 Before every Edit or Write, hooks fire automatically:
 
-- **Memory injection** — top 3 scored memories for the file are shown (`<engram-context>`)
-- **Import/export check** — if an import won't resolve (name not exported, module not found), you get a terse `<engram-precheck>` warning with the closest suggestion (Python only, advisory)
-- **Blast-radius** — if the file is imported by 2 or more other modules, the importers are listed (`<engram-blast-radius>`) so you see the damage radius before touching it
-- **Loop warning** — fires when the same file has been edited 3+ times without a passing test
+- **Memory injection**: the hook shows the top 3 scored memories for the file (`<engram-context>`)
+- **Import/export check**: if an import won't resolve (name not exported, module not found), you get a terse `<engram-precheck>` warning with the closest suggestion (Python only, advisory)
+- **Blast-radius**: if the file is imported by 2 or more other modules, the hook lists the importers (`<engram-blast-radius>`) so you see the damage radius before touching it
+- **Loop warning**: fires when the same file has been edited 3+ times without a passing test
 
 You rarely need to call `pre_edit_check` manually. It's available for an explicit impact check:
 
@@ -130,7 +130,7 @@ pre_edit_check(file_path="auth/middleware.py")
 
 Memory injection is path-aware: a mistake stored for `service-a/auth/middleware.py` will not fire when editing `service-b/auth/middleware.py` even if the basename matches. Generic filenames (`__init__.py`, `index.js`) require a full-path signal; specific filenames still match by name.
 
-### Declare Scope
+### Declare scope
 
 ```python
 scope(operation="declare", task_description="Fix the login bug", in_scope_files=["auth/login.py", "auth/session.py"])
@@ -142,11 +142,11 @@ scope(operation="expand", files_to_add=["database/models.py"], reason="Login que
 
 ---
 
-## Context Protection
+## Context protection
 
 Checkpoints and handoffs are one construct (a durable ring buffer). `checkpoint_*` are the primary names; `handoff_*` exist as deprecated aliases for back-compat.
 
-### Save a Checkpoint
+### Save a checkpoint
 
 ```python
 context(operation="checkpoint_save", task_description="Refactoring auth module", current_step="Updating middleware", completed_steps=["Extracted JWT validation", "Added tests"], pending_steps=["Update routes", "Migration"], files_involved=["auth/middleware.py", "auth/jwt.py"])
@@ -158,7 +158,7 @@ Add `handoff_summary`, `handoff_context_needed`, and `handoff_warnings` to bridg
 context(operation="checkpoint_save", task_description="Auth refactor", handoff_summary="Auth refactor 60% done. Middleware updated, routes pending.", handoff_context_needed=["JWT validation moved from routes to middleware"], handoff_warnings=["Don't edit auth/legacy.py — being removed in next PR"])
 ```
 
-### Restore a Checkpoint
+### Restore a checkpoint
 
 ```python
 # Restore the latest checkpoint
@@ -168,7 +168,7 @@ context(operation="checkpoint_restore")
 context(operation="checkpoint_restore", index=2)
 ```
 
-### Browse Checkpoint History
+### Browse checkpoint history
 
 ```python
 # List all checkpoints newest-first with index, age, kind (manual|auto), and summary
@@ -177,11 +177,11 @@ context(operation="checkpoint_list", project_path="/path")
 
 ---
 
-## Code Analysis
+## Code analysis
 
-Only `scout_search` uses Ollama (and only when it's available — it falls back to keyword matching otherwise). `impact_analyze` and `audit_batch` are pure regex/AST and never call an LLM.
+Only `scout_search` uses Ollama, and only when it's available; it falls back to keyword matching otherwise. `impact_analyze` and `audit_batch` are pure regex/AST and never call an LLM.
 
-### Semantic Search (uses Ollama when available)
+### Semantic search (uses Ollama when available)
 
 ```python
 scout_search(query="how does the payment processing work", directory="/path/to/project")
@@ -189,7 +189,7 @@ scout_search(query="how does the payment processing work", directory="/path/to/p
 
 Reads actual code files; uses the local LLM to rank semantically relevant results when Ollama is up, otherwise keyword search. Better than grep for natural language queries.
 
-### Impact Analysis
+### Impact analysis
 
 ```python
 impact_analyze(file_path="models/user.py", project_root="/path")
@@ -197,16 +197,16 @@ impact_analyze(file_path="models/user.py", project_root="/path")
 
 Shows what depends on a file, what it exports, and risk level for changes. Reads the cached code index (reverse edges); no LLM.
 
-### Audit Files
+### Audit files
 
 ```python
 # Audit one or more files for bugs, missing error handling, security issues, TODOs, anti-patterns
 audit_batch(file_paths=["src/auth.py", "src/models/*.py"], min_severity="warning")
 ```
 
-`min_severity`: `"critical"` (bugs only) | `"warning"` (bugs + smells) | `"info"` (everything). Pure regex/AST — no LLM, no network.
+`min_severity`: `"critical"` (bugs only) | `"warning"` (bugs + smells) | `"info"` (everything). Pure regex/AST, with no LLM and no network.
 
-### Lint a Code Snippet
+### Lint a code snippet
 
 ```python
 # Fast structural/naming lint of an inline snippet — no I/O
@@ -221,7 +221,7 @@ Checks long functions, vague names, deep nesting, too many parameters. Use this 
 
 ### Start of a new session
 
-Nothing to do — `SessionStart` hook auto-loads context. For deep load:
+Nothing to do: the `SessionStart` hook auto-loads context. For a deep load:
 
 ```python
 session_start(project_path="/path")
