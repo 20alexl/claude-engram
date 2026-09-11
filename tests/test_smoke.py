@@ -132,6 +132,76 @@ def test_session_stays_active_across_sub_projects(tmp_path: Path, monkeypatch):
     assert not remind.check_session_active(str(tmp_path / "ws" / "other-project"))
 
 
+def _workspace(tmp_path: Path) -> tuple[Path, Path, Path]:
+    ws = tmp_path / "ws"
+    a, b = ws / "proj-a", ws / "proj-b"
+    for p in (ws, a, b):
+        (p / ".git").mkdir(parents=True, exist_ok=True)
+    (a / "src").mkdir(exist_ok=True)
+    (b / "src").mkdir(exist_ok=True)
+    return ws, a, b
+
+
+def test_mined_entries_file_under_the_project_their_files_name(tmp_path: Path):
+    from claude_engram.hooks.paths import target_project_for_files, _normalize_path
+
+    ws, a, b = _workspace(tmp_path)
+    assert _normalize_path(target_project_for_files(str(ws), [str(a / "src" / "x.py")])) == _normalize_path(str(a))
+    # majority wins; a temp path outside the root does not vote
+    files = [str(b / "src" / "y.py"), str(b / "src" / "z.py"), str(a / "src" / "x.py"), r"C:\Temp\other\t.py"]
+    assert _normalize_path(target_project_for_files(str(ws), files)) == _normalize_path(str(b))
+    assert target_project_for_files(str(ws), []) == str(ws)
+    assert target_project_for_files(str(ws), [r"C:\Temp\only.py"]) == str(ws)
+    assert target_project_for_files(str(a), [str(a / "src" / "x.py")]) == str(a)  # already the project
+    # The text names a project: it wins over the file vote, even a project
+    # whose files were not named at all (a session that edited both).
+    assert _normalize_path(target_project_for_files(str(ws), files, "MISTAKE: proj_a.core failed")) == _normalize_path(str(a))
+    (ws / "trade-lab" / ".git").mkdir(parents=True, exist_ok=True)
+    got = target_project_for_files(str(ws), [str(a / "src" / "x.py")], "AttributeError: module 'trade_lab.plant' has no attribute VERSION")
+    assert _normalize_path(got) == _normalize_path(str(ws / "trade-lab"))
+    # short or embedded names do not match ("tools" inside "toolset")
+    (ws / "tools" / ".git").mkdir(parents=True, exist_ok=True)
+    got = target_project_for_files(str(ws), [str(a / "src" / "x.py")], "the toolset broke; tools were fine")
+    assert _normalize_path(got) == _normalize_path(str(a))
+
+
+def test_reattribute_pooled_moves_entries_keeping_identity(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram import migrations
+    from claude_engram.tools.memory import MemoryStore
+
+    ws, a, b = _workspace(tmp_path)
+    store = MemoryStore(storage_dir=str(tmp_path / "store"))
+    store.remember_discovery(str(ws), "MISTAKE: KeyError in a", category="mistake", source="session_mining",
+                             relevance=8, related_files=[str(a / "src" / "x.py")], auto_embed=False)
+    store.remember_discovery(str(ws), "DECISION: b uses sqlite", category="decision", source="session_mining",
+                             relevance=7, related_files=[str(b / "src" / "y.py")], auto_embed=False)
+    store.remember_discovery(str(ws), "MISTAKE: no file named", category="mistake", source="session_mining",
+                             relevance=8, auto_embed=False)
+    store.remember_discovery(str(ws), "MISTAKE: a person's own note", category="mistake", source="work_tracker",
+                             relevance=8, related_files=[str(a / "src" / "x.py")], auto_embed=False)
+    root = store.get_project(str(ws))
+    assert root is not None and len(root.entries) == 4
+    ids = {e.content: (e.id, e.created_at) for e in root.entries}
+
+    manifest = json.loads((tmp_path / "store" / "manifest.json").read_text(encoding="utf-8"))
+    migrations._reattribute_pooled(tmp_path / "store", manifest)
+
+    fresh = MemoryStore(storage_dir=str(tmp_path / "store"))
+    root = fresh.get_project(str(ws))
+    pa, pb = fresh.get_project(str(a)), fresh.get_project(str(b))
+    assert root is not None and pa is not None and pb is not None
+    assert sorted(e.content for e in root.entries) == ["MISTAKE: a person's own note", "MISTAKE: no file named"]
+    assert [e.content for e in pa.entries] == ["MISTAKE: KeyError in a"]
+    assert [e.content for e in pb.entries] == ["DECISION: b uses sqlite"]
+    moved = pa.entries[0]
+    assert (moved.id, moved.created_at) == ids["MISTAKE: KeyError in a"]
+    # idempotent
+    migrations._reattribute_pooled(tmp_path / "store", manifest)
+    again = MemoryStore(storage_dir=str(tmp_path / "store")).get_project(str(a))
+    assert again is not None and len(again.entries) == 1
+
+
 def test_goal_turn_cap_from_config_and_env(tmp_path: Path, monkeypatch):
     proj = tmp_path / "p"
     (proj / ".engram").mkdir(parents=True)

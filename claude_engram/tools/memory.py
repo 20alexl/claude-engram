@@ -2535,10 +2535,12 @@ class MemoryStore:
         # Access frequency
         score += SCORE_WEIGHTS["access_freq"] * min(entry.access_count / 10.0, 1.0)
 
-        # Category bonuses
+        # Category bonuses ride on top of the (<= 1.0) components, unclipped,
+        # so a rule outranks a mistake on the same file (hot_reader has the
+        # same rule; a clip made them tie and insertion order decided).
         score += CATEGORY_BONUSES.get(entry.category, 0.0)
 
-        return min(score, 1.0)
+        return score
 
     def score_and_rank(
         self,

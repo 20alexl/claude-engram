@@ -318,6 +318,90 @@ def _modernize_mistake_store(storage: Path, manifest: dict) -> None:
         tmp.replace(archive_file)
 
 
+def _reattribute_pooled(storage: Path, manifest: dict) -> None:
+    """Move mined mistakes and decisions to the sub-project their files name
+    (v0.8.36). Sessions run from a workspace root mined everything into the
+    root store; a sub-project's own store stayed empty while the root
+    pooled every sibling's tracebacks. Heavy: uses the pydantic store
+    (delete + re-add, keeping id, timestamps and flags), so it runs in the
+    background, never inline in a hook. Idempotent: an entry whose files
+    resolve to its own project does not move."""
+    from claude_engram.hooks.paths import target_project_for_files
+    from claude_engram.tools.memory import MemoryStore
+
+    store = MemoryStore(storage_dir=str(storage))
+    projects = list(manifest.get("projects", {}).keys())
+    norm = {store._normalize_path(p): p for p in projects}
+
+    def _root_of(p: str) -> str:
+        # The topmost registered ancestor: entries are routed from the
+        # workspace root so a traceback filed under the wrong sibling can
+        # still move to the sibling its text names.
+        cur = store._normalize_path(p)
+        best = cur
+        while True:
+            parent = str(Path(cur).parent).replace("\\", "/")
+            if parent == cur:
+                break
+            if parent.lower() in {k.lower() for k in norm}:
+                best = parent
+            cur = parent
+        return best
+
+    moved = 0
+    for src in projects:
+        proj = store.get_project(src)
+        if proj is None:
+            continue
+        root = _root_of(src)
+        for entry in list(proj.entries):
+            if entry.category not in ("mistake", "decision") or not entry.related_files:
+                continue
+            if entry.source not in (None, "", "session_mining", "auto-detected"):
+                continue  # a person's own entry stays where they put it
+            dst = target_project_for_files(root, list(entry.related_files), entry.content)
+            if not dst or store._normalize_path(dst) == store._normalize_path(src):
+                continue
+            if store._normalize_path(dst) == store._normalize_path(root) and store._normalize_path(src) != store._normalize_path(root):
+                continue  # no sub-project evidence: a sub-project's entry never falls back to the root
+            if not Path(dst).is_dir():
+                continue
+            ok, _ = store.delete_memory(src, entry.id)
+            if not ok:
+                continue
+            store.remember_discovery(
+                dst,
+                entry.content,
+                source=entry.source,
+                relevance=entry.relevance,
+                tags=list(entry.tags),
+                related_files=list(entry.related_files),
+                category=entry.category,
+                auto_embed=False,
+            )
+            dproj = store.get_project(dst)
+            if dproj is not None and dproj.entries:
+                new = dproj.entries[-1]
+                new.id = entry.id
+                new.created_at = entry.created_at
+                new.last_accessed = entry.last_accessed
+                new.access_count = entry.access_count
+                new.archived_at = entry.archived_at
+                new.cluster_id = None
+                store._dirty_projects.add(store._normalize_path(dst))
+            moved += 1
+    if moved:
+        store._save()
+    _log(f"reattribute_pooled: moved {moved} mined entries to the projects their files name")
+
+
+def _log(msg: str) -> None:
+    try:
+        print(f"[migrations] {msg}", file=sys.stderr)
+    except Exception:
+        pass
+
+
 STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
@@ -327,6 +411,7 @@ STEPS = [
         _redate_downrank_stale_consolidations,
     ),
     ("0.8.4:modernize_mistake_store", False, _modernize_mistake_store),
+    ("0.8.36:reattribute_pooled", True, _reattribute_pooled),
 ]
 
 

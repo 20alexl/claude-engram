@@ -310,7 +310,16 @@ def _summarize_errors(errors: list[dict], known: list[dict]) -> dict:
     ]
     known_types = [k for k in known_types if k]
     top = []
-    for g in sorted(groups.values(), key=lambda x: -x["count"])[:10]:
+    # A bare "Error: Exit code N" is a shell command that printed nothing:
+    # no traceback, no message. Name it for what it is and rank it after
+    # the errors that say something (a live report led with 30 of them).
+    _bare = re.compile(r"^\s*error:\s*exit code\s*(\d+)\s*$", re.I)
+    for g in groups.values():
+        m = _bare.match(str(g.get("text", "")))
+        if m:
+            g["text"] = f"a shell command exited {m.group(1)} with no output captured"
+            g["bare_exit"] = True
+    for g in sorted(groups.values(), key=lambda x: (bool(x.get("bare_exit")), -x["count"]))[:10]:
         low = g["text"].lower()
         g["known_before"] = any(kt in low for kt in known_types)
         top.append(g)

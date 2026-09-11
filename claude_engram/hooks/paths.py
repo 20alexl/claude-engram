@@ -9,6 +9,7 @@ so it never forms an import cycle with remind.py.
 
 import json
 import os
+import re
 from pathlib import Path
 
 
@@ -46,6 +47,63 @@ from .hot_reader import _GENERIC_BASENAMES  # noqa: E402,F401
 
 # Cache: file_path -> resolved project dir (avoids repeated filesystem walks)
 _project_dir_cache: dict[str, str] = {}
+
+
+def target_project_for_files(project_path: str, related_files: list, content: str = "") -> str:
+    """The sub-project a mined entry belongs to, from the files it names.
+
+    Sessions run from a workspace root mine everything into the ROOT store,
+    so a sub-project's own store stayed empty while the root pooled every
+    sibling's mistakes (2026-09-10: claude-engram's store held 0 of the 148
+    mistakes about it). Each named file resolves to the closest marked
+    project under ``project_path``; the majority wins; files outside the
+    root (temp dirs, other drives) do not vote. When the entry's text names
+    one of the candidate projects (``trade_lab`` in a traceback), that
+    project wins over the file vote -- a session that edits two projects
+    lists both projects' files. Falls back to ``project_path`` itself."""
+    root = _normalize_path(project_path) if project_path else ""
+    if not root or not related_files:
+        return project_path
+    votes: dict[str, int] = {}
+    root_l = root.lower().rstrip("/") + "/"
+    for f in related_files or []:
+        try:
+            p = _normalize_path(str(f))
+        except Exception:
+            continue
+        if not p.lower().startswith(root_l):
+            continue  # outside the mining root: no vote
+        try:
+            sub = resolve_project_for_file(p, root)
+        except Exception:
+            continue
+        if not sub or sub.lower().rstrip("/") == root.lower().rstrip("/"):
+            continue
+        votes[sub] = votes.get(sub, 0) + 1
+    if not votes:
+        return project_path
+    text = (content or "").lower()
+    if text:
+        # Voted projects first, then every marked child of the root: a
+        # traceback that says `trade_lab` belongs there even when the
+        # session's edits named another project's files.
+        candidates = list(votes)
+        try:
+            for child in sorted(Path(root).iterdir()):
+                if child.is_dir() and any((child / m).exists() for m in _PROJECT_MARKERS):
+                    n = _normalize_path(str(child))
+                    if n not in candidates:
+                        candidates.append(n)
+        except Exception:
+            pass
+        for sub in candidates:
+            name = Path(sub).name.lower()
+            if len(name) < 6:
+                continue  # short names ("tools", "docs") match ordinary words
+            for variant in {name, name.replace("-", "_"), name.replace("_", "-")}:
+                if re.search(r"(?<![a-z0-9])" + re.escape(variant) + r"(?![a-z0-9])", text):
+                    return sub
+    return max(votes.items(), key=lambda kv: kv[1])[0]
 
 
 def resolve_project_for_file(file_path: str, workspace_root: str = "") -> str:

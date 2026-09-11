@@ -14,6 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from claude_engram.tools.memory import MemoryStore, HotMemoryReader
 
+# An isolated store for the whole bench: it used to write its /tmp/bench_*
+# projects into the live store on every run.
+import tempfile as _tempfile
+
+_TMP = _tempfile.mkdtemp(prefix="engram-bench-scoring-")
+os.environ["CLAUDE_ENGRAM_DIR"] = _TMP
+
 
 def setup_test_project(m: MemoryStore, project: str):
     """Create a realistic project with diverse memories."""
@@ -109,9 +116,15 @@ def setup_test_project(m: MemoryStore, project: str):
         )
 
 
+def _hit(expected, top_content: str) -> bool:
+    """One keyword, or any of a tuple of acceptable keywords."""
+    keys = expected if isinstance(expected, tuple) else (expected,)
+    return any(k.lower() in top_content for k in keys)
+
+
 def test_scoring_precision():
     """Test that the right memory ranks #1 for each file context."""
-    m = MemoryStore()
+    m = MemoryStore(storage_dir=_TMP)
     project = "/tmp/bench_scoring"
 
     setup_test_project(m, project)
@@ -121,7 +134,9 @@ def test_scoring_precision():
         ("auth/middleware.py", ["auth"], "auth"),
         ("db/migrations.py", ["database"], "migration"),
         ("db/queries.py", ["database"], "parameterized"),
-        ("api/routes.py", ["api"], "api"),
+        # Two memories name api/routes.py; the mistake about its POST handler
+        # is a correct #1 as much as the API-design discovery is.
+        ("api/routes.py", ["api"], ("api", "request body")),
         ("src/App.tsx", ["frontend"], "react"),
         ("auth/tokens.py", ["auth"], "auth"),
     ]
@@ -141,7 +156,7 @@ def test_scoring_precision():
         if results:
             top_entry, top_score = results[0]
             top_content = top_entry.content.lower()
-            hit = expected_keyword.lower() in top_content
+            hit = _hit(expected_keyword, top_content)
 
             if hit:
                 passed += 1
@@ -165,7 +180,7 @@ def test_scoring_precision():
         results = reader.get_scored_memories(
             project, {"file_path": file_path, "tags": tags}, limit=1
         )
-        if results and expected_keyword.lower() in results[0]["content"].lower():
+        if results and _hit(expected_keyword, results[0]["content"].lower()):
             reader_match += 1
 
     print(f"HotMemoryReader agreement: {reader_match}/{total}")
@@ -177,7 +192,7 @@ def test_scoring_precision():
 
 def test_category_bonus():
     """Test that rules and mistakes rank higher than discoveries."""
-    m = MemoryStore()
+    m = MemoryStore(storage_dir=_TMP)
     project = "/tmp/bench_bonus"
 
     # Same file, different categories
@@ -224,7 +239,7 @@ def test_category_bonus():
 
 def test_parent_inheritance():
     """Test that workspace memories are visible from sub-projects."""
-    m = MemoryStore()
+    m = MemoryStore(storage_dir=_TMP)
 
     # Workspace-level rule
     m.remember_discovery(
@@ -239,12 +254,15 @@ def test_parent_inheritance():
         "Backend uses FastAPI",
         category="discovery",
         relevance=7,
-        related_files=["main.py"],
+        # A specific filename: main.py is a generic basename since 0.8.31 and
+        # a bare mention of it carries no file relevance (by design). This
+        # test is about inheritance, not that policy.
+        related_files=["app_server.py"],
     )
 
     reader = HotMemoryReader()
     results = reader.get_scored_memories(
-        "/tmp/workspace/backend", {"file_path": "main.py"}, limit=5
+        "/tmp/workspace/backend", {"file_path": "app_server.py"}, limit=5
     )
     contents = [r["content"] for r in results]
 

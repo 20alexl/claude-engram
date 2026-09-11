@@ -894,6 +894,10 @@ def _feed_to_memory_store(
         from claude_engram.tools.memory import MemoryStore
 
         store = MemoryStore(storage_dir=engram_storage_dir)
+        # Each entry is filed under the sub-project its files name, not the
+        # session's cwd: a workspace-root session pooled every sibling's
+        # mistakes in the root store (hooks/paths.target_project_for_files).
+        from claude_engram.hooks.paths import target_project_for_files as _target
 
         # High-confidence decisions
         for d in extractions.decisions:
@@ -902,7 +906,7 @@ def _feed_to_memory_store(
                 if d.reasoning:
                     content += f" (reason: {d.reasoning})"
                 store.remember_discovery(
-                    project_path,
+                    _target(project_path, d.related_files, content),
                     content,
                     category="decision",
                     source="session_mining",
@@ -918,7 +922,7 @@ def _feed_to_memory_store(
                 if m.fix:
                     content += f" — Fix: {m.fix}"
                 store.remember_discovery(
-                    project_path,
+                    _target(project_path, m.related_files, content),
                     content,
                     category="mistake",
                     source="session_mining",

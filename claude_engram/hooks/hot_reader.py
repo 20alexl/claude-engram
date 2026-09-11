@@ -201,7 +201,11 @@ def score_entry(entry: dict, context: dict) -> float:
     category = entry.get("category", "")
     score += CATEGORY_BONUSES.get(category, 0.0)
 
-    return min(score, 1.0)
+    # Not clipped: the components sum to at most 1.0 and the bonus rides on
+    # top, so a rule (0.3) outranks a mistake (0.2) on the same file. A clip
+    # at 1.0 made them tie and let insertion order decide (bench_scoring's
+    # category-bonus case, wrong since 0.8.x).
+    return score
 
 
 def _memory_injection_weight() -> float:
