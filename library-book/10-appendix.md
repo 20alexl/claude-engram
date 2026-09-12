@@ -271,6 +271,16 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.43 (2026-09-12)
+
+The fifth report from the trade-lab session, in its order of noise: test tracking fired after a box smoke and after a `git merge --abort` whose chain opened with `export` and `cd`; a `FileNotFoundError` was warned against a markdown ledger and an `AttributeError` against ERRORS.md; "Since this checkpoint: no commits" while nine commits sat on three worktree branches; the banner said 35 rules and 151 mistakes, the prompt hook 40 and 182; and the model's own miss, state banked with `memory(remember)` twice, so the restore served a thirteen-hour-old checkpoint. The user's note on that last one: having both is not bad. Right: a remember is a fact, a checkpoint is the resume state, and the restore reads only the second.
+
+- **Test tracking judges every segment and the output's shape.** `_command_can_run_tests` peels leading assignments and wrappers (`timeout 590`, `env`, `nice`, `ssh host`, `uv run`) from each segment of a chain and asks whether anything left could run a test; `export`, `cd`, `pwd` and the read-only tools never can, and a package manager's housekeeping (`uv lock`, `uv sync`) is not a runner. `_output_has_test_markers` no longer accepts a bare "N errors": `uv lock`, linters and a box smoke all print one. "3 passed, 1 error" still counts.
+- **A failing test's mistake attaches to the files the traceback names.** Else to the code files edited this session, never a markdown file edited near the failure. The 109 "AttributeError (occurred 1 time)" warnings on ledger edits came from that attachment.
+- **The staleness line reads every local branch.** `repo_state.since` counts `--branches --not <commit>` beside HEAD's own count; the banner says "no commits on this branch; 9 commits on other local branches (worktrees included)". The file list stays HEAD's.
+- **One count, named.** The session-start banner and the PostCompact line load rules and mistakes for the session's project, the same store the prompt hook counts, and every header says whose: `Rules (40, trade-lab)`, `Past mistakes: 182 tracked for trade-lab (47 its own, the rest pooled from ancestors)`.
+- **A remember in place of a checkpoint gets its own nudge.** `stall.note_tool` records which operation a turn's memory or context call made (`memory:remember`, `context:checkpoint_save`); when a turn ends with a remember, no checkpoint, and either a closing sentence or remembered text that reads as resume state, the nudge says that a remember stores a fact, the restore reads checkpoints only, and both together are fine. Structural, never rate-limited.
+
 ### v0.8.42 (2026-09-11)
 
 The trade-lab model's honest answer to "did engram find why the constant is 0.15": no. `session_mine(decisions)` raised `FileNotFoundError` on the sub-project's missing embeddings index; `replay` returned edit timestamps with no reasons. Git found it: a pickaxe on the constant led to the introducing commit of 2026-08-16, whose message carried the only reason ever written.

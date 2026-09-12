@@ -494,6 +494,22 @@ def _turn_corroborates_a_close(state: dict, quote: str) -> bool:
     return bool(effects) or bool(turn.get("delegated"))
 
 
+def _turn_banked_with_remember(state: dict, claimed: bool) -> bool:
+    """Did this turn call memory(remember) in place of a checkpoint? True
+    when a remember landed, no checkpoint_save did, and either the final
+    message closes a step or the remembered text reads as resume state
+    (hooks/stall.py marks that). A remember beside a checkpoint is fine:
+    a fact and the resume state are two different records."""
+    _stall = state.get("stall")
+    turn = (_stall if isinstance(_stall, dict) else {}).get("turn")
+    if not isinstance(turn, dict):
+        return False
+    recs = turn.get("records") or []
+    if "memory:remember" not in recs or "context:checkpoint_save" in recs:
+        return False
+    return bool(claimed) or bool(turn.get("remember_state"))
+
+
 def stage_milestone(state: dict, quote: str, kind: str = "claim", since: float = 0.0) -> None:
     """Remember that a unit closed without a deliberate checkpoint; the next
     injection point asks for one. The newest claim wins. ``since`` is the
@@ -522,6 +538,13 @@ def note_stop(state: dict, last_message: str = "") -> None:
 
         claimed, quote = is_completion_claim(last_message)
     except Exception:
+        return
+    if _turn_banked_with_remember(state, claimed):
+        # memory(remember) was called as if it were the checkpoint (the
+        # trade-lab trial, 2026-09-12: two remembers, then a restore that
+        # served a 13-hour-old entry). Structural, never rate-limited.
+        stage_milestone(state, quote if claimed else "", "claim_remember", since=prev_stop)
+        ps["stops_since_checkpoint"] = 0
         return
     if claimed and _turn_corroborates_a_close(state, quote):
         stage_milestone(state, quote, "claim", since=prev_stop)

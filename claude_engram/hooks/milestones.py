@@ -266,6 +266,15 @@ def is_completion_claim(text: str, use_semantic: bool = True) -> tuple[bool, str
 
 
 def milestone_text(quote: str, kind: str = "claim") -> str:
+    if kind == "claim_remember":
+        closed = f' ("{quote}")' if quote else ""
+        return (
+            f"<engram-context>Last turn banked state with memory(remember){closed}. "
+            "A remember stores a fact; the restore after a compaction or a new session "
+            "reads checkpoints only, so that state is not what comes back. Keep the fact, "
+            'and bank the state too: context(checkpoint_save, task_description="<what closed, '
+            'what is next>"). Engram never writes this for you.</engram-context>'
+        )
     lead = (
         f'You marked a task done: "{quote}".'
         if kind == "task"

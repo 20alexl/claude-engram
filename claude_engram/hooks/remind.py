@@ -522,6 +522,14 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 3] + "..."
 
 
+def _project_label(project_dir: str) -> str:
+    """The project a count belongs to, by folder name. Two hooks in one
+    session said 35 and 40 rules (root store vs the sub-project's, which
+    inherits the root's) with nothing telling them apart (2026-09-12)."""
+    name = Path(str(project_dir or "")).name
+    return name or "workspace"
+
+
 def _pluralize(count: int, singular: str) -> str:
     """Pluralize a category name correctly."""
     if count == 1:
@@ -1274,24 +1282,83 @@ _READ_ONLY_EXECUTABLES = frozenset(
 )
 
 
-def _command_can_run_tests(first_cmd: str) -> bool:
-    """Can this command's OUTPUT be a test verdict? The output markers below
-    ("3 passed", "collected 2 items") are read only when the command could
-    have run something: a grep, cat or git log whose OUTPUT quotes a test
-    line is not a test run (a grep over this file's own source was tracked
-    as "PASS Test tracked", 2026-09-10; so was a git log whose path carried
-    the word pytest)."""
-    seg = (first_cmd or "").strip()
+_SHELL_NOISE = frozenset({"export", "cd", "pwd", "set", "source", "unset", "true", "false", "sleep", "mkdir", "touch", "cp", "mv", "ln", "chmod"})
+_WRAPPERS = frozenset({"timeout", "env", "nice", "sudo", "time", "nohup", "ssh", "uv", "poetry", "pipenv", "conda", "npx", "bunx"})
+_NOT_RUNNER_SUBCOMMANDS = frozenset({"lock", "sync", "add", "remove", "pip", "venv", "init", "build", "publish", "install", "update", "tree", "export"})
+
+
+def _segment_can_run_tests(seg: str) -> bool:
+    """Could ONE shell segment have run a test? Leading assignments and
+    wrappers (`timeout 590 bash x.sh`, `uv run pytest`, `ssh box ...`) are
+    peeled; a package-manager housekeeping subcommand (`uv lock`) is not a
+    runner; read-only tools and shell noise never are."""
+    seg = (seg or "").strip()
     while True:
-        m = re.match(r"^(?:[a-z_][a-z0-9_]*=\S*\s+|sudo\s+|cd\s+\S+\s*(?:&&|;)\s*)", seg)
+        m = re.match(r"^(?:[a-z_][a-z0-9_]*=\S*\s+)+", seg)
         if not m:
             break
         seg = seg[m.end() :]
-    exe = seg.split()[0] if seg.split() else ""
-    exe = exe.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    if exe.endswith(".exe"):
-        exe = exe[:-4]
-    return bool(exe) and exe not in _READ_ONLY_EXECUTABLES
+    parts = seg.split()
+    while parts:
+        exe = parts[0].replace("\\", "/").rsplit("/", 1)[-1].lower().strip("'\"")
+        if exe.endswith(".exe"):
+            exe = exe[:-4]
+        if exe in _WRAPPERS:
+            rest = parts[1:]
+            # `timeout 590 cmd`, `nice -n 5 cmd`, `ssh -p 22 host cmd`, `uv run cmd`
+            while rest and re.fullmatch(r"-\S*|\d+[smh]?", rest[0]):
+                rest = rest[1:]
+            if exe == "ssh" and rest:
+                rest = rest[1:]  # the host
+            if exe in ("uv", "poetry", "pipenv", "conda") and rest:
+                sub = rest[0].lower()
+                if sub in _NOT_RUNNER_SUBCOMMANDS:
+                    return False
+                if sub == "run":
+                    rest = rest[1:]
+            if not rest:
+                return False
+            parts = rest
+            continue
+        if exe in _READ_ONLY_EXECUTABLES or exe in _SHELL_NOISE:
+            return False
+        return bool(exe)
+    return False
+
+
+def _output_has_test_markers(output: str) -> bool:
+    """Does this OUTPUT read as a test verdict? pytest / unittest / jest
+    shapes only. A bare "N errors" is not one: `uv lock`, a linter and a
+    box smoke all print it without running a test."""
+    low = (output or "").lower()
+    return any(
+        (
+            re.search(r"\b\d+ passed\b", low),
+            re.search(r"\b\d+ failed\b", low),
+            re.search(r"\b\d+ (?:passed|failed|skipped|xfailed|deselected),? \d+ errors?\b", low),
+            re.search(r"collected \d+ items?", low),
+            re.search(r"\nok\s*$", low),
+            "assertionerror" in low,
+            "=== failures ===" in low,
+            "test session starts" in low,
+            re.search(r"\[pass\]|\[fail\]", low),
+            re.search(r"^\s*ran \d+ tests?", low, re.M),
+        )
+    )
+
+
+def _command_can_run_tests(command: str) -> bool:
+    """Can this command's OUTPUT be a test verdict? The output markers below
+    ("3 passed", "collected 2 items") are read only when some segment of
+    the command could have run something: a grep, cat or git log whose
+    OUTPUT quotes a test line is not a test run (a grep over this file's
+    own source was tracked as "PASS Test tracked", 2026-09-10), and neither
+    is `export PATH=...; cd wt && pwd; git merge --abort` (2026-09-12)."""
+    low = (command or "").lower()
+    for seg in re.split(r"&&|\|\||;|\n|\|(?!\|)", low):
+        if _segment_can_run_tests(seg):
+            return True
+    return False
 
 
 def _is_test_invocation(command: str) -> bool:
@@ -1522,7 +1589,7 @@ def reminder_for_prompt(project_dir: str, prompt: str = "") -> str:
             get_project_rules(project_memory), project_dir
         )
         if rules:
-            lines.append(f"RULES ({len(rules)}) - always follow:")
+            lines.append(f"RULES ({len(rules)}, {_project_label(project_dir)}) - always follow:")
             for r in rules[:5]:  # Show top 5 rules
                 lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
             lines.append("")
@@ -1719,22 +1786,10 @@ def reminder_for_bash(
     # - "collected N items" (pytest)
     # This catches: python bench_X.py, python -m tests.run, python script.py
     # that contains assertions, etc. Skips probes like `python -c "print(...)"`.
-    if not is_full_suite and output and _command_can_run_tests(first_cmd):
-        output_lower = output.lower()
-        test_markers = [
-            re.search(r"\d+ passed", output_lower),
-            re.search(r"\d+ failed", output_lower),
-            re.search(r"\d+ errors?\b", output_lower),
-            re.search(r"collected \d+ items?", output_lower),
-            re.search(r"\nok\s*$", output_lower),
-            "assertionerror" in output_lower,
-            "=== failures ===" in output_lower,
-            "test session starts" in output_lower,
-            re.search(r"\[pass\]|\[fail\]", output_lower),
-            re.search(r"^\s*ran \d+ tests?", output_lower, re.M),
-        ]
-        if any(test_markers):
-            is_full_suite = True
+    # A bare "N errors" is not a marker: `uv lock`, linters and a box
+    # smoke print one without running a test (tracked as PASS, 2026-09-12).
+    if not is_full_suite and output and _command_can_run_tests(command) and _output_has_test_markers(output):
+        is_full_suite = True
 
     if is_full_suite:
         passed = exit_code == "0"
@@ -1761,19 +1816,24 @@ def reminder_for_bash(
 
         # On test failure, link to recently-edited files in the mistake
         if not passed and error_snippet:
-            recent = load_state().get("files_edited_this_session", [])[-5:]
-            if recent:
-                # Extract file from traceback if present
-                file_match = re.search(r'File ["\']([^"\']+\.py)["\']', output or "")
-                error_project = project_dir
-                if file_match:
-                    error_project = get_project_dir(file_match.group(1))
-                    recent = [file_match.group(1)] + [
-                        f for f in recent if f != file_match.group(1)
-                    ]
-
+            # The files a failure attaches to: the ones the traceback names,
+            # else the CODE files edited this session. A markdown file
+            # edited near the failure cannot have raised it (ERRORS.md
+            # carried an AttributeError, HOLDOUT-LEDGER.md a
+            # FileNotFoundError, trade-lab trial 2026-09-12).
+            traced = re.findall(r'File ["\']([^"\']+\.py)["\']', output or "")
+            traced = [t for t in traced if not re.search(r"[\\/](?:site-packages|dist-packages|venv|\.venv)[\\/]", t)]
+            error_project = get_project_dir(traced[0]) if traced else project_dir
+            if traced:
+                related = list(dict.fromkeys(traced))[:5]
+            else:
+                related = [
+                    f for f in load_state().get("files_edited_this_session", [])[-5:]
+                    if _is_code_file(f)
+                ]
+            if related:
                 _auto_log_detected_mistake_with_files(
-                    error_project, command, error_snippet, recent[:5]
+                    error_project, command, error_snippet, related[:5]
                 )
 
         # Speak only when the status is news: the first run and every flip.
@@ -3018,7 +3078,7 @@ def _stall_bearings(project_dir: str) -> list[str]:
         project_memory = load_project_memory(project_dir)
         rules = filter_rules_in_claude_md(get_project_rules(project_memory), project_dir)
         if rules:
-            lines.append(f"Rules ({len(rules)}):")
+            lines.append(f"Rules ({len(rules)}, {_project_label(project_dir)}):")
             for r in rules[:5]:
                 lines.append(f"  [{r['id']}] {_truncate(r['content'], 100)}")
     except Exception:
@@ -3357,12 +3417,17 @@ def _hook_post_compact(project_dir: str) -> None:
 
         # Load rules and mistakes to re-inject after compaction
         # (CLAUDE.md-covered rules skipped — that file survives
-        # compaction in context anyway)
-        project_memory = load_project_memory(project_dir)
+        # compaction in context anyway). The session's project, the same
+        # store every other hook counts.
+        try:
+            work_project = session_project(project_dir, load_state())
+        except Exception:
+            work_project = project_dir
+        project_memory = load_project_memory(work_project)
         rules = filter_rules_in_claude_md(
-            get_project_rules(project_memory), project_dir
+            get_project_rules(project_memory), work_project
         )
-        mistakes = get_past_mistakes(project_memory, project_dir)
+        mistakes = get_past_mistakes(project_memory, work_project)
 
         # The rules, the mistakes and the restored checkpoint are re-injected
         # by the SessionStart(compact) banner, which fires for every
@@ -3386,7 +3451,10 @@ def _hook_post_compact(project_dir: str) -> None:
         except Exception:
             pass
         if rules:
-            lines.append(f"Rules ({len(rules)}) and past mistakes ({len(mistakes)}) follow in the session-start banner.")
+            lines.append(
+                f"Rules ({len(rules)}, {_project_label(work_project)}) and past mistakes ({len(mistakes)}) "
+                "follow in the session-start banner."
+            )
 
         # For the run report: which entry this compaction restored.
         handoff = get_handoff_data(project_dir)
@@ -3687,20 +3755,27 @@ def _hook_session_start(project_dir: str) -> None:
         except Exception:
             pass
 
-        # Load and show key context (CLAUDE.md-covered rules skipped)
-        project_memory = load_project_memory(project_dir)
+        # Load and show key context (CLAUDE.md-covered rules skipped). The
+        # store is the session's project, the same one the prompt hook
+        # counts: the banner said 35 rules while the prompt hook said 40
+        # (the sub-project's own on top of the root's), 2026-09-12.
+        project_memory = load_project_memory(work_project)
         rules = filter_rules_in_claude_md(
-            get_project_rules(project_memory), project_dir
+            get_project_rules(project_memory), work_project
         )
-        mistakes = get_past_mistakes(project_memory, project_dir)
+        mistakes = get_past_mistakes(project_memory, work_project)
+        _label = _project_label(work_project)
 
         if rules:
-            lines.append(f"Rules ({len(rules)}):")
+            lines.append(f"Rules ({len(rules)}, {_label}):")
             for r in rules[:5]:
                 lines.append(f"  [{r['id']}] {_truncate(r['content'], 120)}")
         if mistakes:
+            _own = sum(1 for m in mistakes if m.get("scope", 0) == 0)
             lines.append(
-                f"Past mistakes: {len(mistakes)} tracked (file-specific, shown before edits)"
+                f"Past mistakes: {len(mistakes)} tracked for {_label}"
+                + (f" ({_own} its own, the rest pooled from ancestors)" if _own != len(mistakes) else "")
+                + " (file-specific, shown before edits)"
             )
 
         # Restored context: checkpoint + handoff are one ring construct now;

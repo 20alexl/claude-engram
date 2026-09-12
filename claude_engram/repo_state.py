@@ -76,6 +76,10 @@ def since(commit: str, project_dir: str, files: Optional[list[str]] = None) -> O
     if _git(["cat-file", "-e", f"{commit}^{{commit}}"], project_dir) is None:
         return {"commits": 0, "files_changed": 0, "touched": [], "missing": True}
     count = (_git(["rev-list", "--count", f"{commit}..HEAD"], project_dir) or "0").strip()
+    # Every local branch, worktrees included: a checkpoint taken on main
+    # said "no commits" while nine sat on three worktree branches
+    # (2026-09-12). HEAD's own count is subtracted so the two never overlap.
+    everywhere = (_git(["rev-list", "--count", "--branches", "--not", commit], project_dir) or "0").strip()
     names = _git(["diff", "--name-only", f"{commit}..HEAD"], project_dir) or ""
     changed = [n.strip().replace("\\", "/") for n in names.splitlines() if n.strip()]
     touched: list[str] = []
@@ -88,7 +92,11 @@ def since(commit: str, project_dir: str, files: Optional[list[str]] = None) -> O
         n = int(count)
     except ValueError:
         n = 0
-    return {"commits": n, "files_changed": len(changed), "touched": touched, "missing": False}
+    try:
+        elsewhere = max(0, int(everywhere) - n)
+    except ValueError:
+        elsewhere = 0
+    return {"commits": n, "files_changed": len(changed), "touched": touched, "missing": False, "other_branches": elsewhere}
 
 
 def since_text(info: Optional[dict]) -> str:
@@ -98,11 +106,15 @@ def since_text(info: Optional[dict]) -> str:
     if info.get("missing"):
         return "Since this checkpoint: its commit is not in this history (rewritten or another clone)"
     n, f = int(info.get("commits", 0)), int(info.get("files_changed", 0))
+    other = int(info.get("other_branches", 0) or 0)
     if not n and not f:
-        return "Since this checkpoint: no commits"
-    line = f"Since this checkpoint: {n} commit{'s' if n != 1 else ''}, {f} file{'s' if f != 1 else ''} changed"
-    if info.get("touched"):
-        line += " -- incl. " + ", ".join(info["touched"][:4])
+        line = "Since this checkpoint: no commits on this branch"
+    else:
+        line = f"Since this checkpoint: {n} commit{'s' if n != 1 else ''}, {f} file{'s' if f != 1 else ''} changed"
+        if info.get("touched"):
+            line += " -- incl. " + ", ".join(info["touched"][:4])
+    if other:
+        line += f"; {other} commit{'s' if other != 1 else ''} on other local branches (worktrees included)"
     return line
 
 

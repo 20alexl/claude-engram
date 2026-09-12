@@ -605,3 +605,81 @@ def test_goal_turn_cap_from_config_and_env(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("CLAUDE_ENGRAM_GOAL_TURN_CAP")
     assert autorun.turn_cap(str(tmp_path / "none")) == autorun.DEFAULT_TURN_CAP
     assert os.environ.get("CLAUDE_ENGRAM_GOAL_TURN_CAP") is None
+
+
+def test_test_tracking_judges_every_segment_and_the_output_shape():
+    """The fifth trial report: 'Test tracked' after a `git merge --abort`
+    whose chain opened with export/cd/pwd, after `uv lock`, and after a box
+    smoke that printed '0 errors'."""
+    from claude_engram.hooks.remind import _command_can_run_tests as can, _output_has_test_markers as marks
+    assert can("export PATH=/x:$PATH; cd /e/p2m-wt && pwd; uv lock --upgrade-package foo") is False
+    assert can("cd /e/p2m-wt && pwd; git diff --name-only --diff-filter=U; git merge --abort tests/test_x.py") is False
+    assert can("timeout 590 bash /e/workspace/tools/box.sh 'smoke'") is True  # the output decides
+    assert can("export A=1; uv run pytest -q tests") is True
+    assert can("cd /w && python -m pytest tests/test_x.py") is True
+    assert can("ssh -p 22 box 'cd /w && python -m pytest'") is True
+    assert can("uv sync && uv lock") is False
+    assert marks("Resolved 12 packages in 1.2s\n0 errors") is False
+    assert marks("box smoke: 3 checks, 0 errors, done") is False
+    assert marks("3 passed, 1 error in 0.4s") is True
+    assert marks("collected 4 items") is True
+    assert marks("Ran 3 tests\n\nOK\n") is True
+
+
+def test_since_counts_commits_on_other_local_branches(tmp_path: Path):
+    import subprocess
+    from claude_engram.repo_state import since, since_text
+    repo = _git_repo_with_a_reason(tmp_path)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=str(repo), check=True, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL).stdout.strip()
+    first = git("rev-list", "--max-parents=0", "HEAD")
+    head = git("rev-parse", "HEAD")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    git("checkout", "-q", "-b", "wt")
+    (repo / "src" / "other.py").write_text("X = 1\n", encoding="utf-8")
+    git("add", "."); git("commit", "-q", "-m", "wt: a commit on a worktree branch")
+    git("checkout", "-q", branch)
+    info = since(first, str(repo))
+    assert info and info["commits"] == 1 and info["other_branches"] == 1
+    assert "1 commit on other local branches" in since_text(info)
+    # HEAD itself unchanged: the line says so, and still names the branch work.
+    info2 = since(head, str(repo))
+    assert info2 and info2["commits"] == 0 and info2["other_branches"] == 1
+    assert since_text(info2).startswith("Since this checkpoint: no commits on this branch; 1 commit on other")
+
+
+def test_counts_name_their_project():
+    from claude_engram.hooks.remind import _project_label
+    assert _project_label("E:/workspace/trade-lab") == "trade-lab"
+    assert _project_label("/w/trade-lab/") == "trade-lab"
+    assert _project_label("") == "workspace"
+
+
+def test_a_remember_in_place_of_a_checkpoint_gets_the_sharper_nudge(tmp_path: Path, monkeypatch):
+    import time as _t
+    from claude_engram.hooks import context_pressure as cp, stall
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    monkeypatch.setattr(cp, "_ring_manual_after", lambda *_a, **_k: False)
+    state: dict = {}
+    cp.pressure_state(state)["last_stop_at"] = _t.time() - 30
+    stall.note_tool(state, "mcp__claude-engram__memory", {"operation": "remember", "content": "State banked: B6 card written; next step is the B3 card"})
+    assert state["stall"]["turn"]["records"] == ["memory:remember"] and state["stall"]["turn"].get("remember_state") is True
+    cp.note_stop(state, "Banked the state; continuing with B3.")
+    mp = cp.pressure_state(state)["milestone_pending"]
+    assert mp and mp["kind"] == "claim_remember"
+    text, _ = cp.nudge(state, "s-remember", str(tmp_path))
+    assert "reads checkpoints only" in text and "checkpoint_save" in text
+    # Both together are fine: a fact and the resume state are two records.
+    state2: dict = {}
+    cp.pressure_state(state2)["last_stop_at"] = _t.time() - 30
+    stall.note_tool(state2, "mcp__claude-engram__memory", {"operation": "remember", "content": "The pace is 0.15 because of the fair-access policy"})
+    stall.note_tool(state2, "mcp__claude-engram__context", {"operation": "checkpoint_save", "task_description": "B6 card"})
+    cp.note_stop(state2, "B6 card done.")
+    assert cp.pressure_state(state2)["milestone_pending"] is None
+    # A plain fact with no close claimed stages nothing either.
+    state3: dict = {}
+    cp.pressure_state(state3)["last_stop_at"] = _t.time() - 30
+    stall.note_tool(state3, "mcp__claude-engram__memory", {"operation": "remember", "content": "The pace is 0.15 because of the fair-access policy"})
+    cp.note_stop(state3, "Noted. Reading the loader next.")
+    assert cp.pressure_state(state3)["milestone_pending"] is None

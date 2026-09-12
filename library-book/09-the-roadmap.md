@@ -76,7 +76,7 @@
 | The session's project comes from the transcript | `autorun.recent_edit_files` reads the transcript's own Edit/Write calls; the session-start banner, recurring errors, struggles and known-good test commands scope to that project instead of the cwd. |
 | Milestone nudge needs a turn effect | `_turn_corroborates_a_close` stages the nudge only when the turn that made the claim edited, committed or delegated; a list bullet never counts; at most one prose nudge an hour (`MILESTONE_NUDGE_GAP_SECS`). |
 | Loop warnings latch | At 8 edits and every 8 after (3 and every 3 with a failing test), not on every edit past the threshold; never under a non-project directory. |
-| Test tracking speaks only on news | The first result and each flip are tracked; a same-verdict rerun is silent. `_is_test_invocation` reads every segment of a command chain. |
+| Test tracking speaks only on news | The first result and each flip are tracked; a same-verdict rerun is silent. `_is_test_invocation` reads every segment of a command chain; `_command_can_run_tests` peels wrappers from every segment and `_output_has_test_markers` refuses a bare "N errors" (0.8.43). |
 | Edit reminders rank by relevance | A rule rides along only when it names the file or its directory; an entry older than 30 days needs a full-path match; `errors.md`, `learnings.md`, `handoff.md`, `notes.md`, `todo.md`, `plan.md` join the generic basenames. |
 | Migration `0.8.40:drop_worktree_projects` | Worktree and scratch paths registered as projects with an empty store are unregistered and parked under `_unregistered/`; a store with entries is kept. |
 
@@ -99,7 +99,7 @@
 
 | Feature | Notes |
 |---------|-------|
-| Checkpoint provenance | `save_checkpoint` stamps the repo's commit and the active `/goal`; restore and the session-start banner print the goal and "Since this checkpoint: N commits, M files changed -- incl. …" (or that the commit is not in this history). The launcher primes the goal before launch. |
+| Checkpoint provenance | `save_checkpoint` stamps the repo's commit and the active `/goal`; restore and the session-start banner print the goal and "Since this checkpoint: N commits, M files changed -- incl. …; K commits on other local branches (worktrees included)" (or that the commit is not in this history). The launcher primes the goal before launch. |
 | Halt wording | The deny reason now orders the record: checkpoint first, then the notification, then stop. |
 | Unattended = deny | A detector marked `unattended: deny` refuses a matching shell command in autonomy mode with the rule as the reason; the pack's ask-first detectors carry it (pack version 6, older ones upgraded on re-seed). Attended sessions are only shown the rule. |
 

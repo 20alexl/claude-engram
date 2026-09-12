@@ -344,6 +344,18 @@ def note_tool(state: dict, name: str, tool_input: Any = None, response: Any = No
         turn.setdefault("test_runs", []).append([" ".join(cmd.split())[:300], passed])
     elif kind in ("file", "commit", "record"):
         turn.setdefault("effects", []).append(kind)
+        if kind == "record":
+            # Which record: `memory:remember` is a fact, `context:checkpoint_save`
+            # is the resume state. The milestone nudge tells them apart.
+            op = str((tool_input or {}).get("operation") or "") if isinstance(tool_input, dict) else ""
+            tag = f"{name.rsplit('__', 1)[-1]}:{op}" if op else name.rsplit("__", 1)[-1]
+            recs = turn.setdefault("records", [])
+            if tag not in recs and len(recs) < 12:
+                recs.append(tag)
+            if op == "remember":
+                content = str((tool_input or {}).get("content") or "")
+                if re.search(r"\b(?:next step|pending|resume|checkpoint|current step|where (?:i|we) (?:am|are|left)|state of|banked?)\b", content, re.I):
+                    turn["remember_state"] = True
     return kind
 
 
