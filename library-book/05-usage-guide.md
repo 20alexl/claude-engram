@@ -119,7 +119,7 @@ Before every Edit or Write, hooks fire automatically:
 - **Memory injection**: the hook shows the top 3 scored memories for the file (`<engram-context>`)
 - **Import/export check**: if an import won't resolve (name not exported, module not found), you get a terse `<engram-precheck>` warning with the closest suggestion (Python only, advisory)
 - **Blast-radius**: if the file is imported by 2 or more other modules, the hook lists the importers (`<engram-blast-radius>`) so you see the damage radius before touching it
-- **Loop warning**: fires when the same file has been edited 3+ times without a passing test
+- **Loop warning**: for a code file, latches at 8 edits with no test run and every 8 after, or at 3 edits with a failing test and every 3 after; silent for markdown, config and data files, and for anything under a scratch, vendored or virtualenv directory
 
 You rarely need to call `pre_edit_check` manually. It's available for an explicit impact check:
 

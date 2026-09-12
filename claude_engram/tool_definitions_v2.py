@@ -608,8 +608,8 @@ TOOL_DEFINITIONS = [
         name="session_mine",
         description="""Mine session history. Operations:
 - search: Search across past conversations (query, project_path, limit, method=hybrid|semantic|keyword, kind=decision|next-step|error|narration to filter hits by type)
-- decisions: Find when/why a decision was made (query, project_path)
-- replay: Find discussions about a file (file_path, project_path)
+- decisions: Find when/why a decision was made (query, project_path); also searches the repository's own history (git pickaxe)
+- replay: Find discussions about a file (file_path, project_path); appends the file's git commit history
 - struggles: Files/areas with repeated difficulty (project_path)
 - errors: Recurring error patterns across sessions (project_path)
 - correlations: Files always edited together (project_path)

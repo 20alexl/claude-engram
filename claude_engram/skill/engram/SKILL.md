@@ -63,8 +63,8 @@ Requirements the launcher enforces, not you: `claude` on PATH; a project directo
 
 ## Session Mining Tools
 - `session_mine(search, query="...", project_path="...")` — search past conversations (includes tool content)
-- `session_mine(decisions, query="...", project_path="...")` — find when/why a decision was made
-- `session_mine(replay, file_path="...", project_path="...")` — discussions about a file
+- `session_mine(decisions, query="...", project_path="...")` — find when/why a decision was made; also runs a git pickaxe on the repository, scoped to the file a query token names, each hit carrying the diff lines around the needle
+- `session_mine(replay, file_path="...", project_path="...")` — discussions about a file; appends the file's commit history
 - `session_mine(predict, file_path="...", project_path="...")` — predict context for an edit
 - `session_mine(struggles, project_path="...")` — recurring struggle files
 - `session_mine(errors, project_path="...")` — recurring error patterns

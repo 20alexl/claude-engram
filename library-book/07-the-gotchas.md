@@ -265,6 +265,16 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Lesson:** Mining is indexed by where the session started; memory is attributed by which files the entry names. Two different keys, and only the second one follows the work.
 
+### Gotcha: `session_mine(decisions)` crashed on a sub-project with no embeddings index
+
+**Symptom:** `session_mine(decisions, query="why is PACE 0.15")` on a sub-project raised `FileNotFoundError`, or `replay` came back with edit timestamps and no reasons.
+
+**Cause (fixed in 0.8.42):** `search_sessions` already walked up to the workspace root's index when a sub-project had none of its own, but the context-expansion step that followed reopened the sub-project's OWN store and found nothing there.
+
+**Fix:** `_resolve_project_with_inheritance` returns the project that actually holds the index and its store dir, and the expansion reads that index and that project's transcript folder. Both `decisions` and `replay` also read the repository itself now: `git_pickaxe` runs `git log -S` with the most specific needle first (an identifier near a number, then the number, the identifiers, the longest words), scoped to the files a query token names, and each hit carries the added lines around the needle from that commit's diff, since the reason for a constant is usually a comment above it, not the commit message. `replay` appends `git_file_history` (`git log --follow`). Neither needs the embeddings index at all, so a query that used to crash now answers from git alone if the transcript store is missing.
+
+**Lesson:** The transcript is not the only record of why. When mining answers nothing, ask git the same question.
+
 ## Common mistakes
 
 | Mistake | What They Do | What They Should Do |

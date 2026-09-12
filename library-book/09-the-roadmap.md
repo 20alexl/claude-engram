@@ -51,6 +51,49 @@
 | Autonomy mode: strike-cap halt, out-of-session alerts, the run launcher with limit-aware resume, the /goal bracket | Stable | v0.8.25, v0.8.30 |
 | Code tier in the default pack (shape, correctness, performance, both OSes) | Stable | v0.8.25 |
 | Checkpoint provenance: commit + goal on every checkpoint, staleness line on every restore | Stable | v0.8.26 |
+| One project resolver for every hook (`session_project`, scoped by the session's own transcript edits), worktree-to-repository mapping, configurable non-project directories | Stable | v0.8.38-v0.8.41 |
+| Repository history (git pickaxe scoped to named files, file history) joins session-mined decisions and replay | Stable | v0.8.42 |
+
+## Done / Shipped (v0.8.42)
+
+| Feature | Notes |
+|---------|-------|
+| Repository as a mined record | `git_pickaxe(project, query)` runs `git log -S` with the most specific needle first (an identifier near a number as a regex, then the number, the identifiers, the longest words), scoped to the files a query token names, then repository-wide; each hit carries the added lines around the needle from that commit's diff. Results carry kind `git`; `find_decision` appends them and `git_file_history` (`git log --follow`) rides along with `replay`. |
+| Decisions never crash on a missing index | The context expansion in `find_decision` used to reopen the sub-project's own, missing embeddings index after the search itself had already used an ancestor's. `_resolve_project_with_inheritance` returns the project that actually holds the index and its transcript folder. |
+| Worktree paths canonicalized at the MCP layer | `server.call_tool` passes every `project_path` through `canonical_project_root`, so a tool called from a worktree or scratch path reads the real project's store. |
+
+## Done / Shipped (v0.8.41)
+
+| Feature | Notes |
+|---------|-------|
+| One loader for the session's project | `session_project(project_dir, state)`: the transcript's own Edit/Write calls first, the hook state's lists second, the cwd mapped to its repository last, cached against the transcript's size. Every hook that files, reads or scopes by project goes through it now, in place of scattered cwd lookups. |
+| Recurring errors wait for the first edit on a fresh start | `_recurring_lines` prints at start on a resume, and defers (`patterns_deferred`) to the first pre-edit on a fresh start, so a root-cwd start no longer opens with the root's errors. |
+
+## Done / Shipped (v0.8.40)
+
+| Feature | Notes |
+|---------|-------|
+| The session's project comes from the transcript | `autorun.recent_edit_files` reads the transcript's own Edit/Write calls; the session-start banner, recurring errors, struggles and known-good test commands scope to that project instead of the cwd. |
+| Milestone nudge needs a turn effect | `_turn_corroborates_a_close` stages the nudge only when the turn that made the claim edited, committed or delegated; a list bullet never counts; at most one prose nudge an hour (`MILESTONE_NUDGE_GAP_SECS`). |
+| Loop warnings latch | At 8 edits and every 8 after (3 and every 3 with a failing test), not on every edit past the threshold; never under a non-project directory. |
+| Test tracking speaks only on news | The first result and each flip are tracked; a same-verdict rerun is silent. `_is_test_invocation` reads every segment of a command chain. |
+| Edit reminders rank by relevance | A rule rides along only when it names the file or its directory; an entry older than 30 days needs a full-path match; `errors.md`, `learnings.md`, `handoff.md`, `notes.md`, `todo.md`, `plan.md` join the generic basenames. |
+| Migration `0.8.40:drop_worktree_projects` | Worktree and scratch paths registered as projects with an empty store are unregistered and parked under `_unregistered/`; a store with entries is kept. |
+
+## Done / Shipped (v0.8.39)
+
+| Feature | Notes |
+|---------|-------|
+| A worktree session belongs to its main repository | `paths.worktree_main` reads the `gitdir:` pointer; `canonical_project_root` also pulls a cwd inside a scratch or virtualenv directory up to the project above it. The non-project directory list (`node_modules`, `.venv`, `venv`, `__pycache__`, plus `non_project_dirs` in `config.json` or `CLAUDE_ENGRAM_NON_PROJECT_DIRS`) is configuration, not a rule engram ships. |
+| Output-based test detection needs a runnable command | Markers like "3 passed" are read as a verdict only when the first command's executable is not a read-only tool (`grep`, `cat`, `git`, and the like). |
+| No loop warning under a non-project directory | Files under a scratch, vendored or virtualenv path never trip the loop warning. |
+
+## Done / Shipped (v0.8.38)
+
+| Feature | Notes |
+|---------|-------|
+| A met goal stops stamping later checkpoints | `autorun.stop` drops the run record for goal-sourced runs; `goal_for_session` reads the transcript through `scan_goal` (active goals only). |
+| The goal bracket resolves the project from the session's edits | `_session_edit_files` falls back to the previous turn's files and then to every absolute path the loop tracker counted this session, so a Stop with nothing edited that turn still files under the right sub-project. |
 
 ## Done / Shipped (v0.8.26)
 

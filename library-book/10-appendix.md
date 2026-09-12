@@ -123,8 +123,8 @@ All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 | Operation | Parameters | Description |
 |-----------|-----------|-------------|
 | `search` | `query`, `project_path`, `limit?`, `method?`, `since?`, `until?`, `kind?` | Semantic search across past conversations. `kind` filters by hit type: `decision`/`next-step`/`error`/`narration`, regex-classified and LLM-free. |
-| `decisions` | `query`, `project_path` | Find when/why a decision was made, with context |
-| `replay` | `file_path`, `project_path`, `limit?` | Find discussions about a specific file |
+| `decisions` | `query`, `project_path` | Find when/why a decision was made, with context; also runs a git pickaxe on the repository, scoped to the file a query token names, each hit carrying the diff lines around the needle |
+| `replay` | `file_path`, `project_path`, `limit?` | Find discussions about a specific file; appends the file's commit history (`git log --follow`) |
 | `struggles` | `project_path` | Files/areas with repeated difficulty |
 | `errors` | `project_path` | Recurring error patterns across sessions |
 | `correlations` | `project_path` | Files frequently edited together |
@@ -265,7 +265,8 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 │   ├── handoff_history.json     # Global slot ring buffer (last 20 handoffs)
 │   ├── HANDOFF.md               # Human-readable handoff
 │   └── task_*.json              # Individual checkpoints
-└── memory.json              # Legacy (auto-migrated to projects/ on first load)
+├── memory.json              # Legacy (auto-migrated to projects/ on first load)
+└── _unregistered/           # Store dirs unregistered by migration (worktree/scratch paths whose store was empty); parked, never deleted
 ```
 
 ## Changelog

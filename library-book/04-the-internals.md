@@ -40,7 +40,8 @@ Claude Code
     │   ├── Cross-project learning (aggregate insights across all projects)
     │   ├── Code index (ast-only symbol table per project, incremental by mtime)
     │   ├── Lessons sync (opt-in: config lessons_globs → protected memories)
-    │   └── Outcome log (injection precision: which kinds precede passing tests)
+    │   ├── Outcome log (injection precision: which kinds precede passing tests)
+    │   └── Repository history (git pickaxe + file history join decisions/replay; no embeddings index required)
     │
     └── Ollama (local LLM, optional)          ← memory(consolidate), session_mine(reflect)
         └── gemma3:12b (configurable); scout_search uses it when present
@@ -113,6 +114,8 @@ Storage: ~/.claude_engram/
 - `main()` dispatches on `hook_type` argument (e.g., `prompt_json`, `pre_edit_json`, `bash_json`)
 - All JSON hooks read stdin via `_read_stdin_with_timeout(0.5)`, a cross-platform reader with a daemon thread
 - `get_project_dir(file_path)` resolves sub-projects by walking up from the file looking for project markers
+- `session_project(project_dir, state)` is the one loader for which project a SESSION is about (banners, rings, run reports, patterns): the transcript's own Edit/Write calls first (`autorun.recent_edit_files`), then the hook state's lists, then the cwd mapped to its repository (`paths.canonical_project_root`); cached in the session state against the transcript's size. Every hook that files, reads or scopes by project goes through it, in place of the scattered cwd lookups each of which grew its own bug (the wrong ring teased, the root's errors, a run filed under the root)
+- `paths.canonical_project_root` maps a cwd to the project it belongs to: `worktree_main` follows a worktree's `gitdir:` pointer to the main repository, and a cwd inside a scratch, vendored or virtualenv directory (`node_modules`, `.venv`, `venv`, `__pycache__`, plus `non_project_dirs` in `~/.claude_engram/config.json` or `CLAUDE_ENGRAM_NON_PROJECT_DIRS`) is pulled up to the real project above it
 - `_auto_capture_from_prompt()` uses two-tier scoring: semantic via scorer server (if available) → regex fallback
 - Hook output uses Claude Code's `hookSpecificOutput.additionalContext` format for conversation injection
 - `main()` sits at pyright's complexity ceiling; the SessionStart, PostCompact and Read branches are `_hook_session_start` / `_hook_post_compact` / `_hook_pre_read`. New hook logic goes in a function
@@ -170,6 +173,7 @@ Storage: ~/.claude_engram/
 - `record(state, rules, hits, ...)`: appends to `state["compliance"]["matches"]` (deduped by `tool_use_id`, capped at 200) and keeps `health[rule_id] = {ok, error, hits}`. The verdict comes from `permission_mode`: `unattended` (bypassPermissions / dontAsk / auto), `prompted` (default / acceptEdits), `plan`
 - `rule_text(hits, mode)`: the `<engram-rule>` block injected before a matching shell command runs; the wording differs by verdict
 - In remind.py, `_compliance_check()` is called from `_hook_pre_bash` (PreToolUse `Bash|PowerShell`, daemon-served, injects) and from `_hook_post_batch` (every other tool, records only). Subagent calls are recorded and flagged, never nudged
+- `_note_created_paths(state, calls)` (remind.py) remembers what the session itself created (Write targets, `mkdir` arguments), and `_rule_context(state, tool_input)` adds what the detector cannot see: whether the last prompt reads as approval, and whether every target of a matching command is a path this session created. The text rides along inside `rule_text()`'s injection before the command runs
 - `summary(state, project_memory)` feeds the run report's "Rules compliance" section
 - The pack (`default_pack.py`) ships `DESTRUCTIVE_DETECTOR`, `KILL_BY_NAME_DETECTOR` and `OUTBOUND_DETECTOR` on the rules that need them; `seed_rules` attaches a pack detector to a project's own covering rule that lacks one, walking up to the ancestor project that owns the rule id. `add_rule` does the same for a similar existing rule
 
@@ -385,7 +389,7 @@ claude_engram/
 │   │   ├── jsonl_reader.py  # Streaming JSONL session-log reader
 │   │   ├── session_index.py # Session index, incremental byte-offset cursors
 │   │   ├── extractors.py    # Structural + semantic extractors (decisions, etc.)
-│   │   ├── search.py        # Cross-session search (semantic embeddings)
+│   │   ├── search.py        # Cross-session search (semantic embeddings) + git pickaxe/file history for decisions/replay
 │   │   ├── patterns.py      # Pattern detection (struggles, errors, correlations)
 │   │   ├── predictive.py    # Predictive context (related files, likely errors)
 │   │   ├── cross_project.py # Cross-project aggregate insights
