@@ -568,7 +568,9 @@ def nudge(state: dict, bearings: Optional[list[str]] = None) -> tuple[str, bool]
 # ToolSearch stays open too: on the newest models PushNotification is a
 # deferred tool whose schema must be loaded before it can be called (seen on
 # the first live halt run, 2026-09-10).
-HALT_ALLOWED_TOOLS = frozenset({"PushNotification", "mcp__claude-engram__context", "ToolSearch"})
+# SendMessage too: a subagent's only way to tell its parent it was halted
+# (2026-09-14), and harmless for the main loop -- a message is a report.
+HALT_ALLOWED_TOOLS = frozenset({"PushNotification", "mcp__claude-engram__context", "ToolSearch", "SendMessage"})
 
 
 def autonomy_on(state: Optional[dict] = None) -> bool:
@@ -615,7 +617,7 @@ def release(state: dict, reason: str = "released") -> bool:
 
 def _halt_cause(h: dict) -> str:
     if h.get("reason") == "turn cap":
-        return f"the goal run's turn cap at turn {h.get('turn', '?')}, goal unmet"
+        return f"the /goal run reached its turn cap at turn {h.get('turn', '?')} with the goal still open"
     return (
         f"{h.get('strikes', STRIKE_CAP)} strikes -- no file, test or commit changed "
         f"for {h.get('strikes', STRIKE_CAP) * _env_int('CLAUDE_ENGRAM_STALL_TURNS', STALL_TURNS)} turns "
@@ -631,7 +633,8 @@ def deny_reason(state: dict, tool_name: str) -> str:
         f"if a goal is active). Do this now, in order: "
         f"FIRST context(checkpoint_save) -- the task, the last real change, what has been blocking, "
         f"what a person must decide; it is the record they will read. THEN PushNotification with one "
-        f"line under 200 characters. Then stop. Nothing else is allowed. Denied: {tool_name}."
+        f"line under 200 characters (if push is disabled, the checkpoint is the record; a subagent "
+        f"uses SendMessage to its parent instead). Then stop. Nothing else is allowed. Denied: {tool_name}."
     )
 
 
@@ -644,7 +647,8 @@ def halt_text(state: dict, session_id: str = "") -> str:
         "is denied except two. Do these, in order, then stop: (1) context(checkpoint_save) with the "
         "task, what the last real change was, what has been blocking since, and what a person should "
         "decide; (2) PushNotification with one line under 200 characters: what stalled and what you "
-        f"need. Then end the turn with no further tool calls.{sid}</engram-halt>"
+        "need (disabled push is fine: the checkpoint is the record). Then end the turn with no "
+        f"further tool calls.{sid}</engram-halt>"
     )
 
 

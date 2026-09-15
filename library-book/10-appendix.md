@@ -271,6 +271,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.44 (2026-09-14)
+
+A halt with no goal. The trade-lab session was planning and writing docs in ordinary use when every tool was denied with "the goal run's turn cap at turn 150, goal unmet", and `/goal clear` said there was no goal. Strikes were zero; nothing was judged a stall. The transcript showed why: the goal set on 2026-09-11 was met forty-six minutes later, and on Claude Code 2.1.268 the met record carries `sentinel: true` beside `met: true`, with no reason. The scanner read any sentinel as a fresh set, so the met record started a phantom run that counted three days of ordinary turns to the cap.
+
+- **A verdict is a verdict first.** `scan_goal` treats a record with `met` or `failed` as the goal's end whatever its sentinel flag; only a met-false, failed-false sentinel sets a goal.
+- **A goal that cannot be seen never reaches the cap.** `observe` ends a running record as `cleared` when the transcript tail holds no goal record at all. A live `/goal` writes a verdict after every Stop, so an empty tail is a goal that is over, or a shape the scan did not read; either way the turn count stops there instead of arming the halt.
+- **Subagents pass the halt, and can report.** A PreToolUse call carrying `agent_id` is never denied: the halt starves the main loop, which cannot dispatch new agents anyway, and an agent already dispatched finishes and reports. `SendMessage` joins the open calls so a subagent halted mid-flight has a way to say so. The reason text says what to do when push is disabled.
+- The live session was released with the CLI; its phantom run record stands as `capped` and cannot re-arm.
+
 ### v0.8.43 (2026-09-12)
 
 The fifth report from the trade-lab session, in its order of noise: test tracking fired after a box smoke and after a `git merge --abort` whose chain opened with `export` and `cd`; a `FileNotFoundError` was warned against a markdown ledger and an `AttributeError` against ERRORS.md; "Since this checkpoint: no commits" while nine commits sat on three worktree branches; the banner said 35 rules and 151 mistakes, the prompt hook 40 and 182; and the model's own miss, state banked with `memory(remember)` twice, so the restore served a thirteen-hour-old checkpoint. The user's note on that last one: having both is not bad. Right: a remember is a fact, a checkpoint is the resume state, and the restore reads only the second.

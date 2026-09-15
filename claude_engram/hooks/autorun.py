@@ -167,7 +167,13 @@ def scan_goal(transcript_path: str, tail_bytes: int = TAIL_BYTES) -> dict:
             continue
         att = rec.get("attachment")
         if isinstance(att, dict) and att.get("type") == "goal_status":
-            if att.get("sentinel"):
+            # The record that ends a goal can carry the sentinel flag too:
+            # on 2.1.268 the met record was {met: true, sentinel: true}
+            # with no reason. Read as a fresh set, it started a phantom run
+            # that counted three days of ordinary turns to the cap and
+            # halted a session with no goal (2026-09-14). A verdict is a
+            # verdict first; only a met-false, failed-false sentinel sets.
+            if att.get("sentinel") and not att.get("met") and not att.get("failed"):
                 out.update(
                     seen=True,
                     active=True,
@@ -286,6 +292,14 @@ def observe(
             return {"event": "started", "auto": new, "replaced": a}
         if scan.get("ended"):
             stop(state, str(scan["ended"]), scan.get("last_reason") or f"goal {scan['ended']}")
+            return {"event": "ended", "auto": a}
+        if not scan.get("seen"):
+            # Our record says running, the transcript tail shows no goal at
+            # all. A live /goal writes a verdict after every Stop, so a
+            # tail with none is a goal that is over (its records scrolled
+            # out of the window, or a shape the scan did not read). Never
+            # count toward the cap on a goal that cannot be seen.
+            stop(state, "cleared", "no goal record in the transcript tail")
             return {"event": "ended", "auto": a}
         if turn and int(a["turns"]) >= int(a.get("max_turns") or DEFAULT_TURN_CAP):
             # Engram cannot end a /goal loop; the halt starves it and the

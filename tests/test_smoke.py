@@ -683,3 +683,48 @@ def test_a_remember_in_place_of_a_checkpoint_gets_the_sharper_nudge(tmp_path: Pa
     stall.note_tool(state3, "mcp__claude-engram__memory", {"operation": "remember", "content": "The pace is 0.15 because of the fair-access policy"})
     cp.note_stop(state3, "Noted. Reading the loader next.")
     assert cp.pressure_state(state3)["milestone_pending"] is None
+
+
+def _goal_rec(i: int, cond: str, **att) -> str:
+    a = {"type": "goal_status", "condition": cond, "met": False, **att}
+    return json.dumps({"type": "attachment", "timestamp": f"2026-09-11T17:{i:02d}:00.000Z", "attachment": a})
+
+
+def test_a_met_record_with_the_sentinel_flag_ends_the_goal(tmp_path: Path):
+    """Claude Code 2.1.268 writes the met record as {met: true, sentinel: true}
+    with no reason. Read as a new set, it started a phantom run that counted
+    three days of ordinary turns to the cap and halted a session with no
+    goal (the trade-lab session, 2026-09-14)."""
+    t = tmp_path / "t.jsonl"
+    t.write_text(_goal_rec(31, "land the branches", sentinel=True) + "\n" + _goal_rec(47, "land the branches", sentinel=True, met=True) + "\n", encoding="utf-8")
+    s = autorun.scan_goal(str(t))
+    assert s["seen"] and s["active"] is False and s["ended"] == "met" and s["verdicts"] == 1
+    # observe: a run started from the sentinel, then ended by the met record; no halt, no cap.
+    t.write_text(_goal_rec(31, "land the branches", sentinel=True) + "\n", encoding="utf-8")
+    state: dict = {}
+    ev = autorun.observe(state, str(t), str(tmp_path), turn=True)
+    assert ev and ev["event"] == "started"
+    t.write_text(_goal_rec(31, "land the branches", sentinel=True) + "\n" + _goal_rec(47, "land the branches", sentinel=True, met=True) + "\n", encoding="utf-8")
+    ev = autorun.observe(state, str(t), str(tmp_path), turn=True)
+    assert ev and ev["event"] == "ended" and ev["auto"]["status"] == "met"
+    assert not (state.get("stall") or {}).get("halted")
+
+
+def test_a_run_whose_goal_left_the_transcript_tail_ends_without_a_halt(tmp_path: Path):
+    t = tmp_path / "t.jsonl"
+    t.write_text(_goal_rec(31, "g", sentinel=True) + "\n", encoding="utf-8")
+    state: dict = {}
+    autorun.observe(state, str(t), str(tmp_path), turn=True)
+    a = autorun.auto(state)
+    assert a and a["status"] == "running"
+    a["turns"] = a["max_turns"] - 1  # one turn from the cap
+    t.write_text(json.dumps({"type": "user", "message": {"content": "just chatting"}}) + "\n", encoding="utf-8")  # the goal records scrolled out
+    ev = autorun.observe(state, str(t), str(tmp_path), turn=True)
+    assert ev and ev["event"] == "ended" and ev["auto"]["status"] == "cleared"
+    assert not (state.get("stall") or {}).get("halted"), "a goal that cannot be seen never arms the halt"
+
+
+def test_the_halt_leaves_a_subagent_a_way_to_report():
+    from claude_engram.hooks import stall
+    assert "SendMessage" in stall.HALT_ALLOWED_TOOLS
+    assert "still open" in stall._halt_cause({"reason": "turn cap", "turn": 150})

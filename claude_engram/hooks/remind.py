@@ -3247,6 +3247,13 @@ def _hook_pre_tool(project_dir: str) -> None:
         tool_name = str(data.get("tool_name") or "")
         if tool_name in _stall.HALT_ALLOWED_TOOLS:
             return
+        if data.get("agent_id"):
+            # A subagent shares the session id. The halt starves the MAIN
+            # loop (Agent itself is denied there); an agent already
+            # dispatched finishes and reports. Denying it left it with no
+            # way to say so (2026-09-14: every subagent denied at once,
+            # their SendMessage to the parent included).
+            return
         _stall.note_denied(state)
         save_state(state)
         print(

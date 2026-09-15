@@ -107,7 +107,7 @@
 
 | Feature | Notes |
 |---------|-------|
-| The halt | In autonomy mode the strike cap denies every tool call (PushNotification, ToolSearch and the checkpoint call excepted) with a reason naming the release command; the goal's stall rule closes the loop; `python -m claude_engram.hooks.stall release <session>` lifts it. Live-verified on a Sonnet run built to stall. |
+| The halt | In autonomy mode the strike cap denies every tool call (PushNotification, ToolSearch, SendMessage and the checkpoint call excepted; subagents pass) with a reason naming the release command; the goal's stall rule closes the loop; `python -m claude_engram.hooks.stall release <session>` lifts it. Live-verified on a Sonnet run built to stall. |
 | Alerts | Halt, API failure, waiting-on-a-person, launcher paused/done: one line through the owner's `alert_command`, recorded in the run report whether sent or not. |
 | The /goal bracket | You type `/goal`; from the next stop engram brackets it: autonomy mode (halt, alerts, ask-first rules refuse), the goal in every checkpoint, a turn cap that arms the halt, the directive with the park hint, the manifest, the "Goal run" report section. Claude cannot set a goal, so `/engram run` hands you the line to type. |
 | The launcher | `python -m claude_engram.run --headless --goal "<goal>"` for cron and overnight: manifest, chosen session id, 75% compaction window for the model, hard turn cap, park hint, resume after a usage-limit exit, run report, closing alert. `--dry-run` prints the plan. |
