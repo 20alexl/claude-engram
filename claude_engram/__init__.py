@@ -23,7 +23,7 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 # v0.8.20 from a 0.8.36 checkout for sixteen releases because of exactly that.
 # The literal ships with the code, so it is right for a wheel install too; the
 # metadata is only consulted when this constant is somehow unreadable.
-__version__ = "0.8.44"
+__version__ = "0.8.45"
 
 
 def _installed_version() -> str:

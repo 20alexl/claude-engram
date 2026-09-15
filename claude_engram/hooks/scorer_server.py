@@ -292,7 +292,7 @@ def _handle_client(conn, holder):
                 # GPU — and a 256-row batch there parks multi-GB of activations
                 # in a process that never exits, which is strictly worse than
                 # the transient worker's spike.
-                from claude_engram.embed_worker import gpu_batch_size
+                from claude_engram.embed_worker import cpu_batch_size, gpu_batch_size
 
                 on_gpu = str(getattr(model, "device", "cpu")).startswith(
                     ("cuda", "mps")
@@ -301,7 +301,7 @@ def _handle_client(conn, holder):
                     model.encode,
                     texts,
                     normalize_embeddings=True,
-                    batch_size=gpu_batch_size() if on_gpu else 64,
+                    batch_size=gpu_batch_size() if on_gpu else cpu_batch_size(),
                 )
                 response = json.dumps({"embeddings": embs.tolist()}) + "\n"
             else:

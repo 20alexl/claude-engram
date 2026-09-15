@@ -728,3 +728,15 @@ def test_the_halt_leaves_a_subagent_a_way_to_report():
     from claude_engram.hooks import stall
     assert "SendMessage" in stall.HALT_ALLOWED_TOOLS
     assert "still open" in stall._halt_cause({"reason": "turn cap", "turn": 150})
+
+
+def test_the_daemons_cpu_batch_is_small_and_overridable(monkeypatch):
+    """The resident daemon keeps the activation arena of its largest batch
+    for life; 64 rows parked 1.2 GB more than 16 at the same speed."""
+    from claude_engram import embed_worker as ew
+    monkeypatch.delenv("CLAUDE_ENGRAM_CPU_BATCH", raising=False)
+    assert ew.cpu_batch_size() == ew.CPU_BATCH_DEFAULT == 16
+    monkeypatch.setenv("CLAUDE_ENGRAM_CPU_BATCH", "8")
+    assert ew.cpu_batch_size() == 8
+    monkeypatch.setenv("CLAUDE_ENGRAM_CPU_BATCH", "junk")
+    assert ew.cpu_batch_size() == 16

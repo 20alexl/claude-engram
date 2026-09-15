@@ -304,6 +304,7 @@ All optional. The [library book](./library-book/) has the detail on each.
 | `CLAUDE_ENGRAM_DEVICE` | smart | Unset: the daemon stays on cpu and bulk jobs use a transient GPU worker that exits after the job. `cuda` or `cpu` forces one device |
 | `CLAUDE_ENGRAM_GPU_BULK_MIN` | `512` | Job size in texts that routes to the GPU worker |
 | `CLAUDE_ENGRAM_GPU_BATCH` | `64` | Rows per forward pass on the GPU (about 26 MiB per row) |
+| `CLAUDE_ENGRAM_CPU_BATCH` | `16` | Rows per forward pass in the resident daemon on the CPU. The daemon keeps the activation arena of its largest batch for life: 64 rows parked 1.2 GB more than 16 at the same speed |
 | `CLAUDE_ENGRAM_SCORER_TIMEOUT` | `1800` | Scorer daemon idle timeout in seconds |
 | `CLAUDE_ENGRAM_NO_DAEMON` | unset | Set to run every hook in-process and never start the daemon (tests, benches) |
 | `CLAUDE_ENGRAM_LIVE_MINE` | `300` | Live mining tick interval in seconds. `0` disables |

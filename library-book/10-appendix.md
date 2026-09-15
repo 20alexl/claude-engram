@@ -161,6 +161,7 @@ All 16 MCP tools carry MCP annotations (`readOnlyHint`, `idempotentHint`, `title
 | `CLAUDE_ENGRAM_DEVICE` | `str` | smart | Unset: daemon on cpu, bulk jobs in a transient GPU worker; `cuda` or `cpu` forces one device |
 | `CLAUDE_ENGRAM_GPU_BULK_MIN` | `int` | `512` | Job size in texts that routes to the GPU worker |
 | `CLAUDE_ENGRAM_GPU_BATCH` | `int` | `64` | Rows per forward pass on the GPU |
+| `CLAUDE_ENGRAM_CPU_BATCH` | `int` | `16` | Rows per forward pass in the resident daemon on the CPU (its high-water mark) |
 | `CLAUDE_ENGRAM_NO_DAEMON` | flag | unset | Run every hook in-process; never start the daemon |
 | `CLAUDE_ENGRAM_LIVE_MINE` | `int` | `300` | Live mining tick interval in seconds; `0` disables |
 | `CLAUDE_ENGRAM_SESSION_RETENTION_DAYS` | `int` | `0` (keep all) | Prune session-search shards older than N days |
@@ -270,6 +271,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.45 (2026-09-15)
+
+The user asked for the leak check to be repeated. Measured on the live daemon (11.5 hours old, serving two sessions) and on fresh throwaway daemons under an empty store, every request kind the daemon serves: decision scoring, single embeddings, batch embeddings, the fast-path PreToolUse read and the full pre-edit hook with its blast radius and memory injection, 1,500 requests in all. Per-request growth: a few megabytes in the first hundred of each kind, then flat to the megabyte. No leak.
+
+What the numbers did show: the floor is 1.5 GB RSS right after the model loads (a CUDA build of torch on the CPU, bge-base), and the daemon keeps the activation arena of the largest embedding batch it ever ran. Five 400-text batches of 2,100 characters on a fresh daemon: 64 rows per pass sat at 3.0 GB afterwards, 16 rows at 1.85 GB, 8 rows at 1.71 GB, and none of them ever came back down. 64 and 16 took the same 63 to 65 seconds per batch; 8 was about a tenth slower. The live daemon's 2.6 GB is that high-water mark, not growth.
+
+- **`CLAUDE_ENGRAM_CPU_BATCH`, default 16.** The resident daemon's batch path on the CPU used 64 rows, hard-coded; `cpu_batch_size()` in `embed_worker.py` sits beside `gpu_batch_size()`. 1.2 GB less parked for the life of the process, at no cost in time. The transient bulk worker is untouched.
 
 ### v0.8.44 (2026-09-14)
 

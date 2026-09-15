@@ -44,6 +44,25 @@ def gpu_batch_size() -> int:
         return GPU_BATCH_DEFAULT
 
 
+CPU_BATCH_DEFAULT = 16
+
+
+def cpu_batch_size() -> int:
+    """Rows per forward pass in the RESIDENT daemon on cpu. The daemon never
+    exits, and torch's cpu allocator keeps the activation arena of the
+    largest batch it ever ran (measured 2026-09-15 on a fresh daemon, 1.5 GB
+    RSS after the model load, five 400-text batches of 2,100 chars: 64 rows
+    sat at 3.0 GB afterwards, 16 rows at 1.85 GB, 8 rows at 1.71 GB, none
+    came back down; the same 63-65 s per batch at 64 and 16, ~10% slower at
+    8). Not a leak, a high-water mark; 16 buys 1.2 GB for nothing. Override
+    with CLAUDE_ENGRAM_CPU_BATCH."""
+    raw = os.environ.get("CLAUDE_ENGRAM_CPU_BATCH", "").strip()
+    try:
+        return max(1, int(raw)) if raw else CPU_BATCH_DEFAULT
+    except ValueError:
+        return CPU_BATCH_DEFAULT
+
+
 def bulk_threshold() -> int:
     raw = os.environ.get("CLAUDE_ENGRAM_GPU_BULK_MIN", "").strip()
     try:
