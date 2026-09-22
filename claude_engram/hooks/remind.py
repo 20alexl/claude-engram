@@ -313,10 +313,12 @@ def mark_session_ended():
     # clean termination is auditable -- the end was previously never recorded.
     state["last_session_end"] = time.time()
 
-    # Reset session-specific state
+    # Reset the per-turn file list. The test status stays: this runs at
+    # EVERY Stop (0.8.38), and clearing it there made every test run after
+    # a turn "PASS Test tracked (baseline established)" -- 110 of them in
+    # eight days of one session, never one flip (2026-09-22). The state
+    # file is one per session, so the status needs no reset.
     state["files_edited_this_session"] = []
-    state["test_runs_this_session"] = 0
-    state["last_test_passed"] = None
     state["active_project"] = ""
 
     save_state(state)
@@ -573,7 +575,11 @@ def check_session_active(project_dir: str) -> bool:
     # time the resolved project flipped between the workspace root and a
     # sub-project: 7 of 21 prompts in one measured stretch (2026-09-10).
     last_start = state.get("last_session_start")
-    if last_start and (time.time() - last_start) < 14400:  # 4 hours
+    if last_start:
+        # Started once is started: the state is this session's own. The old
+        # four-hour window re-ran the full banner (restored checkpoint,
+        # rules, mistakes) mid-session after any quiet stretch -- twelve
+        # times in eight days of one session (2026-09-22).
         return True
 
     # Fallback to marker file (in ~/.claude_engram/ for Windows compatibility)
@@ -921,7 +927,11 @@ def _format_restored_context(entry: dict) -> list[str]:
     try:
         from claude_engram import repo_state as _rs
 
-        _since = _rs.since_text(_rs.since(str(entry.get("commit") or ""), str(_pp), files))
+        try:
+            _saved = float(entry.get("created") or entry.get("timestamp") or 0.0)
+        except (TypeError, ValueError):
+            _saved = 0.0
+        _since = _rs.since_text(_rs.since(str(entry.get("commit") or ""), str(_pp), files, saved_at=_saved))
         if _since:
             out.append("  " + _since)
     except Exception:
@@ -1141,8 +1151,14 @@ def get_contextual_memories(
         now = time.time()
         out = []
         for m in scored:
-            content = m["content"]
-            content = f"{content[:80]}..." if len(content) > 80 else content
+            # One line, cut at a sentence or a word, never mid-token: an
+            # 80-character cut dropped the half of a note worth knowing
+            # ("are now specs on docs/...", 2026-09-22).
+            content = " ".join(str(m["content"]).split())
+            if len(content) > 200:
+                cut = content[:200]
+                dot = max(cut.rfind(". "), cut.rfind("; "))
+                content = (cut[: dot + 1] if dot > 80 else cut.rsplit(" ", 1)[0]) + "..."
             ts = m.get("created_at") or m.get("created") or m.get("timestamp") or 0
             try:
                 days = int((now - float(ts)) / 86400) if ts else 0
@@ -1282,16 +1298,24 @@ _READ_ONLY_EXECUTABLES = frozenset(
 )
 
 
-_SHELL_NOISE = frozenset({"export", "cd", "pwd", "set", "source", "unset", "true", "false", "sleep", "mkdir", "touch", "cp", "mv", "ln", "chmod"})
+_SHELL_NOISE = frozenset(
+    {
+        "export", "cd", "pwd", "set", "source", "unset", "true", "false", "sleep", "mkdir", "touch", "cp", "mv",
+        "ln", "chmod", "date", "basename", "dirname", "realpath", "tee", "test", "[", "[[", "for", "do", "done",
+        "if", "then", "else", "elif", "fi", "while", "until", "case", "esac", "in", "local", "declare", "read",
+        "shift", "exit", "return", "break", "continue", "{", "}", "!", "trap", "wait", "kill", "rm", "rmdir",
+    }
+)
 _WRAPPERS = frozenset({"timeout", "env", "nice", "sudo", "time", "nohup", "ssh", "uv", "poetry", "pipenv", "conda", "npx", "bunx"})
 _NOT_RUNNER_SUBCOMMANDS = frozenset({"lock", "sync", "add", "remove", "pip", "venv", "init", "build", "publish", "install", "update", "tree", "export"})
 
 
-def _segment_can_run_tests(seg: str) -> bool:
-    """Could ONE shell segment have run a test? Leading assignments and
-    wrappers (`timeout 590 bash x.sh`, `uv run pytest`, `ssh box ...`) are
-    peeled; a package-manager housekeeping subcommand (`uv lock`) is not a
-    runner; read-only tools and shell noise never are."""
+def _segment_kind(seg: str) -> str:
+    """What ONE shell segment is: ``run`` (could have run a test), ``read``
+    (a read-only tool whose output may quote a test line: cat, tail, grep,
+    git), ``noise`` (cd, export, echo, a loop keyword). Leading assignments
+    and wrappers (`timeout 590 bash x.sh`, `uv run pytest`, `ssh box ...`)
+    are peeled; a package manager's housekeeping (`uv lock`) is noise."""
     seg = (seg or "").strip()
     while True:
         m = re.match(r"^(?:[a-z_][a-z0-9_]*=\S*\s+)+", seg)
@@ -1313,17 +1337,19 @@ def _segment_can_run_tests(seg: str) -> bool:
             if exe in ("uv", "poetry", "pipenv", "conda") and rest:
                 sub = rest[0].lower()
                 if sub in _NOT_RUNNER_SUBCOMMANDS:
-                    return False
+                    return "noise"
                 if sub == "run":
                     rest = rest[1:]
             if not rest:
-                return False
+                return "noise"
             parts = rest
             continue
-        if exe in _READ_ONLY_EXECUTABLES or exe in _SHELL_NOISE:
-            return False
-        return bool(exe)
-    return False
+        if exe in _READ_ONLY_EXECUTABLES:
+            return "read"
+        if exe in _SHELL_NOISE or not exe:
+            return "noise"
+        return "run"
+    return "noise"
 
 
 def _output_has_test_markers(output: str) -> bool:
@@ -1348,17 +1374,20 @@ def _output_has_test_markers(output: str) -> bool:
 
 
 def _command_can_run_tests(command: str) -> bool:
-    """Can this command's OUTPUT be a test verdict? The output markers below
-    ("3 passed", "collected 2 items") are read only when some segment of
-    the command could have run something: a grep, cat or git log whose
-    OUTPUT quotes a test line is not a test run (a grep over this file's
-    own source was tracked as "PASS Test tracked", 2026-09-10), and neither
-    is `export PATH=...; cd wt && pwd; git merge --abort` (2026-09-12)."""
+    """Can this command's OUTPUT be a test verdict? The output markers
+    ("3 passed", "collected 2 items") are trusted when the command names a
+    test runner (`_is_test_invocation`), or when no segment of the chain
+    merely reads. A chain that reads a log and does something else --
+    `cat run.log; bash count.sh`, `tail -3 out.txt; date` -- is not
+    trusted: the line the marker matched came from the read (29 of 110
+    "Test tracked" lines in eight days of one session, 2026-09-22; a grep
+    over this file's own source, 2026-09-10; `cd wt && pwd; git merge
+    --abort`, 2026-09-12)."""
+    if _is_test_invocation(command):
+        return True
     low = (command or "").lower()
-    for seg in re.split(r"&&|\|\||;|\n|\|(?!\|)", low):
-        if _segment_can_run_tests(seg):
-            return True
-    return False
+    kinds = {_segment_kind(seg) for seg in re.split(r"&&|\|\||;|\n|\|(?!\|)", low)}
+    return "run" in kinds and "read" not in kinds
 
 
 def _is_test_invocation(command: str) -> bool:
@@ -2534,6 +2563,13 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
                 best_text = regex_text
 
         if best_score < 0.6 or not best_text or len(best_text) < 15:
+            return
+        # The shape gate shared with the miner: a question, a fragment, an
+        # acknowledgement or a count is never stored as a decision, whatever
+        # the scorer said (56 such captures in eight days, 2026-09-22).
+        from claude_engram.mining.decision_gate import looks_like_decision
+
+        if not looks_like_decision(best_text):
             return
 
         content = f"DECISION: (from user) {_cut_words(best_text, 300)}"
@@ -3863,15 +3899,31 @@ def _hook_session_start(project_dir: str) -> None:
                 summary = index.get_latest_session_summary(
                     work_project if _normalize_path(work_project) != _normalize_path(project_dir) else ""
                 )
+                # A root-cwd start knows no sub-project yet, and the latest
+                # session's files then span the whole workspace ("1,089
+                # files, 405 tool errors" for one project's banner,
+                # 2026-09-22). Narrow to the sub-project most of its edits
+                # belong to, and say which.
+                _proj_label = ""
+                if summary and summary.get("files_edited"):
+                    try:
+                        _groups: dict = {}
+                        for _f in summary["files_edited"]:
+                            _groups.setdefault(_normalize_path(resolve_project_for_file(_f)), []).append(_f)
+                        if len(_groups) > 1:
+                            _best = max(_groups, key=lambda k: len(_groups[k]))
+                            summary = dict(summary)
+                            summary["files_edited"] = _groups[_best]
+                            summary["file_count"] = len(_groups[_best])
+                            _proj_label = Path(_best).name
+                    except Exception:
+                        _proj_label = ""
                 if summary and summary.get("file_count", 0) > 0:
                     age = summary.get("age_str", "")
                     branch = summary.get("branch", "")
                     header = f"Last session"
-                    if age:
-                        header += f" ({age}"
-                        if branch:
-                            header += f", branch: {branch}"
-                        header += ")"
+                    if age or _proj_label:
+                        header += " (" + ", ".join(p for p in (age, _proj_label and f"mostly {_proj_label}", branch and f"branch: {branch}") if p) + ")"
                     lines.append(header + ":")
                     files = summary.get("files_edited", [])
                     if files:

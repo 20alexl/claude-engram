@@ -8,6 +8,7 @@ Uses edit correlations and session history to predict:
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -121,6 +122,13 @@ def _predict_errors(
         return
 
     error_counts: dict[str, int] = {}
+    # A code exception belongs to code. Mistakes mined before the extractor
+    # learned to attach only traceback or code files are still on disk
+    # tied to whatever was edited next, and a plan markdown warned "Watch
+    # for: TypeError" on every edit (2026-09-22).
+    from claude_engram.mining.extractors import _code_like
+
+    target_is_code = _code_like(target_name)
 
     for ext_file in ext_dir.glob("*.json"):
         try:
@@ -130,6 +138,8 @@ def _predict_errors(
                 file_names = [Path(f).name for f in files]
                 if target_name in file_names:
                     error_type = mistake.get("error_type", "")
+                    if not target_is_code and re.search(r"(?:Error|Exception)$", error_type or ""):
+                        continue
                     desc = mistake.get("description", "")[:100]
                     key = error_type or desc[:40]
                     error_counts[key] = error_counts.get(key, 0) + 1

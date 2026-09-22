@@ -260,6 +260,23 @@ def _clip(s: str, n: int) -> str:
     return s[:n].rsplit(" ", 1)[0] + "…"
 
 
+_DIR_RE = re.compile(r"(?:[A-Za-z]:)?(?:[\\/]+[^\\/'\"\s]+)+(?=[\\/]+[^\\/'\"\s]+)")
+_HEX_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+_NUM_RE = re.compile(r"\d+")
+
+
+def _concrete_error_key(raw_msg: str) -> str:
+    """The message with only the volatile parts templated: directories (the
+    basename stays), commit hashes and numbers. Identifiers and file names
+    stay, so two sightings match only when it is the same error."""
+    s = " ".join((raw_msg or "").split())
+    s = re.sub(r"[\\/]+", "/", s)  # one separator, whatever the OS or the escaping
+    s = _DIR_RE.sub("<dir>", s)
+    s = _HEX_RE.sub("<hex>", s)
+    s = _NUM_RE.sub("<n>", s)
+    return s.lower()[:160]
+
+
 def detect_recurring_errors(
     sessions: dict[str, dict],
     project_path: str,
@@ -286,10 +303,16 @@ def detect_recurring_errors(
     if not extractions_dir.exists():
         return []
 
-    # Collect errors from all extraction files
-    error_occurrences: dict[str, list[str]] = {}  # error_key -> [session_ids]
-    error_examples: dict[str, str] = {}  # error_key -> longest concrete description
-    error_fixes: dict[str, str] = {}  # error_key -> first how_to_avoid seen
+    # Collect errors from all extraction files. Grouped by the CONCRETE
+    # error (class + message with only numbers and directories templated),
+    # so "recurring" means the same missing file or the same attribute came
+    # back, not that some FileNotFoundError happened again. The old
+    # signature templated every identifier away, and the banner then showed
+    # a week-old example under a fresh last_seen ("judge/all.json missing,
+    # 7 sessions" a week after it was fixed, 2026-09-22).
+    error_occurrences: dict[str, list[str]] = {}  # sig -> [session_ids]
+    error_instances: dict[str, list[tuple]] = {}  # sig -> [(session_id, description, fix)]
+    error_patterns: dict[str, str] = {}  # sig -> templated message, for the record
 
     for ext_file in extractions_dir.glob("*.json"):
         try:
@@ -301,27 +324,21 @@ def detect_recurring_errors(
                 desc = mistake.get("description", "") or ""
                 if not error_type:
                     continue
-                # Group by a normalized signature (class + templated message),
-                # not the bare exception class — the full message is already
-                # stored in `description`, so this needs no schema change.
                 prefix = error_type + ": "
                 raw_msg = desc[len(prefix) :] if desc.startswith(prefix) else desc
-                norm_msg = _normalize_error_msg(raw_msg)
-                sig = f"{error_type}: {norm_msg}" if norm_msg else error_type
+                concrete = _concrete_error_key(raw_msg)
+                sig = f"{error_type}: {concrete}" if concrete else error_type
                 error_occurrences.setdefault(sig, []).append(session_id)
-                # Keep one concrete, un-templated instance (longest = most
-                # context) plus a fix if recorded, so the surfaced pattern
-                # stays actionable instead of "<name> has no attribute <name>".
-                full = desc.strip()
-                if len(full) > len(error_examples.get(sig, "")):
-                    error_examples[sig] = full
+                norm_msg = _normalize_error_msg(raw_msg)
+                error_patterns.setdefault(sig, f"{error_type}: {norm_msg}" if norm_msg else error_type)
                 fix = (mistake.get("how_to_avoid") or mistake.get("fix") or "").strip()
                 # Also filtered here, not just at extraction: stored mistakes
                 # written before the extractor learned to reject narration are
                 # still on disk, and a banner "fix: Let me check the correct
                 # path:" is worse than showing no fix at all.
-                if fix and not _is_narration(fix) and not error_fixes.get(sig):
-                    error_fixes[sig] = fix
+                if fix and _is_narration(fix):
+                    fix = ""
+                error_instances.setdefault(sig, []).append((session_id, desc.strip(), fix))
         except Exception:
             continue
 
@@ -371,14 +388,20 @@ def detect_recurring_errors(
             for s in unique_sessions[:10]:
                 projects |= _session_projects(s)
             error_type = sig.split(":", 1)[0]
+            # The example and the fix come from the LATEST sighting, so what
+            # the banner shows is what last happened, with the fix recorded
+            # for it (else the newest fix recorded for the same error).
+            instances = sorted(error_instances.get(sig, []), key=lambda t: _session_ts(t[0]), reverse=True)
+            example = next((d for _s, d, _f in instances if d), "")
+            fix = next((f for _s, _d, f in instances if f), "")
             recurring.append(
                 RecurringError(
                     error_type=error_type,
-                    message_pattern=sig,
+                    message_pattern=error_patterns.get(sig, sig),
                     session_count=len(unique_sessions),
                     sessions=unique_sessions[:10],
-                    example=_clip(error_examples.get(sig, ""), 200),
-                    fix=_clip(error_fixes.get(sig, ""), 160),
+                    example=_clip(example, 200),
+                    fix=_clip(fix, 160),
                     projects=sorted(projects)[:5],
                     last_seen=last_seen,
                 )

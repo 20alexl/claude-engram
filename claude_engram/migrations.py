@@ -453,6 +453,73 @@ def _drop_worktree_projects(storage: Path, manifest: dict) -> None:
             _log(f"skip {path}: {e}")
 
 
+def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
+    """Archive (never delete) machine-captured decisions that do not have
+    the shape of one: questions, acknowledgements, counts, status lines,
+    fragments. The miner's semantic tier stored anything above a bare
+    cosine and its question filter was dead code, so one week put 636 such
+    entries into a workspace store (2026-09-22). The same gate now guards
+    both capture paths (mining/decision_gate.py); this applies it to what
+    is already on disk. Manual entries (work_tracker, the memory tool) are
+    never touched; archived entries stay restorable by id."""
+    import time as _time
+
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision
+
+    machine = ("session_mining", "auto-prompt")
+    archive_file = storage / "archive.json"
+    try:
+        archive = json.loads(archive_file.read_text(encoding="utf-8")) if archive_file.exists() else {"version": 2, "projects": {}}
+    except Exception:
+        archive = {"version": 2, "projects": {}}
+    archive.setdefault("projects", {})
+    archive_changed = False
+    total_moved = 0
+
+    for norm, info in manifest.get("projects", {}).items():
+        mem_file = storage / "projects" / str(info.get("hash", "")) / "memory.json"
+        if not mem_file.exists():
+            continue
+        try:
+            data = json.loads(mem_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        keep, moved = [], []
+        now = _time.time()
+        for e in data.get("entries", []):
+            if e.get("category") != "decision" or (e.get("source") or "") not in machine or e.get("archived_at"):
+                keep.append(e)
+                continue
+            content = str(e.get("content") or "")
+            is_pref = content.lstrip().upper().startswith("USER PREFERENCE")
+            ok = looks_like_correction(content) if is_pref else looks_like_decision(content)
+            if ok:
+                keep.append(e)
+            else:
+                e["archived_at"] = now
+                moved.append(e)
+        if not moved:
+            continue
+        bucket = archive["projects"].setdefault(norm, {"project_path": norm, "project_name": Path(norm).name, "entries": []})
+        have = {x.get("id") for x in bucket.get("entries", [])}
+        for e in moved:
+            if e.get("id") not in have:
+                bucket.setdefault("entries", []).append(e)
+        archive_changed = True
+        total_moved += len(moved)
+        data["entries"] = keep
+        tmp = mem_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(mem_file)
+        _log(f"{Path(norm).name}: archived {len(moved)} machine-captured decisions without the shape of one")
+
+    if archive_changed:
+        tmp = archive_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(archive, indent=2), encoding="utf-8")
+        tmp.replace(archive_file)
+    _log(f"prune_junk_decisions: {total_moved} archived")
+
+
 STEPS = [
     ("0.5.0:seed_handoff_history", False, _seed_handoff_history),
     ("0.5.0:reextract_related_files", True, _reextract_related_files),
@@ -466,6 +533,7 @@ STEPS = [
     # never a worktree or vendor dir), so the 0.8.36 pass has to be redone.
     ("0.8.37:reattribute_pooled", True, _reattribute_pooled),
     ("0.8.40:drop_worktree_projects", False, _drop_worktree_projects),
+    ("0.8.46:prune_junk_decisions", False, _prune_junk_decisions),
 ]
 
 

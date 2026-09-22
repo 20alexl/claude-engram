@@ -443,7 +443,11 @@ class ContextGuard:
             from claude_engram import repo_state as _rs
 
             _pp = data.get("project_path") or (data.get("metadata") or {}).get("project_path") or project_path or ""
-            _since = _rs.since_text(_rs.since(str(data.get("commit") or ""), str(_pp), data.get("files_in_progress") or data.get("files_involved") or []))
+            try:
+                _saved = float(data.get("created") or data.get("timestamp") or 0.0)
+            except (TypeError, ValueError):
+                _saved = 0.0
+            _since = _rs.since_text(_rs.since(str(data.get("commit") or ""), str(_pp), data.get("files_in_progress") or data.get("files_involved") or [], saved_at=_saved))
             if _since:
                 summary_lines.append(f"**{_since}**")
         except Exception:

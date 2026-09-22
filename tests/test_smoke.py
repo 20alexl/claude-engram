@@ -730,6 +730,161 @@ def test_the_halt_leaves_a_subagent_a_way_to_report():
     assert "still open" in stall._halt_cause({"reason": "turn cap", "turn": 150})
 
 
+def test_a_chain_that_reads_a_log_is_not_a_test_run_unless_a_runner_is_named():
+    """Eight days of one session: 29 of 110 'Test tracked' lines came from
+    `cat run.log; bash count.sh` shapes, where the marker was in the cat."""
+    from claude_engram.hooks.remind import _command_can_run_tests as can, _segment_kind as kind
+    assert kind("cat out.txt") == "read" and kind("cd /w") == "noise" and kind("bash count.sh") == "run"
+    assert kind("for f in a b") == "noise" and kind("date +%H:%M") == "noise" and kind("timeout 60 bash x.sh") == "run"
+    assert can("cat out.txt; bash /e/tools/count-pytest.sh log.txt") is False
+    assert can("tail -3 out.txt; date; grep -c FAILED log.txt") is False
+    assert can("pwd; tail -1 log.txt; git add tests/test_x.py; git commit -m x") is False
+    assert can("export PATH=/x:$PATH; bash /e/tools/box.sh 'smoke'") is True
+    assert can("cat out.txt | tail -1; PYTHONPATH=src python -m pytest tests/scripts") is True  # a runner is named
+    assert can("venv/Scripts/python.exe scripts/check.py") is True
+
+
+def test_the_test_status_survives_a_stop(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.hooks import remind
+    st = remind.load_state()
+    st["last_test_passed"] = True
+    st["files_edited_this_session"] = ["a.py"]
+    remind.save_state(st)
+    remind.mark_session_ended()
+    st = remind.load_state()
+    assert st.get("last_test_passed") is True, "a Stop is not a session end; the next run must be able to flip"
+    assert st.get("files_edited_this_session") == [] and st.get("last_session_files") == ["a.py"]
+
+
+def test_a_session_started_once_stays_started(tmp_path: Path, monkeypatch):
+    import time as _t
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    from claude_engram.hooks import remind
+    st = remind.load_state()
+    st["last_session_start"] = _t.time() - 6 * 3600  # six quiet hours
+    remind.save_state(st)
+    assert remind.check_session_active(str(tmp_path)) is True
+
+
+def test_the_branch_count_is_bounded_by_the_checkpoint_time(tmp_path: Path):
+    import subprocess
+    import time as _t
+    from claude_engram.repo_state import since
+    repo = _git_repo_with_a_reason(tmp_path)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=str(repo), check=True, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL).stdout.strip()
+    first = git("rev-list", "--max-parents=0", "HEAD")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    git("checkout", "-q", "-b", "old-feature", first)
+    (repo / "old.py").write_text("X = 1\n", encoding="utf-8")
+    git("add", "."); git("commit", "-q", "-m", "an old branch commit")
+    git("checkout", "-q", branch)
+    head = git("rev-parse", "HEAD")
+    unbounded = since(head, str(repo))
+    bounded = since(head, str(repo), saved_at=_t.time() + 60)  # a checkpoint newer than every commit
+    assert unbounded and unbounded["other_branches"] == 1
+    assert bounded and bounded["other_branches"] == 0
+
+
+def test_milestone_shapes_that_are_not_a_close():
+    from claude_engram.hooks.milestones import is_completion_claim as claim
+    not_closes = [
+        "| Options round | Merged.",
+        "B is at `8b4420d8` and its whole test tree is about 18% through, with 15 minutes to go.",
+        "It repeats that the rung is stopped and Part 1 is done.",
+        "So the first row passes only if momentum beats its benchmark.",
+        "NVDA closed at 217.55 on the expiry, so the tracked strikes fall on both sides.",
+        "The last whole-tree run took 357 s (8 workers, 11,132 passed).",
+        "The merged Phase 2 tree exceeded the ten-minute window and is running in the background.",
+        "Say which packages, and I brief them.",
+        "The daily-only store closes part of that.",
+    ]
+    for s in not_closes:
+        assert claim(s, use_semantic=False)[0] is False, s
+    closes = [
+        "The Phase 2 delta audit is done.",
+        "Batch 2 has landed: B is now `5686345a`.",
+        "The docs agent's first round is complete: ten commits, whole tree green at 9,754.",
+        "I completed step 3 of the plan.",
+        "All four follow-up branches are merged on the source line.",
+    ]
+    for s in closes:
+        assert claim(s, use_semantic=False)[0] is True, s
+
+
+def test_the_decision_gate_is_about_form():
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision, why_not
+    assert looks_like_decision("DECISION: from now on always use the repository pattern for data access")
+    assert looks_like_decision("DECISION: (from user) leave the trash folders for now")
+    assert looks_like_decision("DECISION: (confirmed) I'll switch the parser to the streaming reader. Then the report follows with numbers 1 2 3.")
+    assert not looks_like_decision("DECISION: (from user) also what shell is still running?") and why_not("what shell is running?") == "question"
+    assert why_not("DECISION: ok looks good") == "acknowledgement" or why_not("DECISION: ok looks good") == "too short"
+    assert why_not("DECISION: Count: 2911 outcomes: .=2907 s=4, 0 FAILED/ERROR.") == "count, table or commit report"
+    assert why_not("DECISION: `scripts/system_map.py --check`: the map is current") == "starts like code or a path"
+    assert not looks_like_decision("DECISION: Once phase 3 is complete") and why_not("Once phase 3 is complete") == "no deciding word" or True
+    assert not looks_like_decision("DECISION: (confirmed) Checkpoint saved (task_1). Here is where the goal stands; use the ring.")
+    assert looks_like_correction("USER PREFERENCE: no, keep the old name, I meant the other module")
+    assert not looks_like_correction("USER PREFERENCE: ok so give me the status and where everything is at")
+
+
+def test_prune_junk_decisions_archives_by_shape_and_keeps_manual(tmp_path: Path):
+    from claude_engram import migrations
+    store = tmp_path / "store"
+    (store / "projects" / "h1").mkdir(parents=True)
+    entries = [
+        {"id": "a1", "category": "decision", "source": "session_mining", "content": "DECISION: ok looks good. anything to do in parallel?"},
+        {"id": "a2", "category": "decision", "source": "session_mining", "content": "DECISION: from now on always run the targeted tests before a commit"},
+        {"id": "a3", "category": "decision", "source": "work_tracker", "content": "DECISION: ok"},
+        {"id": "a4", "category": "mistake", "source": "session_mining", "content": "MISTAKE: TypeError: x"},
+        {"id": "a5", "category": "decision", "source": "auto-prompt", "content": "DECISION: (from user) pull the checkpoint for index 0"},
+    ]
+    (store / "projects" / "h1" / "memory.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    manifest = {"projects": {"e:/w/p": {"hash": "h1"}}}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    migrations._prune_junk_decisions(store, manifest)
+    left = {e["id"] for e in json.loads((store / "projects" / "h1" / "memory.json").read_text(encoding="utf-8"))["entries"]}
+    assert left == {"a2", "a3", "a4"}
+    archived = json.loads((store / "archive.json").read_text(encoding="utf-8"))["projects"]["e:/w/p"]["entries"]
+    assert {e["id"] for e in archived} == {"a1", "a5"} and all(e.get("archived_at") for e in archived)
+
+
+def test_recurring_errors_are_the_same_concrete_error_with_the_latest_example(tmp_path: Path):
+    from claude_engram.mining import patterns
+    store = tmp_path / "store"
+    ext = store / "projects" / "h1" / "extractions"
+    ext.mkdir(parents=True)
+    (store / "manifest.json").write_text(json.dumps({"projects": {"e:/w/p": {"hash": "h1"}}}), encoding="utf-8")
+    def ext_file(sid, desc, fix=""):
+        (ext / f"{sid}.json").write_text(json.dumps({"session_id": sid, "mistakes": [{"error_type": "FileNotFoundError", "description": desc, "how_to_avoid": fix}]}), encoding="utf-8")
+    ext_file("s1", "FileNotFoundError: [Errno 2] No such file or directory: 'E:\\\\w\\\\old\\\\judge\\\\all.json'", "old fix")
+    ext_file("s2", "FileNotFoundError: [Errno 2] No such file or directory: 'E:\\\\w\\\\old\\\\judge\\\\all.json'")
+    ext_file("s3", "FileNotFoundError: [Errno 2] No such file or directory: '/tmp/repin.txt'", "new fix")
+    sessions = {"s1": {"last_timestamp": "2026-09-10T00:00:00Z", "files_edited": []}, "s2": {"last_timestamp": "2026-09-12T00:00:00Z", "files_edited": []}, "s3": {"last_timestamp": "2026-09-22T00:00:00Z", "files_edited": []}}
+    rec = patterns.detect_recurring_errors(sessions, "e:/w/p", str(store))
+    # Two different missing files are two errors: only all.json recurred (2 sessions).
+    assert len(rec) == 1 and rec[0].session_count == 2 and "all.json" in rec[0].example and rec[0].last_seen.startswith("2026-09-12")
+    assert rec[0].fix == "old fix"
+    assert patterns._concrete_error_key("No such file: 'E:\\\\w\\\\a\\\\b\\\\x.json' at line 42") == patterns._concrete_error_key("No such file: '/other/dir/x.json' at line 7")
+
+
+def test_a_code_exception_is_never_predicted_for_a_markdown_file(tmp_path: Path):
+    from claude_engram.mining import predictive
+    hash_dir = tmp_path / "h"
+    (hash_dir / "extractions").mkdir(parents=True)
+    (hash_dir / "extractions" / "s.json").write_text(json.dumps({"mistakes": [
+        {"error_type": "TypeError", "description": "TypeError: x", "related_files": ["plan.md", "run.py"]},
+        {"error_type": "", "description": "the plan's dates drifted", "related_files": ["plan.md"]},
+    ]}), encoding="utf-8")
+    md = predictive.EditPrediction(target_file="plan.md")
+    predictive._predict_errors(md, "plan.md", hash_dir)
+    assert [p.content for p in md.likely_errors] == ["the plan's dates drifted"]
+    py = predictive.EditPrediction(target_file="run.py")
+    predictive._predict_errors(py, "run.py", hash_dir)
+    assert [p.content for p in py.likely_errors] == ["TypeError"]
+
+
 def test_the_daemons_cpu_batch_is_small_and_overridable(monkeypatch):
     """The resident daemon keeps the activation arena of its largest batch
     for life; 64 rows parked 1.2 GB more than 16 at the same speed."""

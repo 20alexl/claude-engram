@@ -67,10 +67,12 @@ def head(project_dir: str) -> str:
     return (out or "").strip()
 
 
-def since(commit: str, project_dir: str, files: Optional[list[str]] = None) -> Optional[dict]:
+def since(commit: str, project_dir: str, files: Optional[list[str]] = None, saved_at: float = 0.0) -> Optional[dict]:
     """How the repo moved since ``commit``:
-    {commits, files_changed, touched (checkpoint files among them), missing}.
-    None outside a repo or with no commit to compare."""
+    {commits, files_changed, touched (checkpoint files among them), missing,
+    other_branches}. ``saved_at`` (epoch seconds of the checkpoint) bounds
+    the other-branches count to commits made after it. None outside a repo
+    or with no commit to compare."""
     if not commit or not project_dir or not Path(project_dir).is_dir():
         return None
     if _git(["cat-file", "-e", f"{commit}^{{commit}}"], project_dir) is None:
@@ -79,7 +81,14 @@ def since(commit: str, project_dir: str, files: Optional[list[str]] = None) -> O
     # Every local branch, worktrees included: a checkpoint taken on main
     # said "no commits" while nine sat on three worktree branches
     # (2026-09-12). HEAD's own count is subtracted so the two never overlap.
-    everywhere = (_git(["rev-list", "--count", "--branches", "--not", commit], project_dir) or "0").strip()
+    # Bounded by the checkpoint's time: `--not <commit>` alone counts the
+    # whole history of every branch that diverged before it, and a repo
+    # with long-lived feature branches read "2,893 commits on other local
+    # branches" against a checkpoint from that morning (2026-09-22).
+    args = ["rev-list", "--count", "--branches"]
+    if saved_at and saved_at > 0:
+        args.append(f"--since={int(saved_at)}")
+    everywhere = (_git([*args, "--not", commit], project_dir) or "0").strip()
     names = _git(["diff", "--name-only", f"{commit}..HEAD"], project_dir) or ""
     changed = [n.strip().replace("\\", "/") for n in names.splitlines() if n.strip()]
     touched: list[str] = []

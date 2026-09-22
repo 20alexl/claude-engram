@@ -104,9 +104,32 @@ _FUTURE_ANY = re.compile(
 _IMPERATIVE_START = re.compile(
     r"^(?:exit|run|press|tell|let|open|send|wait|delete|keep|go|stop|start|"
     r"check|make|try|use|set|add|remove|restart|kill|ask|give|type|click|do|"
-    r"please|then|now|first|next|finally|remember|note|see)\b(?=\s+[a-z])",
+    r"please|then|now|first|next|finally|remember|note|see|say|pick|choose|"
+    r"name|list|show|confirm|reply|answer|decide|approve|review|merge)\b(?=\s+[a-z])",
     re.IGNORECASE,
 )  # the lookahead keeps "Run 3 of 3 done" (a count, not a command)
+# Shapes that are not a close, measured over eight days of one session
+# (2026-09-22: 41 nudges, 23 on sentences that closed nothing). Each is a
+# form, not a phrase: a table row; a sentence still in motion (waiting,
+# running, queued, a percentage through, time to go); reported speech (it
+# says / repeats / reports that ...); a rule or a definition (means, only
+# if); a measurement (a number right next to "passed" or "closed"); and a
+# participle used as an adjective ("the merged tree exceeded", "a closed
+# item never").
+_TABLE_ROW = re.compile(r"^\s*[*_]*\||\s\|\s")
+_IN_MOTION = re.compile(
+    r"\b(?:waiting|is running|still running|running in the background|in the (?:\w+ )?queue|"
+    r"\d+% through|(?:minutes?|hours?|seconds?) to go|only if|means)\b",
+    re.IGNORECASE,
+)
+_RELAY = re.compile(
+    r"\b(?:says?|said|repeats?|reports? that|reported|claims? that|tells?|told|that is why|this is why)\b",
+    re.IGNORECASE,
+)
+# Articles and possessives only: "that closes part A" is a claim with a
+# pronoun subject, not an adjective.
+_DETERMINER_END = re.compile(r"\b(?:the|a|an|its|their|our|my|every|each|any|no)\s+$", re.IGNORECASE)
+_MEASURED_WORDS = frozenset({"passed", "passes", "passing", "green", "closed", "closes", "failed", "met"})
 _SECOND_PERSON = re.compile(r"\b(?:you|your|yours|you'?re|you'?ll|you'?ve)\b", re.IGNORECASE)
 # "Run 3 of 3 done", "step 2 of 5 complete": numeric progress that reaches
 # the total is a claim even without a unit noun.
@@ -117,7 +140,7 @@ _N_OF_N_DONE = re.compile(
 _UNIT_ANY = re.compile(rf"\b{_UNIT}\b", re.IGNORECASE)
 _DONE_ANY = re.compile(rf"\b(?P<done>{_DONE})\b", re.IGNORECASE)
 _NEG_BEFORE = re.compile(rf"\b{_NEG}\b[^.!?\n]{{0,14}}$", re.IGNORECASE)
-_NEG_AFTER = re.compile(r"^[^.!?\n]{0,6}\b(?:yet|so far)\b", re.IGNORECASE)
+_NEG_AFTER = re.compile(r"^[^.!?\n]{0,6}\b(?:yet|so far|part(?:s|ly|ial|ially)? of)\b", re.IGNORECASE)
 
 STRONG = 1.0
 WEAK = 0.5
@@ -163,10 +186,16 @@ def _negated(sentence: str, m: "re.Match[str]") -> bool:
     "yet" right after it."""
     start, end = _done_span(m)
     before = sentence[:start]
+    after = sentence[end:]
+    word = sentence[start:end].lower()
+    if word in _MEASURED_WORDS and (re.search(r"\d[\d,\.]*\s*$", before) or re.match(r"\s*(?:at|to)?\s*\d", after)):
+        return True  # "11,132 passed", "closed at 217.55": a count or a price
+    if _DETERMINER_END.search(before) and re.match(rf"\s+(?:\w+\s+)?{_U}", after):
+        return True  # "the merged Phase 2 tree", "a closed item": an adjective
     return (
         bool(_NEG_BEFORE.search(before))
         or bool(_FUTURE_ANY.search(before))
-        or bool(_NEG_AFTER.search(sentence[end:]))
+        or bool(_NEG_AFTER.search(after))
     )
 
 
@@ -175,8 +204,10 @@ def _regex_tier(sentence: str) -> float:
         return 0.0
     # Quoted spans are discussed, not claimed; restated history is reported,
     # not closed. Both leave nothing for a claim to stand on.
+    if _TABLE_ROW.search(sentence):
+        return 0.0
     sentence = _QUOTED.sub(" ", sentence)
-    if _HISTORY.search(sentence):
+    if _HISTORY.search(sentence) or _IN_MOTION.search(sentence) or _RELAY.search(sentence):
         return 0.0
     if _IMPERATIVE_START.match(sentence.lstrip("*-# ")) or _SECOND_PERSON.search(sentence):
         return 0.0

@@ -102,6 +102,23 @@ _DECISION_TEMPLATES = [
     "yes please do it to the best ability",
 ]
 
+# What a user message usually is when it is NOT a decision, by category
+# (a question, an instruction to act, an approval, a status report, a
+# count, a pasted log). A decision has to beat the closest of these by
+# MINED_DECISION_MARGIN; a bare cosine to the decision templates is where
+# most short text sits under a modern encoder.
+_NON_DECISION_TEMPLATES = [
+    "a question asking what something does or how it works",
+    "an instruction to run, check, fix or look at something",
+    "an approval or acknowledgement of what was just proposed",
+    "a status report on where the work stands right now",
+    "a count of results: how many passed, failed or were skipped",
+    "a pasted log, error trace or command output",
+    "a request for a summary or an update",
+    "a remark about timing, waiting or what happens next",
+]
+MINED_DECISION_MARGIN = 0.05
+
 _CORRECTION_TEMPLATES = [
     "no that's wrong, do it differently",
     "stop doing that, I don't want that",
@@ -315,6 +332,16 @@ def _build_conversation_flow(messages: list[dict]) -> list[FlowMessage]:
     return flow
 
 
+_CODE_SUFFIXES = frozenset(
+    {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".rs", ".go", ".java", ".kt", ".c", ".h",
+     ".cc", ".cpp", ".hpp", ".cs", ".rb", ".php", ".swift", ".scala", ".lua", ".luau", ".sh", ".ps1", ".sql"}
+)
+
+
+def _code_like(path: str) -> bool:
+    return ("." + str(path).rsplit(".", 1)[-1].lower()) in _CODE_SUFFIXES if "." in str(path) else False
+
+
 def _extract_mistakes_structural(flow: list[FlowMessage]) -> list[Mistake]:
     """
     Extract mistakes from error→fix sequences.
@@ -350,11 +377,22 @@ def _extract_mistakes_structural(flow: list[FlowMessage]) -> list[Mistake]:
         # injected later as if it were guidance.
         fix = ""
         related_files = []
+        # The files an error is tied to: the ones its own text names
+        # (a traceback), else the CODE files edited right after it. A plan
+        # markdown edited after a TypeError cannot have raised it, and
+        # tying them together made every later edit of the plan warn
+        # "Watch for: TypeError" (2026-09-22).
+        traced = [
+            t for t in re.findall(r"File [\"']([^\"']+\.\w{1,5})[\"']", fm.error_content or "")
+            if not re.search(r"[\\/](?:site-packages|dist-packages|venv|\.venv)[\\/]", t)
+        ]
+        if traced:
+            related_files = list(dict.fromkeys(traced))[:5]
         for j in range(i + 1, min(i + 4, len(flow))):
             if flow[j].msg_type != "assistant":
                 continue
             if not related_files:
-                related_files = flow[j].file_edits
+                related_files = [f for f in flow[j].file_edits if _code_like(f)]
             for text in flow[j].assistant_texts:
                 if len(text) > 20:
                     candidate = _first_sentence(text, max_len=150)
@@ -477,10 +515,14 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
     decisions = []
     seen = set()
 
+    from claude_engram.mining.decision_gate import looks_like_decision
+
     def _add(content, ts, files, confidence, source, reasoning=""):
         key = content[:50].lower()
         if key in seen or len(content) < 10:
             return
+        if not looks_like_decision(content):
+            return  # a count, a question, an acknowledgement, a status line
         seen.add(key)
         decisions.append(
             Decision(
@@ -544,7 +586,11 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
                 "explicit",
             )
 
-    # Phase 2: Semantic scoring as bonus (catches decisions structural misses)
+    # Phase 2: Semantic scoring as bonus (catches decisions structural misses).
+    # Scored as a MARGIN over the non-decision templates: a bare cosine of
+    # 0.55 to the decision templates is where most short text sits under a
+    # modern encoder, and the old question filter (`rstrip("?").endswith("?")`)
+    # could never be true -- 636 mined "decisions" in eight days (2026-09-22).
     semantic_candidates = []
     for i, fm in enumerate(flow):
         if fm.msg_type == "user" and fm.user_text:
@@ -553,15 +599,16 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
                 15 < len(text) < 500
                 and not text.startswith("<")
                 and not text.startswith("{")
+                and "?" not in text
             ):
-                if not text.rstrip("?").endswith("?"):
-                    semantic_candidates.append((text, fm.timestamp))
+                semantic_candidates.append((text, fm.timestamp))
 
     if semantic_candidates:
         texts = [c[0] for c in semantic_candidates]
         scores = _batch_score(texts, "decisions", _DECISION_TEMPLATES)
-        for (text, ts), score in zip(semantic_candidates, scores):
-            if score >= 0.55:
+        non_scores = _batch_score(texts, "non_decisions", _NON_DECISION_TEMPLATES)
+        for (text, ts), score, non in zip(semantic_candidates, scores, non_scores):
+            if score >= 0.55 and score - non >= MINED_DECISION_MARGIN:
                 _add(
                     _summarize_decision(text),
                     ts,
@@ -964,27 +1011,13 @@ def _feed_to_memory_store(
                     auto_embed=False,
                 )
 
-        # User corrections with clear directives
+        # User corrections with the shape of one. The substring list this
+        # replaced matched "not" inside "note" and "use" inside "because",
+        # so every short reply after work qualified (2026-09-22).
+        from claude_engram.mining.decision_gate import looks_like_correction
+
         for c in extractions.corrections:
-            pref = c.preference.lower()
-            has_directive = any(
-                w in pref
-                for w in [
-                    "don't",
-                    "dont",
-                    "stop",
-                    "never",
-                    "always",
-                    "should",
-                    "want",
-                    "need",
-                    "prefer",
-                    "use",
-                    "not",
-                    "instead",
-                ]
-            )
-            if has_directive and len(c.preference) > 15:
+            if looks_like_correction(c.preference):
                 _fed_projects.add(project_path)
                 store.remember_discovery(
                     project_path,
