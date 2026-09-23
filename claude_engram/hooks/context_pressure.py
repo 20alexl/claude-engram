@@ -558,8 +558,13 @@ def note_compaction(state: dict) -> None:
     this moment still shows the pre-compaction count and is ignored until the
     statusline writes a fresh one. Also appends a compaction record for the
     run report (sizes come from the transcript's compact_boundary metadata;
-    this record adds the moment and, via note_restored, what was restored)."""
+    this record adds the moment and, via note_restored, what was restored).
+    Idempotent within two minutes: PostCompact and the SessionStart(compact)
+    banner both call it for the same compaction, in an order Claude Code
+    does not document, and one compaction is one cycle."""
     ps = pressure_state(state)
+    if time.time() - float(ps.get("compacted_at") or 0) < 120:
+        return
     ps["cycle"] = int(ps.get("cycle", 0)) + 1
     ps["headsup_done"] = False
     ps["checkpoint_done"] = False

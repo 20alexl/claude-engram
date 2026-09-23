@@ -1956,11 +1956,19 @@ _DECISION_TRIGGER_WORDS = {
 
 def _fix_typo(word: str) -> str:
     """
-    If a word is within edit distance 1-2 of a trigger word, return the trigger.
-    Checks: adjacent swap, single char delete/insert/replace, and combos for short words.
-    Returns the original word if no close match found.
+    A trigger word with one slip in it comes back as the trigger; anything
+    else comes back unchanged. Only the shapes fingers make are corrected
+    (an adjacent swap, one letter dropped, one letter doubled), and only on
+    words of five letters or more: below that a one-edit neighbour is
+    another word ("one" is not a typo of "use", "ever" not of "never",
+    "step" not of "stop"), and a rewritten real word garbled a stored
+    decision (2026-09-23). A one-letter substitution counts from seven
+    letters ("impliment"). There is no edit-distance-2 pass: "chance" is
+    not "change" and "remote" is not "remove".
     """
     if word in _DECISION_TRIGGER_WORDS:
+        return word
+    if len(word) < 5 or word in _COMMON_WORDS:
         return word
 
     # Adjacent character swaps (most common typo: "swtich" -> "switch")
@@ -1969,31 +1977,33 @@ def _fix_typo(word: str) -> str:
         if swapped in _DECISION_TRIGGER_WORDS:
             return swapped
 
-    # Single character removed from word (word is shorter: "plase" -> check "please")
-    # Try inserting each letter a-z at each position to see if it makes a trigger
+    # One letter dropped ("plase" -> "please")
     for trigger in _DECISION_TRIGGER_WORDS:
         if len(trigger) == len(word) + 1:
-            # Check if word is trigger with one char removed
             for i in range(len(trigger)):
                 if trigger[:i] + trigger[i + 1 :] == word:
                     return trigger
 
-    # Extra character in word (word is longer: "useing" -> check "using")
+    # One letter extra ("useing" -> "using")
     for i in range(len(word)):
         shorter = word[:i] + word[i + 1 :]
         if shorter in _DECISION_TRIGGER_WORDS:
             return shorter
 
-    # Single character substitution ("avod" -> "avoid" won't work, but "replce" -> ?)
-    for trigger in _DECISION_TRIGGER_WORDS:
-        if len(trigger) == len(word):
-            diffs = sum(1 for a, b in zip(word, trigger) if a != b)
-            if diffs == 1:
-                return trigger
+    # One letter substituted, long words only ("impliment" -> "implement")
+    if len(word) >= 7:
+        for trigger in _DECISION_TRIGGER_WORDS:
+            if len(trigger) == len(word):
+                diffs = sum(1 for a, b in zip(word, trigger) if a != b)
+                if diffs == 1:
+                    return trigger
 
-    # Edit distance 2 — only for words that aren't common English words
-    # (prevents "using"->"going", "the"->"use", "strict"->"stick")
-    _COMMON_WORDS = {
+    return word
+
+
+# Words the typo corrector must leave alone even when a trigger is one
+# edit away ("using" is not "going", "strict" is not "stick").
+_COMMON_WORDS = {
         "the",
         "a",
         "an",
@@ -2189,36 +2199,23 @@ def _fix_typo(word: str) -> str:
         "hard",
         "soft",
     }
-    if word not in _COMMON_WORDS:
-        for trigger in _DECISION_TRIGGER_WORDS:
-            if abs(len(trigger) - len(word)) <= 2 and len(word) >= 3:
-                if len(trigger) + len(word) <= 16:
-                    d = _edit_distance(word, trigger)
-                    if d <= 2:
-                        return trigger
-
-    return word
 
 
-def _edit_distance(a: str, b: str) -> int:
-    """Levenshtein distance. Only called for short strings."""
-    if len(a) < len(b):
-        return _edit_distance(b, a)
-    if len(b) == 0:
-        return len(a)
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a):
-        curr = [i + 1]
-        for j, cb in enumerate(b):
-            curr.append(
-                min(
-                    prev[j + 1] + 1,
-                    curr[j] + 1,
-                    prev[j] + (0 if ca == cb else 1),
-                )
-            )
-        prev = curr
-    return prev[-1]
+def _original_words(original: str, normalized: str, start: int, end: int) -> str:
+    """The original text's words behind a span of its normalized form.
+    _normalize_typos keeps one token per token, so a span maps back by
+    token index. What is stored is what the person typed: the lowercased,
+    typo-corrected working text never leaves the scorer (a rewritten word
+    garbled a stored decision, 2026-09-23)."""
+    tokens = original.split()
+    first = len(normalized[:start].split())
+    if start > 0 and not normalized[start - 1].isspace() and first > 0:
+        first -= 1  # the span starts inside a token
+    count = max(len(normalized[start:end].split()), 1)
+    picked = tokens[first : first + count]
+    if not picked:
+        return normalized[start:end].strip()
+    return " ".join(picked).strip().rstrip(".")
 
 
 def _normalize_typos(text: str) -> str:
@@ -2367,6 +2364,30 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
             score += weight
             break
 
+    # --- A rule stated as one (0.6 floor) ---
+    # A directive that OPENS the sentence with a body of four words or
+    # more is a rule by form ("from now on every PR needs a test", "always
+    # pin dependency versions", "don't use sleep in tests") even when no
+    # listed verb follows; mid-sentence the same words are narration as
+    # often as a rule. "always been", "never mind", "don't worry" are
+    # excluded. On the corpus the regex tier alone kept 32 of 40
+    # corrections before this and the shape gate still decides (2026-09-23).
+    rule_open = (
+        re.match(r"^(?:from\s+now\s+on|going\s+forward)[,:]?\s+\S+(?:\s+\S+){3,}", text_lower)
+        or re.match(
+            r"^(?:always|never)\s+(?!(?:been|be|was|were|had|has|have|is|are|mind|the|a|an|so|very|really|"
+            r"it|that|this|there|again|once|ever|thought|seen|worked|works)\b)\S+(?:\s+\S+){3,}",
+            text_lower,
+        )
+        or re.match(
+            r"^(?:don'?t|do\s+not|stop|avoid)\s+(?!(?:worry|know|think|forget|bother|panic|mind|care|remember|see|get)\b)"
+            r"\S+(?:\s+\S+){3,}",
+            text_lower,
+        )
+    )
+    if rule_open:
+        score = max(score, 0.6)
+
     # --- Penalties ---
     # Questions are not decisions
     if "?" in text:
@@ -2402,16 +2423,17 @@ def _score_decision_intent(text: str) -> tuple[float, str]:
         r"((?:always|never)\s+.{10,100}?)(?:\.|$|\n)",
     ]
 
+    original = text.strip()
     for pattern in extraction_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            best_match = match.group(1).strip()
+            best_match = _original_words(original, text_lower, match.start(1), match.end(1))
             break
 
     # Fallback: if score is high but no extraction, take first 120 chars
     if score >= 0.5 and not best_match:
         # Take up to first period or newline
-        first_sentence = re.split(r"[.\n]", text_lower)[0].strip()
+        first_sentence = re.split(r"[.\n]", original)[0].strip()
         if len(first_sentence) > 15:
             best_match = first_sentence[:120]
 
@@ -3440,32 +3462,26 @@ def _hook_post_compact(project_dir: str) -> None:
         )
         mistakes = get_past_mistakes(project_memory, work_project)
 
-        # The rules, the mistakes and the restored checkpoint are re-injected
-        # by the SessionStart(compact) banner, which fires for every
-        # compaction as well; this hook opens the new pressure cycle and
-        # states the rhythm. Both must reach the model as
-        # hookSpecificOutput.additionalContext: plain stdout on exit 0 is
-        # shown to the person, never added to the context (hooks reference).
-        # Through 0.8.28 this printed plain text on the belief that PostCompact
-        # had no structured output, so after every AUTO compaction the whole
-        # banner was lost (a manual /compact only looked fine because the
-        # terminal echoed the command's output into the user turn).
-        lines = []
-        lines.append("Context compacted. Rules and key context re-injected.")
+        # Bookkeeping only, no output. Everything the model must see after
+        # a compaction (rules, mistakes, the restored checkpoint, the
+        # rhythm of the new cycle) is printed by the SessionStart(compact)
+        # banner, which fires for every compaction: Claude Code's hook
+        # output schema has no PostCompact entry, and a hookSpecificOutput
+        # with hookEventName "PostCompact" is rejected with a validation
+        # error at every compaction (2.1.268, 2026-09-23); plain stdout on
+        # exit 0 is shown to the person, never added to the context. This
+        # hook opens the new pressure cycle (idempotent against the banner,
+        # whichever fires first) and pins what the compaction restored for
+        # the run report.
+        del rules, mistakes
         try:
             from claude_engram.hooks import context_pressure as _cp
 
             _st = load_state()
             _cp.note_compaction(_st)
             save_state(_st)
-            lines.append(_cp.rhythm_text(_st, _session_id, project_dir))
         except Exception:
             pass
-        if rules:
-            lines.append(
-                f"Rules ({len(rules)}, {_project_label(work_project)}) and past mistakes ({len(mistakes)}) "
-                "follow in the session-start banner."
-            )
 
         # For the run report: which entry this compaction restored.
         handoff = get_handoff_data(project_dir)
@@ -3478,17 +3494,6 @@ def _hook_post_compact(project_dir: str) -> None:
                 save_state(_st2)
             except Exception:
                 pass
-
-        print(
-            json_module.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PostCompact",
-                        "additionalContext": "\n".join(lines),
-                    }
-                }
-            )
-        )
     except Exception:
         pass
 
@@ -3731,6 +3736,15 @@ def _hook_session_start(project_dir: str) -> None:
             _no_sl = _cp.session_start_text(project_dir)
             if _no_sl:
                 lines.append(_no_sl)
+            # After a compaction: open the new pressure cycle (idempotent
+            # with the PostCompact hook, whichever ran first) and state the
+            # rhythm here, the one hook output Claude Code accepts after a
+            # compaction (its schema has no PostCompact channel).
+            if source == "compact":
+                _cst = load_state()
+                _cp.note_compaction(_cst)
+                save_state(_cst)
+                lines.append(_cp.rhythm_text(_cst, _session_id, project_dir))
             # Autonomy mode is announced, never silent: the halt is armed
             # and alerts go where the owner pointed them (or nowhere).
             try:

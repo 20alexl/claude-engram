@@ -16,7 +16,7 @@ Claude Code
     │   ├── PostToolUse Bash/Edit/Write          → track edits, tests, search spirals
     │   ├── PostToolUseFailure (all tools)       → error deja-vu (past fix inline), auto-log mistakes
     │   ├── SessionStart / SessionEnd / Stop     → lifecycle management
-    │   ├── PreCompact / PostCompact             → checkpoint + re-inject context + rhythm
+    │   ├── PreCompact / PostCompact             → checkpoint / cycle bookkeeping (re-injection + rhythm: SessionStart compact)
     │   └── (every injecting hook)               → context-pressure nudge when due
     │                                              (statusline mirror → distance to compaction)
     │

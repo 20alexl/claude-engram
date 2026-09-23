@@ -96,6 +96,27 @@ _REQUEST = re.compile(
     r"what (?:is|are|do|does|should|would)|how (?:do|does|should|would|about)|remind me|help me)",
     re.IGNORECASE,
 )
+# A one-off instruction for the task at hand: a step or item number, an
+# ordinal pick, a time word for this session ("yet", "for later",
+# "tomorrow"), an approval of a plan ("go ahead with", "fine with") or a
+# verb with a pronoun object after a yes ("ok run it"). Nothing to
+# remember once the task is done; a yes plus a hold was a preference
+# (2026-09-23).
+_ONE_OFF = re.compile(
+    r"\b(?:steps?|items?|parts?|phases?|options?|tasks?|points?|bullets?)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|"
+    r"\bthe\s+(?:first|second|third|fourth|fifth|last|next|remaining|other)\s+(?:one|two|three|four|five|few|half|option|item|step|part|bullet)s?\b|"
+    r"\b(?:for\s+later|for\s+tomorrow|tomorrow|tonight|in\s+this\s+pass|this\s+pass|report\s+back)\b|"
+    r"\byet\b",
+    re.IGNORECASE,
+)
+_ACK_WORDS = (
+    r"(?:ok(?:ay)?|yes|yeah|yep|sure|fine|good|great|nice|approved?|confirmed?|go ahead|sounds good|looks good|"
+    r"proceed|agreed|alright|all right|accepted)"
+)
+_ACK_THEN = re.compile(
+    r"^(?:" + _ACK_WORDS + r"\b[\s,.!;:-]*)+(?:(?:with|on)\b|(?:and\s+|then\s+|just\s+)?\w+\s+(?:it|them|this|that|these|those)\b)",
+    re.IGNORECASE,
+)
 # A report: a table cell, a labelled count, "N passed", two commit hashes.
 _REPORT_SHAPE = re.compile(
     r"\s\|\s|^\s*\||\b(?:count|total|passed|failed|errors?|outcomes?|exit(?:ed)?)\s*[:=]\s*\d|"
@@ -137,6 +158,8 @@ def why_not(text: str) -> str:
         return "markup or machine text"
     if _REQUEST.match(t):
         return "a request"
+    if _ONE_OFF.search(t) or _ACK_THEN.match(t):
+        return "a one-off instruction"
     if _REPORT_SHAPE.search(t):
         return "count, table or commit report"
     if _alpha_ratio(t) < 0.75:

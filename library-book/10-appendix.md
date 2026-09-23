@@ -218,7 +218,7 @@ Category bonuses: `rule` +0.3, `mistake` +0.2.
 | `SessionEnd` | `""` | `session_end_json` | Save session state, write the run report (`.engram/runs/`), spawn the miner |
 | `SessionStart` | `""` | `session_start_json` | Load context, start scorer server |
 | `PreCompact` | `""` | `pre_compact_json` | Auto-save checkpoint |
-| `PostCompact` | `""` | `post_compact_json` | Re-inject rules/mistakes/decisions + the compaction rhythm |
+| `PostCompact` | `""` | `post_compact_json` | Bookkeeping only (opens the pressure cycle, pins the restored entry); the re-injection and the rhythm come from SessionStart(compact), since the hook schema has no PostCompact output channel |
 
 Every injecting handler above (prompt, pre-edit, pre-read, bash, post-edit) also attaches the context-pressure nudge when one is due (`hooks/context_pressure.py`). The statusline is not a hook, but it is the signal source: `python -m claude_engram.hooks.context_pressure statusline` or a custom script that records the mirror.
 
@@ -271,6 +271,16 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.50 (2026-09-23)
+
+The open list after 0.8.49, worked through. Two defects, one measurement gap closed on the corpus.
+
+- **PostCompact prints nothing.** Claude Code's hook output schema has no PostCompact entry: the `hookSpecificOutput` with that event name, emitted since 0.8.29, was rejected with a validation error at every compaction, so the rhythm line never reached the model and the terminal showed the error each time. The SessionStart(compact) banner now opens the pressure cycle and states the rhythm; PostCompact keeps its bookkeeping (the cycle, idempotent within two minutes because the order of the two hooks is undocumented, and the restored entry for the run report).
+- **The regex tier keeps the typed words.** Its typo corrector accepted any trigger word within two edits of a word of three letters or more, so ordinary words became triggers ("one" to "use", "pip" to "pick", "stack" to "stick", "const" to "don't", "write" to "rewrite") and the extractor returned that lowercased, rewritten working text; a stored decision could read as nothing the person typed. Corrections are now bounded to the shapes fingers make (a swap, a dropped or doubled letter) on words of five letters or more, a substitution from seven, no distance-2 pass, and the extracted span maps back to the original words. On the 220-prompt corpus the regex tier's precision went 97.9 to 98.3 and its false positives on the ambiguous category from 55% to 5%.
+- **A rule that opens the sentence clears the regex tier.** "from now on", "going forward", "always", "never", "don't", "stop", "avoid" at the start with a body of four words or more score 0.6 by form (descriptive uses excluded: "always been", "never mind", "don't worry"); mid-sentence the same words are narration as often as a rule. Regex recall on the corpus 38% to 48%, convention decisions 100%.
+- **A yes plus a one-off instruction is not a decision.** Ten neutral negatives of that shape added to the corpus (an approval followed by step numbers, an ordinal pick, "yet", "for later", "go ahead with", "ok run it"); the gate rejects them by form (`_ONE_OFF`, `_ACK_THEN`), the ten were all false positives of one gate or another before.
+- Corpus: correction gate 0.97 / 0.80, decision gate 1.00 / 0.93, shared capture 1.00 / 0.95 with the daemon and 1.00 / 0.95 regex-only (floor raised to r ≥ 0.85). Smoke 51.
 
 ### v0.8.49 (2026-09-23)
 

@@ -58,7 +58,7 @@ def main() -> int:
     from claude_engram.hooks.intent import capture_decision
     from claude_engram.hooks.scorer_server import is_server_running
 
-    daemon = is_server_running()
+    daemon = is_server_running() and "--regex" not in sys.argv
     capture_name = "shared capture" + (" (daemon)" if daemon else " (regex)")
 
     def _capture(text: str) -> bool:
@@ -68,11 +68,12 @@ def main() -> int:
     for name, fn, pos, floor_p, floor_r in (
         # Floors sit a little under what the tuned gates score (2026-09-22:
         # correction 0.97 / 0.80, decision 1.00 / 0.95; 2026-09-23 shared
-        # capture on the corrections, regex-only 1.00 / 0.80), so a
-        # regression shows and a small corpus edit does not.
+        # capture on the corrections, regex-only 1.00 / 0.95 once the typo
+        # corrector stopped rewriting real words), so a regression shows
+        # and a small corpus edit does not.
         ("correction gate", looks_like_correction, corr_pos, 0.85, 0.75),
         ("decision gate", looks_like_decision, dec_pos, 0.90, 0.90),
-        (capture_name, _capture, corr_pos, 0.90, 0.70),
+        (capture_name, _capture, corr_pos, 0.90, 0.85),
     ):
         tp, fp, fn_, p, r, f = _prf(fn, pos, neg)
         good = p >= floor_p and r >= floor_r

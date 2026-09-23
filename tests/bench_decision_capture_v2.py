@@ -570,6 +570,19 @@ CORPUS = [
     ("the performance numbers look good", False, "praise_status", "perf status"),
     ("that fixed the memory leak", False, "praise_status", "fix status"),
     ("everything is working in staging", False, "praise_status", "staging status"),
+    # --- Approval with a one-off instruction (10) ---
+    # A yes plus a step order or a hold for the task at hand: nothing to
+    # remember once the task is done (2026-09-23).
+    ("approved, go ahead with steps 1 to 3 and hold step 4", False, "approval_task", "approve + steps"),
+    ("looks good, ship the first two and leave the third for tomorrow", False, "approval_task", "approve + defer"),
+    ("ok, do the migration first and then the tests", False, "approval_task", "ok + order"),
+    ("yes, but just the backend half in this pass", False, "approval_task", "yes + scope"),
+    ("fine, take the second option and skip the cleanup", False, "approval_task", "fine + pick"),
+    ("sounds good, start with the parser and report back", False, "approval_task", "sounds good + start"),
+    ("all recommendations accepted, don't touch the deploy script yet", False, "approval_task", "accept + hold"),
+    ("go ahead with everything except the rename", False, "approval_task", "go ahead + except"),
+    ("ok run it, but not on the shared box", False, "approval_task", "ok + where"),
+    ("approved. leave item five for later", False, "approval_task", "approve + item"),
     # --- Commands (10) ---
     ("/commit", False, "command", "slash command"),
     ("run the tests please", False, "command", "run tests"),

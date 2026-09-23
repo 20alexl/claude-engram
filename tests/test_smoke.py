@@ -942,3 +942,50 @@ def test_one_capture_rule_behind_the_prompt_hook_and_the_miner(tmp_path: Path, m
     ex = extractors.SessionExtractions(corrections=[extractors.Correction(user_said="x", preference="never commit the lockfile from a worktree")])
     extractors._feed_to_memory_store(str(tmp_path / "proj"), ex, str(tmp_path / "store"))
     assert seen[-1] == ("never commit the lockfile from a worktree", True)
+
+
+def test_the_regex_tier_keeps_the_typed_words():
+    """The typo corrector rewrote real short words into trigger words
+    ("one" to "use", "pip" to "pick", "stack" to "stick") and the extractor
+    returned that lowercased working text, so a stored decision could read
+    as nothing the person typed (2026-09-23)."""
+    from claude_engram.hooks.remind import _fix_typo, _score_decision_intent
+    assert _fix_typo("one") == "one" and _fix_typo("pip") == "pip" and _fix_typo("ever") == "ever"
+    assert _fix_typo("step") == "step" and _fix_typo("chance") == "chance" and _fix_typo("remote") == "remote"
+    assert _fix_typo("swtich") == "switch" and _fix_typo("plase") == "please" and _fix_typo("useing") == "using"
+    assert _fix_typo("impliment") == "implement"
+    score, text = _score_decision_intent("Let's use PostgreSQL instead of SQLite for the main store, the one every reader opens.")
+    assert score >= 0.6 and text.startswith("Let's use PostgreSQL instead of SQLite")
+    score, text = _score_decision_intent("stop using console.log for debugging, use the logger")
+    assert score >= 0.6 and text == "stop using console.log"
+
+
+def test_a_rule_that_opens_the_sentence_clears_the_regex_tier():
+    from claude_engram.hooks.remind import _score_decision_intent
+    for s in ("from now on every pull request needs a test", "always pin dependency versions in the lockfile",
+              "don't use sleep in tests, use proper waits"):
+        assert _score_decision_intent(s)[0] >= 0.6, s
+    for s in ("always been like this in staging", "never mind the failing job", "don't worry about the lint warning"):
+        assert _score_decision_intent(s)[0] < 0.6, s
+
+
+def test_a_yes_plus_a_one_off_instruction_is_not_a_decision():
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision, why_not
+    for s in ("approved, go ahead with steps 1 to 3 and hold step 4", "ok run it, but not on the shared box",
+              "approved. leave item five for later", "go ahead with everything except the rename",
+              "all recommendations accepted, don't touch the deploy script yet"):
+        assert why_not(s) == "a one-off instruction", s
+        assert not looks_like_decision(s) and not looks_like_correction(s)
+    assert looks_like_decision("DECISION: (from user) leave the trash folders for now")
+    assert looks_like_decision("from now on every pull request needs a test")
+
+
+def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
+    from claude_engram.hooks import context_pressure as cp
+    state: dict = {}
+    cp.note_compaction(state)
+    cp.note_compaction(state)
+    assert cp.pressure_state(state)["cycle"] == 1
+    cp.pressure_state(state)["compacted_at"] -= 600
+    cp.note_compaction(state)
+    assert cp.pressure_state(state)["cycle"] == 2

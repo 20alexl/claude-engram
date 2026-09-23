@@ -752,8 +752,10 @@ def test_compaction_reinjection(tmp):
     t, _ = cp.nudge(state, sid)
     check("no second call at 717K (once per cycle)", t == "")
 
-    # PostCompact through the real hook: structured output, since plain stdout
-    # never enters the model's context.
+    # PostCompact through the real hook: bookkeeping only. Claude Code's
+    # hook output schema has no PostCompact channel (a hookSpecificOutput
+    # with that event name is rejected, 2.1.268), so the rhythm is stated
+    # by the SessionStart(compact) banner below.
     proj = tmp / "replay-proj"
     proj.mkdir(parents=True, exist_ok=True)
     env = dict(
@@ -769,13 +771,7 @@ def test_compaction_reinjection(tmp):
                           "trigger": "auto", "compact_summary": ""}),
         capture_output=True, text=True, cwd=str(ROOT), env=env, timeout=120,
     )
-    try:
-        hso = json.loads(r.stdout)["hookSpecificOutput"]
-    except Exception:
-        hso = {}
-    check("PostCompact emits hookSpecificOutput JSON (was plain text)", hso.get("hookEventName") == "PostCompact")
-    ctx = hso.get("additionalContext", "")
-    check("PostCompact context carries the rhythm with the measured trigger", "Compaction #1. Rhythm" in ctx and "checkpoint at ~698K" in ctx and "auto-compaction at ~718K" in ctx)
+    check("PostCompact emits nothing (Claude Code's hook schema has no PostCompact channel)", r.returncode == 0 and r.stdout.strip() == "")
     st = json.loads((Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
     check("the compaction opened cycle 1 in the state", int((st.get("pressure") or {}).get("cycle", 0)) == 1)
 
@@ -798,6 +794,9 @@ def test_compaction_reinjection(tmp):
         ctx2 = ""
     check("SessionStart(compact) shows the banked checkpoint (was skipped)", "CHECKPOINT [manual" in ctx2 and "task_replay_1" in ctx2 and "0.8.28 committed" in ctx2)
     check("... with its goal and next steps", "Goal: the stack is pushed once" in ctx2 and "Pending: 2 steps" in ctx2)
+    check("SessionStart(compact) states the rhythm with the measured trigger", "Compaction #1. Rhythm" in ctx2 and "checkpoint at ~698K" in ctx2 and "auto-compaction at ~718K" in ctx2)
+    st2 = json.loads((Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
+    check("the banner did not open a second cycle for the same compaction", int((st2.get("pressure") or {}).get("cycle", 0)) == 1)
     _clean_env()
 
 
