@@ -3897,27 +3897,16 @@ def _hook_session_start(project_dir: str) -> None:
                 # An ancestor's index holds every sub-project's sessions:
                 # ask for the latest one that touched THIS project.
                 summary = index.get_latest_session_summary(
-                    work_project if _normalize_path(work_project) != _normalize_path(project_dir) else ""
+                    work_project if _normalize_path(work_project) != _normalize_path(project_dir) else "",
+                    workspace_root=project_dir,
                 )
                 # A root-cwd start knows no sub-project yet, and the latest
-                # session's files then span the whole workspace ("1,089
+                # session's files then spanned the whole workspace ("1,089
                 # files, 405 tool errors" for one project's banner,
-                # 2026-09-22). Narrow to the sub-project most of its edits
-                # belong to, and say which.
-                _proj_label = ""
-                if summary and summary.get("files_edited"):
-                    try:
-                        _groups: dict = {}
-                        for _f in summary["files_edited"]:
-                            _groups.setdefault(_normalize_path(resolve_project_for_file(_f)), []).append(_f)
-                        if len(_groups) > 1:
-                            _best = max(_groups, key=lambda k: len(_groups[k]))
-                            summary = dict(summary)
-                            summary["files_edited"] = _groups[_best]
-                            summary["file_count"] = len(_groups[_best])
-                            _proj_label = Path(_best).name
-                    except Exception:
-                        _proj_label = ""
+                # 2026-09-22). The index narrows a workspace-wide summary
+                # to the sub-project most of its edits belong to and names
+                # it in project_label.
+                _proj_label = str((summary or {}).get("project_label") or "")
                 if summary and summary.get("file_count", 0) > 0:
                     age = summary.get("age_str", "")
                     branch = summary.get("branch", "")

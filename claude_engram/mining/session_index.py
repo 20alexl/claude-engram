@@ -311,14 +311,17 @@ class SessionIndex:
                 latest = meta
         return latest
 
-    def get_latest_session_summary(self, project_dir: str = "") -> Optional[dict]:
+    def get_latest_session_summary(self, project_dir: str = "", workspace_root: str = "") -> Optional[dict]:
         """
         Get a formatted summary of the most recent session.
 
         Returns dict with: session_id, age_str, branch, files_edited,
         error_count, last_message, tools_summary
         With ``project_dir``: the latest session that touched that project,
-        listing and counting only its files under the project.
+        listing and counting only its files under the project. Without it,
+        ``workspace_root`` narrows a session that spanned several
+        sub-projects to the one most of its edits belong to
+        (``project_label`` names it).
         """
         latest = self.get_latest_session_for(project_dir) if project_dir else self.get_latest_session()
         if not latest:
@@ -350,7 +353,30 @@ class SessionIndex:
             except Exception:
                 pass
 
-        files = latest.get("files_edited", [])
+        files = list(latest.get("files_edited", []) or [])
+        # Workspace-wide (no project asked): a session that spanned several
+        # sub-projects is narrowed to the one most of its edits belong to,
+        # and the label says so. Files outside every registered project
+        # (a memory directory under the home folder) are not a project.
+        project_label = ""
+        if not project_dir and workspace_root and files:
+            try:
+                from claude_engram.hooks.paths import resolve_project_for_file
+
+                root_norm = workspace_root.replace("\\", "/").rstrip("/").lower()
+                groups: dict[str, list] = {}
+                for f in files:
+                    if not str(f).replace("\\", "/").lower().startswith(root_norm + "/"):
+                        continue  # outside the workspace: not a project's file
+                    p = str(resolve_project_for_file(f, workspace_root)).replace("\\", "/").rstrip("/").lower()
+                    groups.setdefault(p, []).append(f)
+                if groups:
+                    best = max(groups, key=lambda k: len(groups[k]))
+                    if best != root_norm:
+                        files = groups[best]
+                        project_label = Path(best).name
+            except Exception:
+                project_label = ""
         # Just show filenames, not full paths
         short_files = [Path(f).name for f in files[:10]]
 
@@ -361,6 +387,7 @@ class SessionIndex:
             "files_edited": short_files,
             "files_edited_full": files[:10],  # full paths — project prediction
             "file_count": len(files),
+            "project_label": project_label,
             "error_count": latest.get("error_count", 0),
             "compaction_count": latest.get("compaction_count", 0),
             "last_message": latest.get("last_user_message", "")[:200],

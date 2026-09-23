@@ -885,6 +885,23 @@ def test_a_code_exception_is_never_predicted_for_a_markdown_file(tmp_path: Path)
     assert [p.content for p in py.likely_errors] == ["TypeError"]
 
 
+def test_a_workspace_wide_last_session_narrows_to_its_main_sub_project(tmp_path: Path):
+    from claude_engram.mining.session_index import SessionIndex
+    root = tmp_path / "ws"
+    for name in ("alpha", "beta"):
+        (root / name).mkdir(parents=True)
+        (root / name / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    idx = SessionIndex(tmp_path / "session_index.json")
+    files = [str(root / "alpha" / f"a{i}.py") for i in range(5)] + [str(root / "beta" / "b.py")] + [str(tmp_path / "outside" / "memory.md")]
+    idx._data["sessions"] = {"s1": {"session_id": "s1", "last_timestamp": "2026-09-22T10:00:00Z", "files_edited": files, "git_branch": "main"}}
+    wide = idx.get_latest_session_summary("")
+    assert wide and wide["file_count"] == 7 and wide["project_label"] == ""
+    narrowed = idx.get_latest_session_summary("", workspace_root=str(root))
+    assert narrowed and narrowed["project_label"] == "alpha" and narrowed["file_count"] == 5
+    scoped = idx.get_latest_session_summary(str(root / "beta"), workspace_root=str(root))
+    assert scoped and scoped["file_count"] == 1 and scoped["project_label"] == ""
+
+
 def test_the_daemons_cpu_batch_is_small_and_overridable(monkeypatch):
     """The resident daemon keeps the activation arena of its largest batch
     for life; 64 rows parked 1.2 GB more than 16 at the same speed."""
