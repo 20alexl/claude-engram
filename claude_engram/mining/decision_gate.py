@@ -74,8 +74,14 @@ _CORRECTION_CUE = re.compile(
     r"meant|prefer|differently|always|avoid|only)\b",
     re.IGNORECASE,
 )
-# Starts like code, a path, a URL, a quote, a list marker or a number.
-_CODE_START = re.compile(r"^\s*(?:[`\"'|#>$-]|\w:[\\/]|/[a-z]|\.\.?/|https?://|\d)")
+# Starts like code, markup, a path, a URL, a quote, a list marker or a number.
+_CODE_START = re.compile(r"^\s*(?:[`\"'|#>$<-]|\w:[\\/]|/[a-z]|\.\.?/|https?://|\d)")
+# A request opener: asks for something rather than deciding it.
+_REQUEST = re.compile(
+    r"^\s*(?:(?:can|could|would|will|may) (?:you|we|i)\b|please\b|give me|tell me|show me|let me know|"
+    r"what (?:is|are|do|does|should|would)|how (?:do|does|should|would|about)|remind me|help me)",
+    re.IGNORECASE,
+)
 # A report: a table cell, a labelled count, "N passed", two commit hashes.
 _REPORT_SHAPE = re.compile(
     r"\s\|\s|^\s*\||\b(?:count|total|passed|failed|errors?|outcomes?|exit(?:ed)?)\s*[:=]\s*\d|"
@@ -113,6 +119,8 @@ def why_not(text: str) -> str:
         return "acknowledgement"
     if _CODE_START.match(t):
         return "starts like code or a path"
+    if _REQUEST.match(t):
+        return "a request"
     if _REPORT_SHAPE.search(t):
         return "count, table or commit report"
     if _alpha_ratio(t) < 0.75:
