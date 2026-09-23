@@ -34,7 +34,17 @@ _CUE = re.compile(
     r"approved?|prefer(?:red)?|stick with|rule|policy|default|use|do not|don'?t|stop|leave|"
     r"only|must|pause|no longer|rather than|allowed|forbidden|required|optional|implement|"
     r"lock in|pick|choose|chose|commit to|settle on|standardi[sz]e on|needs? to|needs? at least|"
-    r"require[sd]?|go native|move to|not .{1,30}\b(?:but|instead)\b|,\s*not\b)\b",
+    r"require[sd]?|go native|move to|not .{1,30}\b(?:but|instead)\b)\b",
+    re.IGNORECASE,
+)
+# A "(confirmed)" entry is an assistant sentence the user said yes to. It
+# is a decision only when that sentence PROPOSES something (first person,
+# a plan, a recommendation); an explanation the user agreed with is not.
+# Three hours of mining after 0.8.47 stored 45 such entries, contrast
+# phrases ("X, not Y") in ordinary prose among them (2026-09-23).
+_PROPOSAL = re.compile(
+    r"^(?:\W*\w+\W+){0,3}(?:i'?ll|i will|i'?d|let'?s|we'?ll|we should|we could|i propose|i recommend|i suggest|"
+    r"my recommendation|the plan is|plan:|proposal:|going to|next i|next,? i|i want to|i'?m going to)\b",
     re.IGNORECASE,
 )
 # An edit verb is an instruction on its own ("rename this variable", "revert
@@ -76,6 +86,10 @@ _CORRECTION_CUE = re.compile(
 )
 # Starts like code, markup, a path, a URL, a quote, a list marker or a number.
 _CODE_START = re.compile(r"^\s*(?:[`\"'|#>$<-]|\w:[\\/]|/[a-z]|\.\.?/|https?://|\d)")
+# Markup or machine text anywhere: a tag, a JSON edge, an escaped quote.
+# A relayed message wrapped in tags is another program's text, and its
+# sentences were mined as decisions with the tag tail attached.
+_MACHINE = re.compile(r"</?[A-Za-z][\w-]*>|\"\s*}|{\s*\"|\\\"|\\n")
 # A request opener: asks for something rather than deciding it.
 _REQUEST = re.compile(
     r"^\s*(?:(?:can|could|would|will|may) (?:you|we|i)\b|please\b|give me|tell me|show me|let me know|"
@@ -119,6 +133,8 @@ def why_not(text: str) -> str:
         return "acknowledgement"
     if _CODE_START.match(t):
         return "starts like code or a path"
+    if _MACHINE.search(t):
+        return "markup or machine text"
     if _REQUEST.match(t):
         return "a request"
     if _REPORT_SHAPE.search(t):
@@ -133,6 +149,8 @@ def looks_like_decision(text: str) -> bool:
     edit verb counts only with a scope word)."""
     t = bare(text)
     if why_not(text) or _HEDGE.search(t):
+        return False
+    if "(confirmed)" in (text or "").lstrip()[:40] and not _PROPOSAL.search(t):
         return False
     if _CUE.search(t):
         return True

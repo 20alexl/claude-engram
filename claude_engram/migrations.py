@@ -536,6 +536,8 @@ STEPS = [
     ("0.8.46:prune_junk_decisions", False, _prune_junk_decisions),
     # Re-run with the gate tuned on the neutral corpus (same function, idempotent).
     ("0.8.47:prune_junk_decisions_retuned", False, _prune_junk_decisions),
+    # Re-run: confirmed entries need a proposal, machine text is never a decision.
+    ("0.8.48:prune_junk_decisions_confirmed", False, _prune_junk_decisions),
 ]
 
 

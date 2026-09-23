@@ -272,6 +272,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.48 (2026-09-23)
+
+Three hours of the other session on 0.8.47, read from its transcript and its store. The hooks were quiet where they should be: 57 edits drew one pre-edit reminder (a real ImportError on the file being edited), four green test runs drew no line (the status now persists, so a green after a green is silent), two milestone nudges, no strikes, no rule hits, about 1,000 tokens of engram in 24 prompts. The miner was not: 45 decisions and 4 preferences stored in those hours, most of them "(confirmed)" entries, an assistant sentence the user said yes to, let through by the "X, not Y" contrast cue (ordinary prose is full of contrasts), and relayed teammate messages mined with their tag tail attached.
+
+- **A confirmed entry needs a proposal.** The assistant sentence has to propose something (first person, a plan, a recommendation: "I'll", "let's", "we should", "I recommend", "the plan is") to count as the decision the user confirmed; an explanation agreed with is not one. The contrast cue is gone.
+- **Markup or machine text is never a decision.** A tag, a JSON edge or an escaped quote anywhere in the text: the sentence belongs to another program's message.
+- Corpus scores unchanged (decision 1.00 / 0.93, correction 0.97 / 0.80). Of the 90 entries the miner had stored since 0.8.47, the gate now keeps 36 (12 decisions, 24 preferences) and archives 54; migration `0.8.48:prune_junk_decisions_confirmed` re-runs the pruning.
+
 ### v0.8.47 (2026-09-22)
 
 The decision gate, tuned on the neutral corpus instead of on a session. Tested live after 0.8.46, the correction extractor was still storing a "user preference" for most short replies: its semantic tier accepts a bare cosine of 0.35, which on the corpus every one of the 100 not-decisions meets, and the gate's redirect-word list carried ordinary English ("other", "should", "want", "actually"). A first tightening was written against the live session's sentences and backed out for that reason. This one is scored by `tests/bench_correction_gate.py` on the 220-prompt corpus in `bench_decision_capture_v2.py`, which no session wrote: positives for a correction are its negation and convention decisions, negatives every not-decision; the decision gate is scored on all 120 decisions.
