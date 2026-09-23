@@ -18,24 +18,60 @@ from __future__ import annotations
 import re
 
 _PREFIX = re.compile(r"^\s*(?:(?:DECISION:|USER PREFERENCE:|\(from user\)|\(confirmed\))\s*)+", re.IGNORECASE)
+# Acknowledgement words, alone or strung together ("ok looks good, thanks").
 _ACK = re.compile(
-    r"^(?:ok(?:ay)?|yes|yeah|yep|sure|fine|good|great|nice|approved?|confirmed?|go ahead|do it|"
-    r"sounds good|looks good|proceed|thanks|thank you|perfect|correct|right|agreed|noted)\b[^a-z]*$",
+    r"^(?:(?:ok(?:ay)?|yes|yeah|yep|sure|fine|good|great|nice|approved?|confirmed?|go ahead|do it|"
+    r"sounds good|looks good|proceed|thanks|thank you|perfect|correct|right|agreed|noted|please|cool|done)"
+    r"\b[\s,.!;:-]*)+$",
     re.IGNORECASE,
 )
-# A word that decides: a choice, a rule, a direction, a permission.
+# A word that decides: a choice, a rule, a direction, a permission. Tuned
+# on the neutral corpus in tests/bench_decision_capture_v2.py (120
+# decisions, 100 not): scored by tests/bench_correction_gate.py.
 _CUE = re.compile(
     r"\b(?:let'?s|we'?ll|i'?ll|we should|should(?:n'?t)?|always|never|from now on|going forward|"
-    r"instead|switch(?:ed|ing)? to|adopt|keep|drop|go with|went with|decided?|decision|"
+    r"instead|switch(?:ed|ing)? to|adopt|keep|drop|go(?:ing)? with|went with|decided?|decision|"
     r"approved?|prefer(?:red)?|stick with|rule|policy|default|use|do not|don'?t|stop|leave|"
-    r"only|must|pause|no longer|rather than|rename|replace|move|split|merge|"
-    r"revert|remove|allowed|forbidden|required|optional)\b",
+    r"only|must|pause|no longer|rather than|allowed|forbidden|required|optional|implement|"
+    r"lock in|pick|choose|chose|commit to|settle on|standardi[sz]e on|needs? to|needs? at least|"
+    r"require[sd]?|go native|move to|not .{1,30}\b(?:but|instead)\b|,\s*not\b)\b",
     re.IGNORECASE,
 )
-# A word that redirects: what a correction or a preference carries.
+# An edit verb is an instruction on its own ("rename this variable", "revert
+# the last commit") and a decision when it names a transition ("replace X
+# with Y", "migrate from A to B") or a scope ("rename every handler") and
+# its object is not deictic ("this file", "that variable").
+_ACTION_CUE = re.compile(
+    r"\b(?:rename|replace|move|split|merge|revert|remove|undo|delete|rewrite|migrate|swap|convert|upgrade|switch)\b",
+    re.IGNORECASE,
+)
+_ACTION_DEICTIC = re.compile(
+    r"\b(?:rename|replace|move|split|merge|revert|remove|undo|delete|rewrite|migrate|swap|convert|upgrade|switch)\b"
+    r"(?:\s+\S+){0,2}\s+(?:this|that|these|those|the last|the latest)\b",
+    re.IGNORECASE,
+)
+_SCOPE = re.compile(r"\b(?:all|every|always|never|any|new|from now on|going forward|whole|everywhere|across|each|no longer)\b", re.IGNORECASE)
+_TRANSITION = re.compile(r"\bfrom\b.*\bto\b|\bwith\b|\bover\b|\busing\b|\bto\b", re.IGNORECASE)
+# Hedges, history, opinion and third parties: talk about a choice, not a
+# choice of ours.
+_HEDGE = re.compile(
+    r"\b(?:not sure|unsure|not certain|no idea|wondering|whether|maybe|perhaps|might|could potentially|"
+    r"potentially|thinking about|think about|consider(?:ing)?|used to|were going to|was going to|personally|"
+    r"(?:most|many|some|other|several) (?:people|teams|projects|folks|companies|devs|developers)|"
+    r"our competitors|the previous team|the old team|use case)\b",
+    re.IGNORECASE,
+)
+# A word that redirects: what a correction or a preference carries. Tuned
+# on the neutral 220-prompt corpus in tests/bench_decision_capture_v2.py
+# (positives: its negation and convention decisions; negatives: every
+# not-decision), never on any one session: the broad first list (with
+# "other", "should", "want", "actually", "mean") scored precision 0.74,
+# recall 0.57; this one 0.86 / 0.80. Position did not matter (the same
+# list within the first six words: 0.86 / 0.78). "undo" and "revert" are
+# commands more often than corrections and are left to the decision cue.
 _CORRECTION_CUE = re.compile(
-    r"\b(?:no|not|don'?t|doesn'?t|isn'?t|wrong|instead|stop|actually|rather|never|should(?:n'?t)?|"
-    r"meant|mean|wanted|want|prefer|keep|leave|undo|revert|different(?:ly)?|other)\b",
+    r"\b(?:no|not|don'?t|doesn'?t|isn'?t|wasn'?t|never|wrong|instead|stop|rather than|shouldn'?t|"
+    r"meant|prefer|differently|always|avoid|only)\b",
     re.IGNORECASE,
 )
 # Starts like code, a path, a URL, a quote, a list marker or a number.
@@ -71,7 +107,7 @@ def why_not(text: str) -> str:
     t = bare(text)
     if "?" in t:
         return "question"
-    if len(t) < 20 or len(t.split()) < 4:
+    if len(t) < 12 or len(t.split()) < 3:
         return "too short"
     if _ACK.match(t):
         return "acknowledgement"
@@ -85,10 +121,20 @@ def why_not(text: str) -> str:
 
 
 def looks_like_decision(text: str) -> bool:
-    """A decision: the shape above, plus a deciding word."""
-    return not why_not(text) and bool(_CUE.search(bare(text)))
+    """A decision: the shape above, not a hedge, plus a deciding word (an
+    edit verb counts only with a scope word)."""
+    t = bare(text)
+    if why_not(text) or _HEDGE.search(t):
+        return False
+    if _CUE.search(t):
+        return True
+    if _ACTION_CUE.search(t) and not _ACTION_DEICTIC.search(t):
+        return bool(_SCOPE.search(t) or _TRANSITION.search(t))
+    return False
 
 
 def looks_like_correction(text: str) -> bool:
-    """A correction or preference: the shape above, plus a redirecting word."""
-    return not why_not(text) and bool(_CORRECTION_CUE.search(bare(text)))
+    """A correction or preference: the shape above, plus a redirecting word,
+    and not a hedge ("not sure if we need it yet" redirects nothing)."""
+    t = bare(text)
+    return not why_not(text) and bool(_CORRECTION_CUE.search(t)) and not _HEDGE.search(t)

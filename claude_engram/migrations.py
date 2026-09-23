@@ -534,6 +534,8 @@ STEPS = [
     ("0.8.37:reattribute_pooled", True, _reattribute_pooled),
     ("0.8.40:drop_worktree_projects", False, _drop_worktree_projects),
     ("0.8.46:prune_junk_decisions", False, _prune_junk_decisions),
+    # Re-run with the gate tuned on the neutral corpus (same function, idempotent).
+    ("0.8.47:prune_junk_decisions_retuned", False, _prune_junk_decisions),
 ]
 
 
