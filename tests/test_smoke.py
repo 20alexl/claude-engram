@@ -912,3 +912,33 @@ def test_the_daemons_cpu_batch_is_small_and_overridable(monkeypatch):
     assert ew.cpu_batch_size() == 8
     monkeypatch.setenv("CLAUDE_ENGRAM_CPU_BATCH", "junk")
     assert ew.cpu_batch_size() == 16
+
+
+def test_one_capture_rule_behind_the_prompt_hook_and_the_miner(tmp_path: Path, monkeypatch):
+    """A sentence is stored or not by hooks/intent.capture_decision wherever
+    it was seen: the prompt hook and the miner's preference path both call
+    it. Scorer off here, so the regex tier and the shape gate decide."""
+    from claude_engram.hooks import intent, remind
+    from claude_engram.mining import extractors
+
+    monkeypatch.setattr(intent, "score_decision_semantic", lambda text, server_only=False: (0.0, ""))
+    kept = intent.capture_decision("let's use postgres instead of sqlite for the main store")
+    assert kept.startswith("let's use postgres instead of sqlite")
+    assert intent.capture_decision("what shell is still running?") == ""
+    assert intent.capture_decision("ok looks good, thanks") == ""
+    assert intent.capture_decision("(from user) x") == ""
+
+    seen: list[tuple[str, bool]] = []
+
+    def _marker(text, server_only=False):
+        seen.append((text, server_only))
+        return ""
+
+    monkeypatch.setattr(intent, "capture_decision", _marker)
+    remind._auto_capture_from_prompt(str(tmp_path), "we should always pin the parser version in the lockfile")
+    assert seen and seen[-1][1] is False
+
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(tmp_path / "store"))
+    ex = extractors.SessionExtractions(corrections=[extractors.Correction(user_said="x", preference="never commit the lockfile from a worktree")])
+    extractors._feed_to_memory_store(str(tmp_path / "proj"), ex, str(tmp_path / "store"))
+    assert seen[-1] == ("never commit the lockfile from a worktree", True)

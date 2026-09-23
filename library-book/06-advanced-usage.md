@@ -75,7 +75,7 @@ User prompts are scored for decision intent using two tiers:
 
 2. **Regex fallback**: weighted keyword analysis over decision verbs (switch to, adopt, replace, get rid of), directive markers (let's, we should, from now on, please), contrast signals (instead of, rather than) and negation (don't, stop, avoid, never). Instant, no dependencies.
 
-The system captures when the combined score exceeds 0.45. It does NOT capture questions, hypotheticals ("what if"), or ambiguous statements ("maybe").
+The best of the two has to reach 0.6 (`CAPTURE_THRESHOLD` in `hooks/intent.py`), and the sentence then has to pass the shape gate (`mining/decision_gate.py`): no question, no acknowledgement, no count, table row, path or markup, a deciding word, no hedge. One function does all of this, `capture_decision`, and the session miner sends every correction it finds in a transcript through the same function before storing a "USER PREFERENCE", so a sentence is kept or dropped by one rule whether it was typed live or mined from history. `tests/bench_correction_gate.py` scores the function on the neutral corpus (2026-09-23: precision 1.00, recall 0.80 on the 40 corrections, with the scorer daemon up).
 
 ### Installing semantic scoring
 

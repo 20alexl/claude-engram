@@ -7,7 +7,9 @@ which no session wrote: positives are its negation and convention
 decisions ("don't use var anymore", "always validate at the boundary"),
 negatives every prompt labeled not-a-decision (questions, tasks, commands,
 bug reports, praise/status, exploratory, ambiguous). The decision gate is
-scored the same way on the whole corpus.
+scored the same way on the whole corpus, and the shared capture function
+(hooks/intent.capture_decision, behind both the prompt hook and the
+miner's preference path) on the corrections.
 
 Run: venv/Scripts/python.exe tests/bench_correction_gate.py
 """
@@ -49,18 +51,33 @@ def main() -> int:
     corr_pos = [p for p, is_dec, cat, _d in corpus if is_dec and cat in ("negation", "convention")]
     dec_pos = [p for p, is_dec, _c, _d in corpus if is_dec]
     ok = True
-    print(f"{'gate':22s} {'pos':>4} {'neg':>4} {'tp':>4} {'fp':>4} {'fn':>4}   prec    rec     f1   floor")
+    # The shared capture (hooks/intent.capture_decision) is what both the
+    # prompt hook and the miner's preference path store through since
+    # 0.8.49. Scored with the scorer daemon when one is already up (never
+    # spawned from here), else regex-only, so the row says which it was.
+    from claude_engram.hooks.intent import capture_decision
+    from claude_engram.hooks.scorer_server import is_server_running
+
+    daemon = is_server_running()
+    capture_name = "shared capture" + (" (daemon)" if daemon else " (regex)")
+
+    def _capture(text: str) -> bool:
+        return bool(capture_decision(text, server_only=not daemon))
+
+    print(f"{'gate':26s} {'pos':>4} {'neg':>4} {'tp':>4} {'fp':>4} {'fn':>4}   prec    rec     f1   floor")
     for name, fn, pos, floor_p, floor_r in (
         # Floors sit a little under what the tuned gates score (2026-09-22:
-        # correction 0.97 / 0.80, decision 1.00 / 0.95), so a regression
-        # shows and a small corpus edit does not.
+        # correction 0.97 / 0.80, decision 1.00 / 0.95; 2026-09-23 shared
+        # capture on the corrections, regex-only 1.00 / 0.80), so a
+        # regression shows and a small corpus edit does not.
         ("correction gate", looks_like_correction, corr_pos, 0.85, 0.75),
         ("decision gate", looks_like_decision, dec_pos, 0.90, 0.90),
+        (capture_name, _capture, corr_pos, 0.90, 0.70),
     ):
         tp, fp, fn_, p, r, f = _prf(fn, pos, neg)
         good = p >= floor_p and r >= floor_r
         ok = ok and good
-        print(f"{name:22s} {len(pos):4d} {len(neg):4d} {tp:4d} {fp:4d} {fn_:4d}   {p:.2f}   {r:.2f}   {f:.2f}   p>={floor_p} r>={floor_r} {'PASS' if good else 'FAIL'}")
+        print(f"{name:26s} {len(pos):4d} {len(neg):4d} {tp:4d} {fp:4d} {fn_:4d}   {p:.2f}   {r:.2f}   {f:.2f}   p>={floor_p} r>={floor_r} {'PASS' if good else 'FAIL'}")
         if "--verbose" in sys.argv:
             for x in neg:
                 if fn(x):

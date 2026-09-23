@@ -2515,13 +2515,11 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
     """
     Auto-capture decisions from user prompts.
 
-    Two-tier scoring:
-    1. Semantic — if sentence-transformers is installed, uses cosine
-       similarity against pre-computed decision templates. Best accuracy.
-    2. Regex fallback — weighted keyword + sentence structure analysis. Fast, no deps.
-
-    If semantic scoring is available and confident, uses that result.
-    Otherwise falls back to regex. Only captures when score >= 0.45.
+    The judgement is hooks/intent.capture_decision, the same function the
+    session miner applies to a correction it finds in a transcript: the
+    semantic tier when a scorer is reachable, the regex tier over each
+    sentence, the capture threshold, then the shape gate. Only the prompt
+    pre-filter (length, a slash command, pasted markup) lives here.
     Does NOT log the full prompt (privacy).
     """
     prompt_lower = prompt.lower().strip()
@@ -2536,43 +2534,13 @@ def _auto_capture_from_prompt(project_dir: str, prompt: str):
     try:
         import hashlib
 
-        best_score = 0.0
-        best_text = ""
+        from claude_engram.hooks.intent import capture_decision
 
-        # Tier 1: Try semantic scoring (embedding model)
-        try:
-            from claude_engram.hooks.intent import score_decision_semantic
-
-            sem_score, sem_text = score_decision_semantic(prompt)
-            if sem_score > best_score:
-                best_score = sem_score
-                best_text = sem_text
-        except Exception:
-            pass  # sentence-transformers not installed or other error
-
-        # Tier 2: Regex fallback (always runs, may upgrade the score)
-        sentences = re.split(r"(?<=[.!])\s+|\n+", prompt)
-        sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
-        if len(sentences) <= 1:
-            sentences = [prompt.strip()]
-
-        for sentence in sentences:
-            regex_score, regex_text = _score_decision_intent(sentence)
-            if regex_score > best_score:
-                best_score = regex_score
-                best_text = regex_text
-
-        if best_score < 0.6 or not best_text or len(best_text) < 15:
-            return
-        # The shape gate shared with the miner: a question, a fragment, an
-        # acknowledgement or a count is never stored as a decision, whatever
-        # the scorer said (56 such captures in eight days, 2026-09-22).
-        from claude_engram.mining.decision_gate import looks_like_decision
-
-        if not looks_like_decision(best_text):
+        best_text = capture_decision(prompt)
+        if not best_text:
             return
 
-        content = f"DECISION: (from user) {_cut_words(best_text, 300)}"
+        content = f"DECISION: (from user) {best_text}"
         entry_id = hashlib.md5(content.encode()).hexdigest()[:12]
 
         new_words = set(best_text.lower().split())

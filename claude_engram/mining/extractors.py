@@ -1011,17 +1011,21 @@ def _feed_to_memory_store(
                     auto_embed=False,
                 )
 
-        # User corrections with the shape of one. The substring list this
-        # replaced matched "not" inside "note" and "use" inside "because",
-        # so every short reply after work qualified (2026-09-22).
-        from claude_engram.mining.decision_gate import looks_like_correction
+        # User corrections, judged by the function the prompt hook uses on a
+        # typed prompt (hooks/intent.capture_decision): one rule for a
+        # sentence wherever it was seen. Server-only for the scorer: this
+        # runs inside the MCP server, which must not load a second model.
+        # The substring list this replaced matched "not" inside "note" and
+        # "use" inside "because", so every short reply qualified (2026-09-22).
+        from claude_engram.hooks.intent import capture_decision
 
         for c in extractions.corrections:
-            if looks_like_correction(c.preference):
+            kept = capture_decision(c.preference, server_only=True)
+            if kept:
                 _fed_projects.add(project_path)
                 store.remember_discovery(
                     project_path,
-                    f"USER PREFERENCE: {c.preference[:200]}",
+                    f"USER PREFERENCE: {kept}",
                     category="decision",
                     source="session_mining",
                     relevance=7,

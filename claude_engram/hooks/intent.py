@@ -183,13 +183,69 @@ def _get_or_build_template_cache() -> Optional[dict]:
         return None
 
 
-def score_decision_semantic(text: str) -> tuple[float, str]:
+# The capture cutoff every path shares: the best of the semantic and the
+# regex tier has to reach this before the shape gate is consulted.
+CAPTURE_THRESHOLD = 0.6
+# Stored decisions keep the matched sentence to this many characters, cut
+# at a word.
+CAPTURE_MAX_CHARS = 300
+
+
+def capture_decision(text: str, server_only: bool = False) -> str:
+    """The one judgement behind every decision capture. The prompt hook
+    (a typed prompt, live) and the session miner (a correction found in a
+    transcript, bootstrap and live ticks) both call this, so a sentence is
+    stored or not by the same rule wherever it was seen. Before 0.8.49 the
+    two paths kept separate rules and drifted (2026-09-23: the miner's
+    preference path was the last leak, about half of its entries real).
+
+    Tiers, best score wins: the semantic scorer (the daemon, or an
+    in-process model unless ``server_only``), then the regex scorer over
+    each sentence. The winner has to reach CAPTURE_THRESHOLD and pass the
+    shape gate (mining/decision_gate.looks_like_decision). Returns the
+    sentence to store, cut at a word to CAPTURE_MAX_CHARS, or "" when
+    nothing qualifies. Never raises.
+    """
+    try:
+        prompt = (text or "").strip()
+        if len(prompt) < 15:
+            return ""
+        best_score, best_text = 0.0, ""
+        try:
+            best_score, best_text = score_decision_semantic(prompt, server_only=server_only)
+        except Exception:
+            best_score, best_text = 0.0, ""
+
+        # Lazy: remind imports this module.
+        from claude_engram.hooks.remind import _cut_words, _score_decision_intent
+        from claude_engram.mining.decision_gate import looks_like_decision
+
+        sentences = [s.strip() for s in re.split(r"(?<=[.!])\s+|\n+", prompt) if len(s.strip()) > 15]
+        if len(sentences) <= 1:
+            sentences = [prompt]
+        for sentence in sentences:
+            regex_score, regex_text = _score_decision_intent(sentence)
+            if regex_score > best_score:
+                best_score, best_text = regex_score, regex_text
+
+        if best_score < CAPTURE_THRESHOLD or not best_text or len(best_text) < 15:
+            return ""
+        if not looks_like_decision(best_text):
+            return ""
+        return _cut_words(best_text, CAPTURE_MAX_CHARS)
+    except Exception:
+        return ""
+
+
+def score_decision_semantic(text: str, server_only: bool = False) -> tuple[float, str]:
     """
     Score whether text expresses a decision using semantic similarity.
 
     Tries three paths in order:
     1. Persistent scorer server (~5ms) — if running
-    2. Direct model load (~500ms) — if sentence-transformers installed
+    2. Direct model load (~500ms) — if sentence-transformers installed,
+       skipped when ``server_only`` (a long-lived process such as the MCP
+       server must not park a second model beside the daemon's)
     3. Returns (0.0, "") — fallback to regex in caller
 
     Returns (score 0.0-1.0, extracted_text).
@@ -212,6 +268,9 @@ def score_decision_semantic(text: str) -> tuple[float, str]:
             return (score, extracted)  # Server is running, score is genuinely 0
     except Exception:
         pass
+
+    if server_only:
+        return (0.0, "")
 
     if _try_import_sentence_transformers() is None:
         return (0.0, "")

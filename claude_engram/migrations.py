@@ -462,9 +462,42 @@ def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
     both capture paths (mining/decision_gate.py); this applies it to what
     is already on disk. Manual entries (work_tracker, the memory tool) are
     never touched; archived entries stay restorable by id."""
-    import time as _time
-
     from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision
+
+    def _judge(content: str) -> bool:
+        is_pref = content.lstrip().upper().startswith("USER PREFERENCE")
+        return looks_like_correction(content) if is_pref else looks_like_decision(content)
+
+    _archive_machine_decisions(storage, manifest, _judge, "prune_junk_decisions",
+                               "machine-captured decisions without the shape of one")
+
+
+def _rejudge_preferences(storage: Path, manifest: dict) -> None:
+    """Re-judge every machine-captured USER PREFERENCE with the function the
+    two capture paths now share (hooks/intent.capture_decision, 0.8.49):
+    the scorer tiers, the capture threshold, then the shape gate. Until
+    0.8.49 the miner's preference path kept anything with a correction cue,
+    about half of it real (2026-09-23). Heavy: it embeds each entry, so it
+    runs in the background process, where an in-process model is fine when
+    no daemon answers. Archive, never delete; manual entries untouched."""
+    from claude_engram.hooks.intent import capture_decision
+    from claude_engram.mining.decision_gate import bare
+
+    def _judge(content: str) -> bool:
+        if not content.lstrip().upper().startswith("USER PREFERENCE"):
+            return True
+        return bool(capture_decision(bare(content)))
+
+    _archive_machine_decisions(storage, manifest, _judge, "rejudge_preferences",
+                               "machine-captured preferences the shared capture rejects")
+
+
+def _archive_machine_decisions(storage: Path, manifest: dict, judge, label: str, what: str) -> None:
+    """Move every machine-captured decision (session_mining, auto-prompt)
+    that ``judge(content)`` rejects from its project store to archive.json,
+    stamped archived_at and restorable by id. Manual entries (work_tracker,
+    the memory tool) are never touched. Idempotent."""
+    import time as _time
 
     machine = ("session_mining", "auto-prompt")
     archive_file = storage / "archive.json"
@@ -491,8 +524,10 @@ def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
                 keep.append(e)
                 continue
             content = str(e.get("content") or "")
-            is_pref = content.lstrip().upper().startswith("USER PREFERENCE")
-            ok = looks_like_correction(content) if is_pref else looks_like_decision(content)
+            try:
+                ok = bool(judge(content))
+            except Exception:
+                ok = True
             if ok:
                 keep.append(e)
             else:
@@ -511,13 +546,13 @@ def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
         tmp = mem_file.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
         tmp.replace(mem_file)
-        _log(f"{Path(norm).name}: archived {len(moved)} machine-captured decisions without the shape of one")
+        _log(f"{Path(norm).name}: archived {len(moved)} {what}")
 
     if archive_changed:
         tmp = archive_file.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(archive, indent=2), encoding="utf-8")
         tmp.replace(archive_file)
-    _log(f"prune_junk_decisions: {total_moved} archived")
+    _log(f"{label}: {total_moved} archived")
 
 
 STEPS = [
@@ -538,6 +573,8 @@ STEPS = [
     ("0.8.47:prune_junk_decisions_retuned", False, _prune_junk_decisions),
     # Re-run: confirmed entries need a proposal, machine text is never a decision.
     ("0.8.48:prune_junk_decisions_confirmed", False, _prune_junk_decisions),
+    # Heavy: every machine preference re-judged by the shared capture (scorer).
+    ("0.8.49:rejudge_preferences", True, _rejudge_preferences),
 ]
 
 

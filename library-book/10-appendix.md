@@ -272,7 +272,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
-### v0.8.48 (2026-09-23)
+### v0.8.49 (2026-09-23)
+
+Nine hours of the other session on 0.8.48, read from its transcript and its store: the hooks quiet and right (57 edits, one pre-edit reminder; ten green test runs, silent; two milestone nudges; no strikes), the store gaining 10 decisions, most of them real, 72 real mistakes, and 23 "USER PREFERENCE" entries of which about half were. That path, the miner's correction extractor, was the last capture with its own rule: a correction cue and the shape gate, while the prompt hook judged a typed sentence by the scorer tiers, a threshold and the same gate. Measured on the neutral corpus the two rules kept the same number of corrections (32 of 40) but not the same ones. A new user's store is bootstrapped by the miner from their history and then fed live by the hook, so the two have to agree.
+
+- **One capture function.** `hooks/intent.capture_decision(text, server_only=False)`: the semantic tier (the daemon, or an in-process model unless `server_only`), the regex tier over each sentence, the 0.6 capture threshold, the shape gate, the word-boundary cut. The prompt hook calls it on a typed prompt; the miner calls it (`server_only=True`, it runs inside the MCP server) on every correction it finds, and stores a "USER PREFERENCE" only for what comes back. Both paths keep firing; one rule decides.
+- **Corpus.** The shared function on the 40 corrections with the daemon up: precision 1.00, recall 0.80; the 100 not-decisions: none stored. `tests/bench_correction_gate.py` scores it as a third row (floors p ≥ 0.90, r ≥ 0.70) and says whether the daemon or the regex tier alone was measured.
+- **Migration `0.8.49:rejudge_preferences`** (heavy, background): every machine-captured "USER PREFERENCE" re-judged by the shared function, the rejects archived, restorable by id. The pruning helpers share one archive routine now.
 
 Three hours of the other session on 0.8.47, read from its transcript and its store. The hooks were quiet where they should be: 57 edits drew one pre-edit reminder (a real ImportError on the file being edited), four green test runs drew no line (the status now persists, so a green after a green is silent), two milestone nudges, no strikes, no rule hits, about 1,000 tokens of engram in 24 prompts. The miner was not: 45 decisions and 4 preferences stored in those hours, most of them "(confirmed)" entries, an assistant sentence the user said yes to, let through by the "X, not Y" contrast cue (ordinary prose is full of contrasts), and relayed teammate messages mined with their tag tail attached.
 
