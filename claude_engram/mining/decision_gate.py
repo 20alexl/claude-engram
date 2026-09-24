@@ -89,7 +89,7 @@ _CODE_START = re.compile(r"^\s*(?:[`\"'|#>$<-]|\w:[\\/]|/[a-z]|\.\.?/|https?://|
 # Markup or machine text anywhere: a tag, a JSON edge, an escaped quote.
 # A relayed message wrapped in tags is another program's text, and its
 # sentences were mined as decisions with the tag tail attached.
-_MACHINE = re.compile(r"</?[A-Za-z][\w-]*>|\"\s*}|{\s*\"|\\\"|\\n")
+_MACHINE = re.compile(r"</?[A-Za-z][\w-]*(?:\s[^<>]{0,160})?/?>|\"\s*}|{\s*\"|\\\"|\\n")
 # A request opener: asks for something rather than deciding it.
 _REQUEST = re.compile(
     r"^\s*(?:(?:can|could|would|will|may) (?:you|we|i)\b|please\b|give me|tell me|show me|let me know|"
@@ -138,7 +138,8 @@ _PRIVATE = re.compile(
 # A report: a table cell, a labelled count, "N passed", two commit hashes.
 _REPORT_SHAPE = re.compile(
     r"\s\|\s|^\s*\||\b(?:count|total|passed|failed|errors?|outcomes?|exit(?:ed)?)\s*[:=]\s*\d|"
-    r"\b\d+\s+(?:passed|failed|errors?)\b|\b[0-9a-f]{7,40}\b.*\b[0-9a-f]{7,40}\b",
+    r"\b\d+\s+(?:passed|failed|errors?)\b|\b[0-9a-f]{7,40}\b.*\b[0-9a-f]{7,40}\b|"
+    r"(?:^|\n)\s*\(?[0-9a-f]{7,40}\)?\s*:",  # a line led by a commit hash
     re.IGNORECASE,
 )
 
@@ -170,6 +171,14 @@ def why_not(text: str) -> str:
         return "too short"
     if _ACK.match(t):
         return "acknowledgement"
+    if "\n" in t:
+        # A decision is one sentence; the prompt hook passes sentences, the
+        # miner passes messages, and a message with a line break inside is
+        # a paste (a status block, a relayed report), 2026-09-24. A list
+        # under one lead ("use:\n- FastAPI\n- SQLAlchemy") is one choice.
+        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        if not all(re.match(r"(?:[-*•]|\d+[.)])\s", ln) for ln in lines[1:]):
+            return "a multi-line paste"
     if _CODE_START.match(t):
         return "starts like code or a path"
     if _MACHINE.search(t):

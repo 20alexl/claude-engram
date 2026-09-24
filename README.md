@@ -277,7 +277,7 @@ The hooks capture what happens inside a session. The miner reads the transcripts
 - `commitments`: what you said you would do this session and whether it is done, from the live transcript
 - `run_report`, `run_status`, `rotate(dry_run)`, `reindex(mode=post_session|bootstrap|full)`
 
-Claude Code files a transcript under the directory the session was started from. A session run from a workspace root indexes under the root, so the views for a sub-project (`overview`, `timeline`, `struggles`, `errors`, `search`, `reflect`) are the workspace's views, and the counts include every sibling project worked on from that root. Start the session inside a project when you want its history alone. Memory works the other way: each mined mistake and decision is filed under the registered project whose files it names.
+Claude Code files a transcript under the directory the session was started from. A session run from a workspace root indexes under the root, so the views for a sub-project (`overview`, `timeline`, `struggles`, `errors`, `search`, `reflect`) are the workspace's views, and the counts include every sibling project worked on from that root. Start the session inside a project when you want its history alone. Memory works the other way: each mined mistake and decision is filed under the registered project whose files it names, and one that names no file, or only files that cast no vote (relative traceback paths, files outside the root), goes where the session's own edits point.
 
 If search quality degrades or after a big update:
 

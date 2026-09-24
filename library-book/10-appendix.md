@@ -272,6 +272,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.54 (2026-09-24)
+
+Three sessions read side by side (trade-lab, V11, engram's own): every banner names its own project, the per-session state and mirrors are separate, one scorer serves all three, one live tick mines all three transcripts under one lock. Three things the read showed:
+
+- **A tag with attributes is machine text.** A relayed agent message was stored as a decision because the markup rule matched bare tags only.
+- **A hash-led line is a report; a line break inside is a paste.** The miner passes whole messages, and a status block led by a commit hash was stored as a decision. A decision is one sentence. Migration `0.8.54:prune_junk_decisions_pastes` re-runs the pruning.
+- **An entry whose files cast no vote follows the session's edits.** A sub-project worked from the workspace root has its tracebacks name files by relative path, which never votes, so every one of its mistakes pooled in the root store (the V11 store held none of its own). The router now falls back to the session's edits for such an entry, as it already did for one with no files.
+
 ### v0.8.53 (2026-09-24)
 
 The first live tick after 0.8.52 stored 347 entries under trade-lab in one minute, 280 of them content the workspace root store already held. The pipeline re-extracts a grown session whole and the store's dedupe is per project, so the moment a no-file entry's destination moved from the root to the sub-project, every old extraction was new to its new store.

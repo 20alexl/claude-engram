@@ -630,6 +630,8 @@ STEPS = [
     ("0.8.53:archive_refiled_duplicates", False, _archive_refiled_duplicates),
     # Re-run: an address or a secret is never a decision.
     ("0.8.53:prune_junk_decisions_private", False, _prune_junk_decisions),
+    # Re-run: a tag with attributes, a hash-led line, a line break inside.
+    ("0.8.54:prune_junk_decisions_pastes", False, _prune_junk_decisions),
 ]
 
 

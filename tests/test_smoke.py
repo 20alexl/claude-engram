@@ -1100,6 +1100,40 @@ def test_refiled_copies_are_archived_and_the_older_original_kept(tmp_path: Path)
     assert {e["id"] for e in archived} == {"s1", "s2"}
 
 
+def test_a_relayed_message_a_hash_led_line_and_a_paste_are_not_decisions():
+    from claude_engram.mining.decision_gate import looks_like_decision, why_not
+    assert why_not('relayed: <agent-message from="worker-2"> use the registry for every lookup') == "markup or machine text"
+    assert why_not('Another session sent a message:\n<agent-message from="worker-2">\nuse the registry') != ""
+    assert why_not("(box unreachable.)\n168d0b7d: gate tests moved to the report module") == "a multi-line paste"
+    assert why_not("168d0b7d: gate tests moved to the report module, always") != ""
+    assert not looks_like_decision("DECISION: let's use the registry\nfor every alias lookup")
+    assert looks_like_decision("DECISION: let's use the registry for every alias lookup")
+
+
+def test_an_entry_whose_files_cast_no_vote_follows_the_sessions_edits(tmp_path: Path, monkeypatch):
+    """A sub-project worked from the workspace root: its tracebacks name
+    files by relative path, which never votes, so every mistake pooled in
+    the root store (a V11 store with 0 mistakes of its own, 2026-09-24)."""
+    from claude_engram.hooks.paths import _normalize_path
+    from claude_engram.mining import extractors
+
+    monkeypatch.setenv("CLAUDE_ENGRAM_NON_PROJECT_DIRS", ".scratch")
+    store = tmp_path / "store"
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store))
+    ws, a, b = _workspace(tmp_path)
+    (store / "projects").mkdir(parents=True)
+    manifest = {"version": 3, "projects": {_normalize_path(str(p)): {"hash": h, "name": p.name} for p, h in ((ws, "hws"), (a, "haa"), (b, "hbb"))}}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    ex = extractors.SessionExtractions(
+        mistakes=[extractors.Mistake(description="KeyError: 'plant'", error_type="KeyError", related_files=["tools/restage.py"])],
+        session_files=[str(a / "src" / "x.py")],
+    )
+    extractors._feed_to_memory_store(str(ws), ex, str(store))
+    a_file = store / "projects" / "haa" / "memory.json"
+    assert a_file.exists() and any("KeyError: 'plant'" in e["content"] for e in json.loads(a_file.read_text(encoding="utf-8"))["entries"])
+    assert not (store / "projects" / "hws" / "memory.json").exists()
+
+
 def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     from claude_engram.hooks import context_pressure as cp
     state: dict = {}

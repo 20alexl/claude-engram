@@ -1030,6 +1030,15 @@ def _feed_to_memory_store(
             dst = target_project_for_files(
                 project_path, files or session_files, content, known_projects=known
             )
+            if files and dst == project_path and session_files:
+                # The entry's own files cast no vote (relative traceback
+                # paths, files outside the root): the session's edits
+                # decide, as for an entry with no files. Every mistake of
+                # a sub-project worked from the workspace root had pooled
+                # in the root store this way (2026-09-24).
+                dst = target_project_for_files(
+                    project_path, session_files, content, known_projects=known
+                )
             _fed_projects.add(dst)
             return dst
 
