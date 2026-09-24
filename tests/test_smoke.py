@@ -980,6 +980,23 @@ def test_a_yes_plus_a_one_off_instruction_is_not_a_decision():
     assert looks_like_decision("from now on every pull request needs a test")
 
 
+def test_a_hook_survives_a_working_directory_that_shadows_the_stdlib(tmp_path: Path):
+    """A session cd'd into a vendored package holding an email.py; every
+    hook ran `python -m claude_engram.hooks.remind` from there and died at
+    import because Python puts the cwd first on sys.path (2026-09-24)."""
+    import subprocess
+    import sys
+    cwd = tmp_path / "vendored"
+    cwd.mkdir()
+    (cwd / "email.py").write_text("from .presets import questions\n", encoding="utf-8")
+    env = dict(os.environ, CLAUDE_ENGRAM_DIR=str(tmp_path / "store"), CLAUDE_ENGRAM_NO_DAEMON="1", CLAUDE_ENGRAM_LIVE_MINE="0")
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    r = subprocess.run([sys.executable, "-m", "claude_engram.hooks.remind", "post_compact_json"],
+                       input='{"session_id": "s-shadow", "cwd": "%s"}' % str(cwd).replace("\\", "\\\\"),
+                       capture_output=True, text=True, cwd=str(cwd), env=env, timeout=120)
+    assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr[-800:]
+
+
 def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     from claude_engram.hooks import context_pressure as cp
     state: dict = {}

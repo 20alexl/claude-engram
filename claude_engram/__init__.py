@@ -10,7 +10,25 @@ The pieces:
 - Code index: import/symbol graph behind precheck and blast-radius warnings
 """
 
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+import os as _os
+import sys as _sys
+
+# Hook processes run as `python -m claude_engram.hooks...` from the
+# session's working directory, which Python puts FIRST on sys.path. A
+# session that had cd'd into a vendored package directory holding an
+# email.py had every hook die at import: that file shadowed the stdlib
+# `email` package that importlib.metadata loads (2026-09-24). Under -m,
+# drop the cwd entry before anything else is imported. This package's own
+# modules resolve through its __path__ and dependencies through
+# site-packages, so nothing of engram's needs the cwd. Python 3.11+ has
+# `-P` for the same thing; this covers 3.10 and every installed hook line.
+if _sys.argv[:1] == ["-m"] and _sys.path and not getattr(_sys.flags, "safe_path", False):
+    try:
+        _head = _sys.path[0]
+        if _head == "" or _os.path.normcase(_os.path.abspath(_head)) == _os.path.normcase(_os.getcwd()):
+            del _sys.path[0]
+    except Exception:
+        pass
 
 # Single source of truth for the running code's version. Must equal pyproject's
 # [project].version — tests/test_smoke.py::test_status_version_matches_pyproject
@@ -23,7 +41,7 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 # v0.8.20 from a 0.8.36 checkout for sixteen releases because of exactly that.
 # The literal ships with the code, so it is right for a wheel install too; the
 # metadata is only consulted when this constant is somehow unreadable.
-__version__ = "0.8.50"
+__version__ = "0.8.51"
 
 
 def _installed_version() -> str:
@@ -33,8 +51,11 @@ def _installed_version() -> str:
     (an editable checkout moved on), not that the code is a different version.
     """
     try:
+        # Lazy: importlib.metadata pulls in the stdlib email package, and
+        # the package import must stay free of anything a stray file in
+        # the working directory could shadow.
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
         return _pkg_version("claude-engram")
-    except PackageNotFoundError:  # raw checkout, not pip-installed
-        return ""
-    except Exception:
+    except Exception:  # PackageNotFoundError on a raw checkout, or anything else
         return ""

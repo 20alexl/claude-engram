@@ -272,6 +272,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.51 (2026-09-24)
+
+- **A hook survives a working directory that shadows the stdlib.** A session had cd'd into a vendored package directory holding an `email.py`; every hook ran `python -m claude_engram.hooks.remind` from there, and since Python puts the working directory first on `sys.path`, that file shadowed the stdlib `email` package that `importlib.metadata` imports, so each hook died at import with a traceback in the terminal (32 hook calls in one session). The package now drops the working-directory entry from `sys.path` when it is the target of `-m` (nothing of engram's needs it: its modules resolve through the package path, dependencies through site-packages), and the version lookup imports `importlib.metadata` lazily. A smoke test reproduces the crash from such a directory.
+
 ### v0.8.50 (2026-09-23)
 
 The open list after 0.8.49, worked through. Two defects, one measurement gap closed on the corpus.
