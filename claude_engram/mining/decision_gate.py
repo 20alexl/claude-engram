@@ -117,6 +117,13 @@ _ACK_THEN = re.compile(
     r"^(?:" + _ACK_WORDS + r"\b[\s,.!;:-]*)+(?:(?:with|on)\b|(?:and\s+|then\s+|just\s+)?\w+\s+(?:it|them|this|that|these|those)\b)",
     re.IGNORECASE,
 )
+# A status assessment: "should be" with an evaluative word is a reading of
+# the state ("should be good now"), not a rule; "should be logged" is one.
+_ASSESSMENT = re.compile(
+    r"\b(?:should|ought to|must|will) be (?:all )?(?:good|fine|ok(?:ay)?|ready|done|enough|working|fixed|clean|green|"
+    r"safe|set|sorted|right|correct|stable|solid|better|faster)\b",
+    re.IGNORECASE,
+)
 # A report: a table cell, a labelled count, "N passed", two commit hashes.
 _REPORT_SHAPE = re.compile(
     r"\s\|\s|^\s*\||\b(?:count|total|passed|failed|errors?|outcomes?|exit(?:ed)?)\s*[:=]\s*\d|"
@@ -160,6 +167,8 @@ def why_not(text: str) -> str:
         return "a request"
     if _ONE_OFF.search(t) or _ACK_THEN.match(t):
         return "a one-off instruction"
+    if _ASSESSMENT.search(t):
+        return "a status assessment"
     if _REPORT_SHAPE.search(t):
         return "count, table or commit report"
     if _alpha_ratio(t) < 0.75:
@@ -184,6 +193,10 @@ def looks_like_decision(text: str) -> bool:
 
 def looks_like_correction(text: str) -> bool:
     """A correction or preference: the shape above, plus a redirecting word,
-    and not a hedge ("not sure if we need it yet" redirects nothing)."""
+    and not a hedge ("not sure if we need it yet" redirects nothing). Four
+    words at least: a three-word preference is a fragment more often than a
+    rule (2026-09-24)."""
     t = bare(text)
+    if len(t.split()) < 4:
+        return False
     return not why_not(text) and bool(_CORRECTION_CUE.search(t)) and not _HEDGE.search(t)

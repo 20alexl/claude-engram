@@ -77,6 +77,9 @@ class SessionExtractions:
     mistakes: list[Mistake] = field(default_factory=list)
     approaches: list[Approach] = field(default_factory=list)
     corrections: list[Correction] = field(default_factory=list)
+    # Every file the session edited, in order: the vote that names the
+    # project an entry with no files of its own belongs to.
+    session_files: list[str] = field(default_factory=list)
     summary: str = ""
     extracted_at: float = 0.0
 
@@ -243,6 +246,12 @@ def extract_all(messages: list[dict]) -> SessionExtractions:
 
     # Pre-classify messages into a conversation flow
     flow = _build_conversation_flow(messages)
+    seen_files: set[str] = set()
+    for fm in flow:
+        for f in fm.file_edits:
+            if f and f not in seen_files:
+                seen_files.add(f)
+                extractions.session_files.append(f)
 
     # 1. Extract mistakes from error→fix sequences
     extractions.mistakes = _extract_mistakes_structural(flow)
@@ -972,12 +981,21 @@ def _feed_to_memory_store(
         # store the walk happened to land in.
         known = list((store._manifest.get("projects", {}) or {}).keys())
 
+        # An entry that names no file (a decision, a preference) is filed
+        # where the SESSION's edits point, the same answer the prompt hook
+        # gives through session_project: a workspace-root session had the
+        # hook file a sentence under trade-lab and the miner file the same
+        # sentence under the root (2026-09-24).
+        session_files = list(extractions.session_files or [])
+
         def _target(files: list, content: str) -> str:
             dst = target_project_for_files(
-                project_path, files, content, known_projects=known
+                project_path, files or session_files, content, known_projects=known
             )
             _fed_projects.add(dst)
             return dst
+
+        home = _target([], "")
 
         # High-confidence decisions
         for d in extractions.decisions:
@@ -1022,9 +1040,8 @@ def _feed_to_memory_store(
         for c in extractions.corrections:
             kept = capture_decision(c.preference, server_only=True)
             if kept:
-                _fed_projects.add(project_path)
                 store.remember_discovery(
-                    project_path,
+                    home,
                     f"USER PREFERENCE: {kept}",
                     category="decision",
                     source="session_mining",

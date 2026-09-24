@@ -997,6 +997,46 @@ def test_a_hook_survives_a_working_directory_that_shadows_the_stdlib(tmp_path: P
     assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr[-800:]
 
 
+def test_the_miner_files_a_no_file_entry_where_the_sessions_edits_point(tmp_path: Path, monkeypatch):
+    """A workspace-root session: the prompt hook filed a sentence under the
+    sub-project the session was about, the miner filed the same sentence
+    under the root, because a decision names no file (2026-09-24)."""
+    from claude_engram.hooks.paths import _normalize_path
+    from claude_engram.mining import extractors
+
+    monkeypatch.setenv("CLAUDE_ENGRAM_NON_PROJECT_DIRS", ".scratch")
+    store = tmp_path / "store"
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store))
+    ws, a, b = _workspace(tmp_path)
+    (store / "projects").mkdir(parents=True)
+    manifest = {"version": 3, "projects": {_normalize_path(str(p)): {"hash": h, "name": p.name} for p, h in ((ws, "hws"), (a, "haa"), (b, "hbb"))}}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(extractors, "capture_decision", lambda text, server_only=False: text, raising=False)
+    ex = extractors.SessionExtractions(
+        decisions=[extractors.Decision(content="use the registry for every alias lookup", confidence=0.9)],
+        corrections=[extractors.Correction(user_said="x", preference="never resolve aliases outside the registry")],
+        session_files=[str(a / "src" / "x.py"), str(a / "src" / "y.py"), str(b / "src" / "z.py")],
+    )
+    extractors._feed_to_memory_store(str(ws), ex, str(store))
+    where = {}
+    for h in ("hws", "haa", "hbb"):
+        f = store / "projects" / h / "memory.json"
+        if f.exists():
+            where[h] = [e["content"] for e in json.loads(f.read_text(encoding="utf-8")).get("entries", [])]
+    assert "hws" not in where or not where["hws"], where
+    assert any("registry for every alias" in c for c in where.get("haa", [])), where
+    assert any("USER PREFERENCE: never resolve aliases" in c for c in where.get("haa", [])), where
+
+
+def test_an_assessment_and_a_three_word_fragment_are_not_stored():
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision, why_not
+    assert why_not("should be good for the browser now") == "a status assessment"
+    assert not looks_like_decision("DECISION: should be fine after the restart")
+    assert looks_like_decision("DECISION: errors should be logged with the request id")
+    assert not looks_like_correction("USER PREFERENCE: no, keep those.")
+    assert looks_like_correction("USER PREFERENCE: no, keep those helper lines.")
+
+
 def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     from claude_engram.hooks import context_pressure as cp
     state: dict = {}
