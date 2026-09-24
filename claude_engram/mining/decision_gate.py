@@ -124,6 +124,17 @@ _ASSESSMENT = re.compile(
     r"safe|set|sorted|right|correct|stable|solid|better|faster)\b",
     re.IGNORECASE,
 )
+# An address or a secret: an email, a key/token/password with a value, or
+# a bare token (16+ letters and digits with no separator, at least three
+# of each). A decision that carries one was stored from a prompt that
+# pasted an account line (2026-09-24); nothing like that belongs in a
+# store that is re-injected into later sessions.
+_PRIVATE = re.compile(
+    r"[\w.+-]+@[\w-]+\.[A-Za-z]{2,}|"
+    r"\b(?:api[_ -]?key|secret|token|password|passwd|bearer)\b\s*[:=]\s*\S{8,}|"
+    r"\b(?=[A-Za-z0-9]{16,}\b)(?=(?:[A-Za-z]*\d){3})(?=(?:\d*[A-Za-z]){3})[A-Za-z0-9]{16,}\b",
+    re.IGNORECASE,
+)
 # A report: a table cell, a labelled count, "N passed", two commit hashes.
 _REPORT_SHAPE = re.compile(
     r"\s\|\s|^\s*\||\b(?:count|total|passed|failed|errors?|outcomes?|exit(?:ed)?)\s*[:=]\s*\d|"
@@ -169,6 +180,8 @@ def why_not(text: str) -> str:
         return "a one-off instruction"
     if _ASSESSMENT.search(t):
         return "a status assessment"
+    if _PRIVATE.search(t):
+        return "carries an address or a secret"
     if _REPORT_SHAPE.search(t):
         return "count, table or commit report"
     if _alpha_ratio(t) < 0.75:

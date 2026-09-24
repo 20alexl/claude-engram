@@ -492,13 +492,64 @@ def _rejudge_preferences(storage: Path, manifest: dict) -> None:
                                "machine-captured preferences the shared capture rejects")
 
 
-def _archive_machine_decisions(storage: Path, manifest: dict, judge, label: str, what: str) -> None:
-    """Move every machine-captured decision (session_mining, auto-prompt)
-    that ``judge(content)`` rejects from its project store to archive.json,
-    stamped archived_at and restorable by id. Manual entries (work_tracker,
-    the memory tool) are never touched. Idempotent."""
+def _archive_refiled_duplicates(storage: Path, manifest: dict) -> None:
+    """Archive the copies a re-mine wrote into a sub-project store of
+    entries an ANCESTOR store already held. 0.8.52 routed a no-file entry
+    to the project the session's edits name; the next live tick then
+    re-extracted a grown transcript whole and stored 347 entries under the
+    sub-project, 280 of them content the workspace root already had (the
+    dedupe is per store). The pipeline now feeds only the extractions a
+    re-mine adds; this archives the copies it wrote before that. The
+    older original stays where it is."""
+    norms = sorted(manifest.get("projects", {}).keys(), key=len)
+    held: dict[str, dict[str, float]] = {}
+    archive_file = storage / "archive.json"
+    archived: dict[str, set[str]] = {}
+    try:
+        arc = json.loads(archive_file.read_text(encoding="utf-8")) if archive_file.exists() else {}
+        for norm, bucket in (arc.get("projects") or {}).items():
+            archived[norm] = {str(e.get("content")) for e in bucket.get("entries", [])}
+    except Exception:
+        pass
+    for norm in norms:
+        mem_file = storage / "projects" / str(manifest["projects"][norm].get("hash", "")) / "memory.json"
+        try:
+            entries = json.loads(mem_file.read_text(encoding="utf-8")).get("entries", []) if mem_file.exists() else []
+        except Exception:
+            entries = []
+        held[norm] = {str(e.get("content")): float(e.get("created_at") or 0) for e in entries}
+
+    def _judge(content: str, entry: dict, norm: str) -> bool:
+        mine = float(entry.get("created_at") or 0)
+        for anc in norms:
+            if anc == norm or not norm.startswith(anc.rstrip("/") + "/"):
+                continue
+            earlier = held.get(anc, {}).get(content)
+            if earlier is not None and earlier < mine:
+                return False
+            if content in archived.get(anc, set()):
+                return False
+        return True
+
+    _archive_machine_decisions(storage, manifest, _judge, "archive_refiled_duplicates",
+                               "re-mined copies of entries an ancestor store already held",
+                               categories=("decision", "mistake"))
+
+
+def _archive_machine_decisions(storage: Path, manifest: dict, judge, label: str, what: str,
+                               categories: tuple = ("decision",)) -> None:
+    """Move every machine-captured entry (session_mining, auto-prompt) of
+    the given categories that ``judge(content, entry, norm)`` rejects from
+    its project store to archive.json, stamped archived_at and restorable
+    by id (a judge of one argument gets the content alone). Manual entries
+    (work_tracker, the memory tool) are never touched. Idempotent."""
+    import inspect
     import time as _time
 
+    try:
+        wide = len(inspect.signature(judge).parameters) >= 3
+    except (TypeError, ValueError):
+        wide = False
     machine = ("session_mining", "auto-prompt")
     archive_file = storage / "archive.json"
     try:
@@ -520,12 +571,12 @@ def _archive_machine_decisions(storage: Path, manifest: dict, judge, label: str,
         keep, moved = [], []
         now = _time.time()
         for e in data.get("entries", []):
-            if e.get("category") != "decision" or (e.get("source") or "") not in machine or e.get("archived_at"):
+            if e.get("category") not in categories or (e.get("source") or "") not in machine or e.get("archived_at"):
                 keep.append(e)
                 continue
             content = str(e.get("content") or "")
             try:
-                ok = bool(judge(content))
+                ok = bool(judge(content, e, norm) if wide else judge(content))
             except Exception:
                 ok = True
             if ok:
@@ -575,6 +626,10 @@ STEPS = [
     ("0.8.48:prune_junk_decisions_confirmed", False, _prune_junk_decisions),
     # Heavy: every machine preference re-judged by the shared capture (scorer).
     ("0.8.49:rejudge_preferences", True, _rejudge_preferences),
+    # The copies a re-mine wrote into sub-project stores after the 0.8.52 routing.
+    ("0.8.53:archive_refiled_duplicates", False, _archive_refiled_duplicates),
+    # Re-run: an address or a secret is never a decision.
+    ("0.8.53:prune_junk_decisions_private", False, _prune_junk_decisions),
 ]
 
 

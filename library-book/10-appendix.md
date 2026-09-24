@@ -272,6 +272,14 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.53 (2026-09-24)
+
+The first live tick after 0.8.52 stored 347 entries under trade-lab in one minute, 280 of them content the workspace root store already held. The pipeline re-extracts a grown session whole and the store's dedupe is per project, so the moment a no-file entry's destination moved from the root to the sub-project, every old extraction was new to its new store.
+
+- **A re-mine feeds only what it added.** The session's previous extraction file is the watermark: an extraction already in it (same kind, text and message timestamp) is not fed again. The first mine of a session still feeds everything.
+- **Migration `0.8.53:archive_refiled_duplicates`** archives the copies written into a sub-project store of entries an ancestor store already held earlier (hot or archived); the older original stays. Decisions and mistakes both.
+- **An address or a secret is never a decision.** An email, a key/token/password with a value, or a bare token of sixteen or more letters and digits is rejected by the gate, and migration `0.8.53:prune_junk_decisions_private` re-runs the pruning: one stored decision carried an account line with a key fragment.
+
 ### v0.8.52 (2026-09-24)
 
 Nineteen hours of the other session on 0.8.50, read from its transcript and its store: one compaction, the banner after it carrying the rhythm, the checkpoint and the rules, no PostCompact error; one milestone nudge on a real close, one rule hit recorded, no test lines, no edit reminders, no strikes, twenty deliberate checkpoints. The store gained nine entries, most of them real. Two things it showed:

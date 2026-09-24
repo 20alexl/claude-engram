@@ -853,10 +853,12 @@ def run_extraction_pipeline(
 
     for session_id, session_meta in index.sessions.items():
         extraction_file = extractions_dir / f"{session_id}.json"
+        previous = None
 
         if extraction_file.exists():
             try:
                 existing = json.loads(extraction_file.read_text(encoding="utf-8"))
+                previous = existing
                 had_scorer = existing.get("scorer_available", False)
                 has_content = any(
                     existing.get(k)
@@ -941,10 +943,46 @@ def run_extraction_pipeline(
 
         total_extractions += count
 
-        if count > 0:
-            _feed_to_memory_store(project_path, extractions, engram_storage_dir)
+        # Feed only what this pass ADDED. A grown session is re-extracted
+        # whole, and the store's dedupe is per project: when 0.8.52 moved
+        # the destination of a no-file entry to the sub-project the
+        # session's edits name, one live tick re-stored 347 entries there
+        # that the root store already held (2026-09-24).
+        fresh = _fresh_extractions(extractions, previous)
+        if fresh.decisions or fresh.mistakes or fresh.approaches or fresh.corrections:
+            _feed_to_memory_store(project_path, fresh, engram_storage_dir)
 
     return total_extractions
+
+
+def _extraction_key(kind: str, item) -> tuple:
+    get = item.get if isinstance(item, dict) else (lambda k, d="": getattr(item, k, d))
+    text = {"decisions": "content", "mistakes": "description", "approaches": "tried", "corrections": "preference"}[kind]
+    return (kind, str(get(text, "") or ""), str(get("timestamp", "") or ""))
+
+
+def _fresh_extractions(extractions: SessionExtractions, previous: Optional[dict]) -> SessionExtractions:
+    """The extractions not present in the session's previous extraction
+    file (matched by kind, text and message timestamp). With no previous
+    file everything is fresh: the first mine of a session feeds it all."""
+    if not previous:
+        return extractions
+    seen: set[tuple] = set()
+    for kind in ("decisions", "mistakes", "approaches", "corrections"):
+        for item in previous.get(kind) or []:
+            if isinstance(item, dict):
+                seen.add(_extraction_key(kind, item))
+    fresh = SessionExtractions(
+        session_id=extractions.session_id,
+        session_files=list(extractions.session_files),
+        summary=extractions.summary,
+        extracted_at=extractions.extracted_at,
+    )
+    fresh.decisions = [d for d in extractions.decisions if _extraction_key("decisions", d) not in seen]
+    fresh.mistakes = [m for m in extractions.mistakes if _extraction_key("mistakes", m) not in seen]
+    fresh.approaches = [a for a in extractions.approaches if _extraction_key("approaches", a) not in seen]
+    fresh.corrections = [c for c in extractions.corrections if _extraction_key("corrections", c) not in seen]
+    return fresh
 
 
 def projects_fed_last_run() -> list[str]:

@@ -1037,6 +1037,69 @@ def test_an_assessment_and_a_three_word_fragment_are_not_stored():
     assert looks_like_correction("USER PREFERENCE: no, keep those helper lines.")
 
 
+def test_a_re_mine_feeds_only_what_it_added():
+    """A grown session is re-extracted whole; the store dedupes per
+    project, so a changed destination re-stored 347 old entries under a
+    sub-project in one tick (2026-09-24)."""
+    from claude_engram.mining import extractors as ex
+    old = ex.SessionExtractions(
+        decisions=[ex.Decision(content="use the registry", timestamp="t1", confidence=0.9)],
+        mistakes=[ex.Mistake(description="KeyError: x", timestamp="t1", error_type="KeyError")],
+    )
+    now = ex.SessionExtractions(
+        decisions=[ex.Decision(content="use the registry", timestamp="t1", confidence=0.9),
+                   ex.Decision(content="drop the cache layer", timestamp="t2", confidence=0.9)],
+        mistakes=[ex.Mistake(description="KeyError: x", timestamp="t1", error_type="KeyError"),
+                  ex.Mistake(description="KeyError: x", timestamp="t3", error_type="KeyError")],
+        corrections=[ex.Correction(user_said="no", preference="never cache aliases", timestamp="t2")],
+        session_files=["a.py"],
+    )
+    from dataclasses import asdict
+    fresh = ex._fresh_extractions(now, asdict(old))
+    assert [d.content for d in fresh.decisions] == ["drop the cache layer"]
+    assert [m.timestamp for m in fresh.mistakes] == ["t3"]
+    assert [c.preference for c in fresh.corrections] == ["never cache aliases"]
+    assert fresh.session_files == ["a.py"]
+    assert ex._fresh_extractions(now, None) is now
+
+
+def test_an_address_or_a_secret_is_never_a_decision():
+    from claude_engram.mining.decision_gate import looks_like_decision, why_not
+    assert why_not("let's use the paid plan, account someone@example.com") == "carries an address or a secret"
+    assert why_not("switch to the new key: api_key=sk4Q9x7Lm2Pq8Rt0Vw") == "carries an address or a secret"
+    assert why_not("always use the vendor token d0p9alpr01qr8ds2ac3q for the feed") == "carries an address or a secret"
+    assert looks_like_decision("always use bench_decision_capture_v2 as the arbiter for the gate")
+    assert looks_like_decision("from now on pin torch to 2.4.1 in requirements.txt")
+
+
+def test_refiled_copies_are_archived_and_the_older_original_kept(tmp_path: Path):
+    from claude_engram import migrations
+    store = tmp_path / "store"
+    for h in ("hroot", "hsub"):
+        (store / "projects" / h).mkdir(parents=True)
+    root_entries = [
+        {"id": "r1", "category": "decision", "source": "session_mining", "content": "DECISION: use the registry for every alias", "created_at": 100.0},
+        {"id": "r2", "category": "mistake", "source": "session_mining", "content": "MISTAKE: KeyError: x", "created_at": 100.0},
+    ]
+    sub_entries = [
+        {"id": "s1", "category": "decision", "source": "session_mining", "content": "DECISION: use the registry for every alias", "created_at": 200.0},
+        {"id": "s2", "category": "mistake", "source": "session_mining", "content": "MISTAKE: KeyError: x", "created_at": 200.0},
+        {"id": "s3", "category": "decision", "source": "session_mining", "content": "DECISION: drop the cache layer for feeds", "created_at": 200.0},
+        {"id": "s4", "category": "decision", "source": "work_tracker", "content": "DECISION: use the registry for every alias", "created_at": 200.0},
+    ]
+    (store / "projects" / "hroot" / "memory.json").write_text(json.dumps({"entries": root_entries}), encoding="utf-8")
+    (store / "projects" / "hsub" / "memory.json").write_text(json.dumps({"entries": sub_entries}), encoding="utf-8")
+    manifest = {"projects": {"e:/w": {"hash": "hroot"}, "e:/w/sub": {"hash": "hsub"}}}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    migrations._archive_refiled_duplicates(store, manifest)
+    left = {e["id"] for e in json.loads((store / "projects" / "hsub" / "memory.json").read_text(encoding="utf-8"))["entries"]}
+    assert left == {"s3", "s4"}
+    root_left = {e["id"] for e in json.loads((store / "projects" / "hroot" / "memory.json").read_text(encoding="utf-8"))["entries"]}
+    assert root_left == {"r1", "r2"}
+    archived = json.loads((store / "archive.json").read_text(encoding="utf-8"))["projects"]["e:/w/sub"]["entries"]
+    assert {e["id"] for e in archived} == {"s1", "s2"}
+
+
 def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     from claude_engram.hooks import context_pressure as cp
     state: dict = {}
