@@ -43,7 +43,7 @@ pip install -e ".[semantic]"
 python -m claude_engram.hooks.scorer_server  # Should say "Scorer server listening..."
 ```
 
-**Lesson:** Semantic scoring is optional. The regex fallback captures most clear decisions. Check `~/.claude_engram/scorer_port` to see if the server is running.
+**Lesson:** Semantic scoring is optional. The regex fallback captures most clear decisions. `claude_engram_status` lists the daemon (role, pid, memory); `~/.claude_engram/scorer.lock` is held while one is alive.
 
 ---
 
@@ -274,6 +274,18 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 **Fix:** `_resolve_project_with_inheritance` returns the project that actually holds the index and its store dir, and the expansion reads that index and that project's transcript folder. Both `decisions` and `replay` also read the repository itself now: `git_pickaxe` runs `git log -S` with the most specific needle first (an identifier near a number, then the number, the identifiers, the longest words), scoped to the files a query token names, and each hit carries the added lines around the needle from that commit's diff, since the reason for a constant is usually a comment above it, not the commit message. `replay` appends `git_file_history` (`git log --follow`). Neither needs the embeddings index at all, so a query that used to crash now answers from git alone if the transcript store is missing.
 
 **Lesson:** The transcript is not the only record of why. When mining answers nothing, ask git the same question.
+
+### Gotcha: many engram processes in Task Manager, the machine out of memory
+
+**Symptom:** Task Manager shows a pile of `python.exe` running `claude_engram.hooks.scorer_server` and `claude_engram.mining.background`, several GB each; Windows logs low-memory events; the box needs a reboot (2026-09-25, on 0.8.54: three sessions plus a workflow of parallel agents).
+
+**Cause:** Two locks that were not locks. The daemon's "one instance" check was a pid file plus a 0.5 s connect; a stalled daemon absorbs only 8 pending connections, so a burst of hooks made the 9th read it as dead, delete its files and spawn a second one. The first idled 30 minutes at ~3 GB, and its exit deleted the second's files, so the next hook spawned a third: every idle exit orphaned the live daemon. Hooks that found no port file loaded the model themselves, ~3 GB of commit each. The miner's lock was check-then-write: four miners started together all acquired it, each ~3.6 GB for seven minutes.
+
+**Fix:** v0.8.55. Both are OS process locks the kernel releases at exit (`hooks/proc_lock.py`); a daemon's exit removes only its own files; no hook loads a model; a post-session run right after another runs as a live tick. `claude_engram_status` lists every engram process and warns at a second scorer or miner.
+
+**Lesson:** A pid file answers "did a process write here", not "is one alive"; a connect answers "did it accept this instant", not "is it dead". Only a lock the kernel drops on exit answers the question the spawner is asking.
+
+---
 
 ## Common mistakes
 

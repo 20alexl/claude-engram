@@ -114,6 +114,19 @@ class Handlers:
         if device:
             embed_line += f" on {device}"
 
+        # Every engram process on the machine, by role and size: a second
+        # scorer daemon or a stacked miner is a warning here, not a Task
+        # Manager discovery after the memory is gone (2026-09-25).
+        from .procs import census, census_lines
+
+        proc_rows = census()
+        proc_lines = census_lines(proc_rows)
+        if any(line.lstrip().startswith("WARNING") for line in proc_lines):
+            suggestions.append(
+                "More than one scorer daemon or miner is alive; the extras exit on "
+                "their idle timeout, or terminate them by pid"
+            )
+
         if health["healthy"]:
             ollama_line = f"Ollama (optional): '{self.llm.model}'"
         else:
@@ -157,11 +170,13 @@ class Handlers:
                     f"Memory tracking {stats['projects_tracked']} projects",
                 ]
                 + queue_info
+                + proc_lines
             ),
             data={
                 "version": __version__,
                 "embed_model": embed_signature(),
                 "embed_device": device or "unknown",
+                "processes": proc_rows,
                 "ollama_model": self.llm.model,
                 "ollama_healthy": bool(health["healthy"]),
                 "memory_stats": stats,

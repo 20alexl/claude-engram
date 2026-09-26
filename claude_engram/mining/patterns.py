@@ -184,25 +184,28 @@ def detect_struggles(
     if not error_by_name:
         return []  # no attributable errors anywhere -> no struggles to report
 
-    # If project_root given, check file existence (skip archived/deleted code)
+    # If project_root given, skip archived/deleted code. Decided per candidate
+    # with one stat each: walking the project tree to build a name set cost
+    # the post-session miner 2.5 minutes and 3.1 GB on a workspace root (every
+    # venv and node_modules under it), for ~100 candidates (2026-09-25).
     _archive_dirs = {"archive", "old", "backup", "deprecated", "legacy", ".archive"}
-    existing_files: "set[str] | None" = None
-    if project_root:
-        root = Path(project_root)
-        if root.exists():
-            existing_files = set()
-            for p in root.rglob("*"):
-                if any(part.lower() in _archive_dirs for part in p.parts):
-                    continue
-                if p.is_file():
-                    existing_files.add(p.name)
+    check_exists = bool(project_root) and Path(project_root).exists()
+
+    def _still_live(fpath: str) -> bool:
+        p = Path(fpath)
+        if any(part.lower() in _archive_dirs for part in p.parts):
+            return False
+        try:
+            return p.is_file()
+        except OSError:
+            return False
 
     struggles = []
     for fpath, sids in file_sessions.items():
         if len(sids) < 2:
             continue
         name = Path(fpath).name
-        if existing_files is not None and name not in existing_files:
+        if check_exists and not _still_live(fpath):
             continue
 
         # Only sessions where this file was edited AND an extracted mistake

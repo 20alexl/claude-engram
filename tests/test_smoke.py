@@ -1143,3 +1143,181 @@ def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     cp.pressure_state(state)["compacted_at"] -= 600
     cp.note_compaction(state)
     assert cp.pressure_state(state)["cycle"] == 2
+
+
+# ── 0.8.55: the 2026-09-25 memory exhaustion (a reboot) ──────────────────────
+# Windows named three engram pythons of ~3 GB each, alive 20-33 minutes at a
+# constant size; the user saw many more. Reproduced on temp stores: one failed
+# 0.5 s connect made is_server_running() delete a live daemon's files, the
+# next hook spawned a second daemon, the first idled 30 minutes and its exit
+# deleted the second's files, and so on; four miners started together all
+# acquired the check-then-write lock.
+
+
+def _reloaded_scorer(monkeypatch, store: Path):
+    import importlib
+    from claude_engram.hooks import scorer_server
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store))
+    store.mkdir(parents=True, exist_ok=True)
+    return importlib.reload(scorer_server)
+
+
+@pytest.fixture
+def _restore_scorer_module():
+    yield
+    import importlib
+    from claude_engram.hooks import scorer_server
+    os.environ.pop("CLAUDE_ENGRAM_DIR", None)
+    importlib.reload(scorer_server)
+
+
+def test_a_second_holder_of_a_process_lock_is_refused(tmp_path: Path):
+    from claude_engram.hooks import proc_lock
+    first = proc_lock.acquire(tmp_path / "x.lock")
+    assert first is not None
+    assert proc_lock.acquire(tmp_path / "x.lock") is None
+    assert proc_lock.held(tmp_path / "x.lock")
+    first.release()
+    assert not proc_lock.held(tmp_path / "x.lock")
+    assert proc_lock.acquire(tmp_path / "x.lock") is not None
+
+
+def test_a_live_daemon_is_never_unregistered_by_a_failed_connect(tmp_path: Path, monkeypatch, _restore_scorer_module):
+    """The daemon holds a process lock for its lifetime. While it is held,
+    a connect that fails (a stall, a full backlog) is not a dead daemon:
+    the files stay and no second daemon is spawned."""
+    from claude_engram.hooks import proc_lock
+    from claude_engram.embed_config import embed_signature
+    ss = _reloaded_scorer(monkeypatch, tmp_path / "store")
+    daemon = proc_lock.acquire(ss.LOCK_FILE)
+    ss.PORT_FILE.write_text("1")  # nobody listens on port 1
+    ss.PID_FILE.write_text(str(os.getpid()))
+    ss.MODEL_FILE.write_text(embed_signature())
+    assert ss.is_server_running() is True
+    assert ss.PORT_FILE.exists() and ss.PID_FILE.exists()
+    daemon.release()
+    assert ss.is_server_running() is False  # no holder: the files were stale
+    assert not ss.PORT_FILE.exists() and not ss.PID_FILE.exists()
+
+
+def test_a_daemons_exit_leaves_another_daemons_files_alone(tmp_path: Path, monkeypatch, _restore_scorer_module):
+    ss = _reloaded_scorer(monkeypatch, tmp_path / "store")
+    ss.PORT_FILE.write_text("5000")
+    ss.PID_FILE.write_text(str(os.getpid() + 1))
+    ss._cleanup()
+    assert ss.PORT_FILE.exists(), "another pid owns the files"
+    ss.PID_FILE.write_text(str(os.getpid()))
+    ss._cleanup()
+    assert not ss.PORT_FILE.exists() and not ss.PID_FILE.exists()
+
+
+def test_a_hook_never_loads_the_model_in_process(tmp_path: Path, monkeypatch, _restore_scorer_module):
+    from claude_engram import embed_config
+    from claude_engram.hooks import intent
+    _reloaded_scorer(monkeypatch, tmp_path / "store")  # no daemon, no port file
+    loaded = []
+    monkeypatch.setattr(embed_config, "load_sentence_transformer", lambda *a, **k: loaded.append(1))
+    monkeypatch.setattr(intent, "_try_import_sentence_transformers", lambda: object())
+    monkeypatch.setattr(intent, "_get_or_build_template_cache", lambda: {"decision_embeddings": [[1.0]], "non_decision_embeddings": [[0.0]]})
+    monkeypatch.setattr("claude_engram.hooks.scorer_server.score_via_server", lambda text: (0.0, ""))
+    assert intent.score_decision_semantic("let's use postgres instead of sqlite for the main store") == (0.0, "")
+    assert loaded == []
+
+
+def test_only_one_of_several_miners_started_together_gets_the_lock(tmp_path: Path, monkeypatch):
+    import subprocess, sys, time
+    store = tmp_path / "store"
+    store.mkdir()
+    child = (
+        "import os, sys, time\n"
+        "from pathlib import Path\n"
+        "from claude_engram.mining import background as bg\n"
+        "if hasattr(bg, 'LOCK_FILE'):\n"  # the pre-0.8.55 constant pointed at the real store
+        "    bg.LOCK_FILE = Path(os.environ['CLAUDE_ENGRAM_DIR']) / 'mining.lock'\n"
+        "go = Path(os.environ['CLAUDE_ENGRAM_DIR']) / 'go'\n"
+        "while not go.exists():\n"
+        "    time.sleep(0.001)\n"
+        "print('ACQUIRED' if bg._acquire_lock() else 'blocked')\n"
+        "time.sleep(1)\n"
+    )
+    env = dict(os.environ, CLAUDE_ENGRAM_DIR=str(store), PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+    procs = [subprocess.Popen([sys.executable, "-c", child], env=env, stdout=subprocess.PIPE, text=True) for _ in range(4)]
+    time.sleep(1.5)
+    (store / "go").write_text("1")
+    outs = [p.communicate(timeout=60)[0].strip() for p in procs]
+    assert outs.count("ACQUIRED") == 1, outs
+
+
+def test_a_post_session_run_right_after_another_becomes_a_live_tick(tmp_path: Path, monkeypatch):
+    import time
+    from claude_engram.mining import background as bg
+    store = tmp_path / "store"
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store))
+    store.mkdir()
+    spawned = []
+    monkeypatch.setattr(bg.subprocess, "Popen", lambda cmd, **kw: spawned.append(cmd))
+    (store / "mining_status.json").write_text(json.dumps({"status": "completed", "mode": "post_session", "completed": time.time() - 10}), encoding="utf-8")
+    assert bg.start_mining_background("e:/w", mode="post_session", engram_storage_dir=str(store))
+    assert spawned[-1][spawned[-1].index("--mode") + 1] == "live"
+    (store / "mining_status.json").write_text(json.dumps({"status": "completed", "mode": "post_session", "completed": time.time() - 7200}), encoding="utf-8")
+    bg.start_mining_background("e:/w", mode="post_session", engram_storage_dir=str(store))
+    assert spawned[-1][spawned[-1].index("--mode") + 1] == "post_session"
+
+
+def test_struggle_detection_stats_its_candidates_instead_of_walking_the_tree(tmp_path: Path, monkeypatch):
+    """The post-session miner spent 2.5 minutes and 3.1 GB in the patterns
+    phase: detect_struggles walked the whole workspace (every venv and
+    node_modules) to learn whether ~100 candidate files still exist."""
+    from claude_engram.mining import patterns
+    root = tmp_path / "ws"
+    (root / "src").mkdir(parents=True)
+    kept = root / "src" / "kept.py"
+    kept.write_text("x = 1\n", encoding="utf-8")
+    gone = root / "src" / "gone.py"
+    sessions = {
+        "s1": {"files_edited": [str(kept), str(gone)]},
+        "s2": {"files_edited": [str(kept), str(gone)]},
+        "s3": {"files_edited": [str(kept), str(gone)]},
+    }
+    monkeypatch.setattr(patterns, "_error_sessions_by_file", lambda *_a: {"kept.py": {"s1", "s2"}, "gone.py": {"s1", "s2"}})
+
+    def _no_walk(self, *_a, **_k):
+        raise AssertionError("detect_struggles must not walk the project tree")
+
+    monkeypatch.setattr(patterns.Path, "rglob", _no_walk)
+    out = patterns.detect_struggles(sessions, project_root=str(root), engram_storage_dir=str(tmp_path))
+    assert [s.file_path for s in out] == [str(kept)]
+
+
+def test_the_phase_meter_reports_the_peak_inside_a_phase_not_its_end():
+    from claude_engram.mining.background import PhaseMeter
+    meter = PhaseMeter(interval=0.02)
+    meter.start("grow")
+    import time
+    ballast = bytearray(200_000_000)
+    time.sleep(0.2)
+    del ballast
+    time.sleep(0.1)
+    meter.start("after")
+    peaks = meter.stop()
+    assert peaks["grow"] >= 150, peaks
+    assert peaks["after"] < peaks["grow"] - 100
+
+
+def test_the_process_census_names_engram_processes_by_role():
+    import subprocess, sys, time
+    import psutil
+    from claude_engram import procs
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)", "claude_engram.mining.background"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(1.0)
+        # the venv's python.exe is a launcher stub; the census reports its child
+        pids = {child.pid} | {c.pid for c in psutil.Process(child.pid).children(recursive=True)}
+        rows = procs.census()
+        mine = [r for r in rows if r["pid"] in pids]
+        assert mine and mine[0]["role"] == "miner" and mine[0]["rss_mb"] >= 0
+    finally:
+        for p in psutil.Process(child.pid).children(recursive=True):
+            p.kill()
+        child.kill()

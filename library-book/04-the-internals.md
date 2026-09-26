@@ -72,6 +72,7 @@ Storage: ~/.claude_engram/
     ├── conventions.json     ← Project coding rules
     ├── injection_outcomes.json ← Pre-edit injection vs test-outcome correlation log
     ├── live_mine_last       ← Debounce marker for live mining ticks
+    ├── scorer.lock          ← Process lock held by the one live scorer daemon
     ├── scorer_port          ← TCP port for scorer server
     ├── scorer_pid           ← PID of scorer server
     └── scorer_device        ← Device the loaded encoder runs on (cuda/cpu)
@@ -246,7 +247,8 @@ Storage: ~/.claude_engram/
 - Lifecycle events (session start/end, stop, compaction) never route through the daemon
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
 - Auto-exits after 30 min idle (configurable via `CLAUDE_ENGRAM_SCORER_TIMEOUT`)
-- Thread-per-connection for concurrent requests
+- One instance, decided by a process lock (`hooks/proc_lock.py`, `scorer.lock`; the kernel releases it at exit): a spawn that finds it held exits, `is_server_running()` reads the lock and never deletes a live daemon's files on a failed connect, and a daemon's exit removes only files that name its own pid (v0.8.55, after a chain of orphaned daemons exhausted the machine's memory)
+- Thread-per-connection for concurrent requests; accept backlog 64
 
 ### Handlers (`handlers.py`)
 
@@ -305,7 +307,7 @@ Storage: ~/.claude_engram/
 **Why it matters:** Phases 3 and 4 previously ran only on bootstrap, leaving `patterns.json` and session embeddings stale between sessions. Moving them to every `post_session` keeps the recurring-errors banner and `hybrid_search` current without manual intervention.
 
 **Key internals:**
-- Single global lock (`~/.claude_engram/mining.lock`): one miner process at a time
+- Single global lock (`~/.claude_engram/mining.lock`, a process lock held for the miner's lifetime; `mining.pid` names the holder): one miner process at a time. A post-session run within 600 s of the last completed one runs as a live tick. `mining_status.json` carries `rss_by_phase`, the sampled peak of each phase (`PhaseMeter`)
 - Status written atomically to `mining_status.json` per phase
 - Each phase wrapped in its own try/except, so a failure in one phase does not abort subsequent phases
 

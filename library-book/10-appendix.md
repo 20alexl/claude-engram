@@ -256,8 +256,10 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ├── hook_state.json          # Legacy/global fallback hook counters (superseded by sessions/)
 ├── loop_detector.json       # Abandoned in v0.8.0 (loop state moved to sessions/<sid>.json; old file is harmless if present)
 ├── scope_guard.json         # Declared scope state
+├── scorer.lock              # Process lock held by the live scorer daemon (v0.8.55)
 ├── scorer_port              # TCP port for scorer server (auto-managed)
 ├── scorer_pid               # PID of scorer server (auto-managed)
+├── mining.lock              # Process lock held by the running miner; mining.pid names it
 ├── embeddings/
 │   └── decision_templates.json  # Cached template embeddings
 ├── checkpoints/
@@ -271,6 +273,16 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 ```
 
 ## Changelog
+
+### v0.8.55 (2026-09-25)
+
+The machine ran out of memory under three sessions and a workflow of parallel agents and had to be rebooted. Windows named three engram pythons of ~3 GB each, alive 20 to 33 minutes at a constant size; Task Manager showed many more. Reproduced on temp stores:
+
+- **The daemon's one-instance check orphaned daemons.** It was a pid file plus a 0.5 s connect. A stalled daemon absorbs 8 pending connections (`listen(8)`), so the ninth hook read it as dead, deleted its files and spawned a second daemon; the first idled 30 minutes at ~3 GB, and its exit deleted the second's files, so the next hook spawned a third. Now: an OS process lock (`hooks/proc_lock.py`, `scorer.lock`, released by the kernel at exit) is the only evidence of a live daemon; a spawn that finds it held exits; `is_server_running()` never deletes on a failed connect; a daemon's exit removes only the files that name its own pid; backlog 64; one spawn attempt per 30 s.
+- **No hook loads the model.** With no port file for 10 s, the prompt hook loaded the model in its own process (~3 GB commit) on every prompt of every session. The regex tier is the fallback now.
+- **The miner lock was check-then-write.** Four miners started together all acquired it; each post-session run is ~3.1 GB resident, ~3.6 GB committed, for seven minutes, and one launched at every session end, compaction and live tick of every session. Now the same process lock, and a post-session run within 600 s of the last completed one runs as a live tick. `mining_status.json` records the sampled peak resident memory of each phase (`PhaseMeter`).
+- **The miner's 3 GB was one tree walk.** The first measured run put the whole of it in the patterns phase: `detect_struggles` walked the project root with `rglob` to learn whether its ~100 candidate files still exist, and on a workspace root that walk covers every venv and node_modules underneath (2.5 minutes, 3.1 GB, freed before the phase ended, so an end-of-phase reading showed 300 MB). It stats the candidates now: the same run measures 637 MB at its peak (the embedding phase) and finishes in under half a minute.
+- **A process census in `claude_engram_status`** (`procs.py`): every engram process by role, pid, memory and age, with a warning at a second scorer or miner.
 
 ### v0.8.54 (2026-09-24)
 
@@ -313,7 +325,7 @@ The open list after 0.8.49, worked through. Two defects, one measurement gap clo
 
 Nine hours of the other session on 0.8.48, read from its transcript and its store: the hooks quiet and right (57 edits, one pre-edit reminder; ten green test runs, silent; two milestone nudges; no strikes), the store gaining 10 decisions, most of them real, 72 real mistakes, and 23 "USER PREFERENCE" entries of which about half were. That path, the miner's correction extractor, was the last capture with its own rule: a correction cue and the shape gate, while the prompt hook judged a typed sentence by the scorer tiers, a threshold and the same gate. Measured on the neutral corpus the two rules kept the same number of corrections (32 of 40) but not the same ones. A new user's store is bootstrapped by the miner from their history and then fed live by the hook, so the two have to agree.
 
-- **One capture function.** `hooks/intent.capture_decision(text, server_only=False)`: the semantic tier (the daemon, or an in-process model unless `server_only`), the regex tier over each sentence, the 0.6 capture threshold, the shape gate, the word-boundary cut. The prompt hook calls it on a typed prompt; the miner calls it (`server_only=True`, it runs inside the MCP server) on every correction it finds, and stores a "USER PREFERENCE" only for what comes back. Both paths keep firing; one rule decides.
+- **One capture function.** `hooks/intent.capture_decision(text, server_only=False)`: the semantic tier (the daemon; since v0.8.55 no process loads a model for a prompt), the regex tier over each sentence, the 0.6 capture threshold, the shape gate, the word-boundary cut. The prompt hook calls it on a typed prompt; the miner calls it (`server_only=True`, it runs inside the MCP server) on every correction it finds, and stores a "USER PREFERENCE" only for what comes back. Both paths keep firing; one rule decides.
 - **Corpus.** The shared function on the 40 corrections with the daemon up: precision 1.00, recall 0.80; the 100 not-decisions: none stored. `tests/bench_correction_gate.py` scores it as a third row (floors p ≥ 0.90, r ≥ 0.70) and says whether the daemon or the regex tier alone was measured.
 - **Migration `0.8.49:rejudge_preferences`** (heavy, background): every machine-captured "USER PREFERENCE" re-judged by the shared function, the rejects archived, restorable by id. The pruning helpers share one archive routine now.
 

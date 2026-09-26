@@ -129,7 +129,8 @@ def _nudge_daemon() -> None:
     fallback has produced its output, so the only cost is this spawn.
 
     A 30s-TTL marker keeps a burst of falling-back hooks from spawning a
-    pile of servers (each would load the model; last one wins PORT_FILE)."""
+    pile of interpreters; the daemon's own process lock (hooks/proc_lock)
+    is what guarantees that at most one of them stays."""
     if os.environ.get("CLAUDE_ENGRAM_NO_DAEMON", "").strip():
         return  # benches / temporary stores: never spawn from here
     marker = os.path.join(_storage_dir(), "scorer_starting")

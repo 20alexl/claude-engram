@@ -58,6 +58,16 @@ PORT_FILE = _storage_root() / "scorer_port"
 PID_FILE = _storage_root() / "scorer_pid"
 MODEL_FILE = _storage_root() / "scorer_model"
 DEVICE_FILE = _storage_root() / "scorer_device"
+# Held by the daemon for its lifetime (hooks/proc_lock). The kernel releases
+# it when the process exits, so "held" means a live daemon and nothing else
+# is consulted: a connect that fails (a stall, a full backlog) used to be read
+# as a dead daemon, its files deleted, a second daemon spawned, and the first
+# left idling 30 minutes at ~3 GB -- each exit then deleting the successor's
+# files (2026-09-25, the machine ran out of commit charge).
+LOCK_FILE = _storage_root() / "scorer.lock"
+# How many hooks may wait in the accept queue during a stall before a connect
+# fails. 8 filled in under a second with three sessions and a workflow.
+LISTEN_BACKLOG = 64
 
 
 def _load_model_and_templates():
@@ -341,12 +351,14 @@ def serve():
     until it finishes)."""
     sig = embed_signature()
 
-    # Single-instance check: two sessions racing to spawn used to leave an
-    # orphan daemon (last PORT_FILE writer wins, the loser idles 30 min
-    # holding a loaded model). If a live server with our exact signature
-    # already owns PORT_FILE, this process has nothing to add.
-    if _another_server_alive():
-        print("Matching scorer already running - exiting.", file=sys.stderr)
+    # Single instance: the process lock, not the port file. Whoever holds it
+    # is the daemon; a spawn that finds it held has nothing to add, whatever
+    # the files say and whether or not the holder answers a connect right now.
+    from claude_engram.hooks import proc_lock
+
+    lock = proc_lock.acquire(LOCK_FILE)
+    if lock is None:
+        print("Another scorer holds the lock - exiting.", file=sys.stderr)
         return
 
     # Bind to any available port on localhost
@@ -354,7 +366,7 @@ def serve():
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind(("127.0.0.1", 0))
     port = server_sock.getsockname()[1]
-    server_sock.listen(8)
+    server_sock.listen(LISTEN_BACKLOG)
 
     # Write port, PID, and model signature so hooks can find and validate us
     PORT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -430,6 +442,7 @@ def serve():
     finally:
         server_sock.close()
         _cleanup()
+        lock.release()
 
 
 CODE_CHECK_SECS = 10.0
@@ -452,7 +465,20 @@ def _code_stamp() -> float:
 
 
 def _cleanup():
-    """Remove port/pid/model/device files on shutdown."""
+    """Remove this daemon's port/pid/model/device files on shutdown. Files
+    that name another pid belong to a daemon that took over; an exit that
+    deleted them left that daemon unreachable and the next hook spawned a
+    third."""
+    try:
+        owner = int(PID_FILE.read_text().strip())
+    except (OSError, ValueError):
+        owner = os.getpid()
+    if owner != os.getpid():
+        return
+    _remove_files()
+
+
+def _remove_files():
     for f in (PORT_FILE, PID_FILE, MODEL_FILE, DEVICE_FILE):
         try:
             f.unlink(missing_ok=True)
@@ -460,16 +486,11 @@ def _cleanup():
             pass
 
 
-def _another_server_alive() -> bool:
-    """A live, connectable server with our exact signature owns PORT_FILE."""
-    try:
-        if not (PORT_FILE.exists() and _server_model_matches()):
-            return False
-        port = int(PORT_FILE.read_text().strip())
-        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-            return True
-    except Exception:
-        return False
+def _daemon_alive() -> bool:
+    """Is a daemon process alive? The process lock is the only evidence."""
+    from claude_engram.hooks import proc_lock
+
+    return proc_lock.held(LOCK_FILE)
 
 
 def _server_model_matches() -> bool:
@@ -498,26 +519,19 @@ def _stop_running_server():
         time.sleep(0.2)
     except Exception:
         pass
-    _cleanup()
+    _remove_files()
 
 
 def is_server_running() -> bool:
-    """Check if the scorer server is running WITH the configured model.
-    A reachable server loaded with a different model is replaced — using it
-    would mix vector spaces."""
-    if not PORT_FILE.exists() or not PID_FILE.exists():
-        return False
-    try:
-        pid = int(PID_FILE.read_text().strip())
-        port = int(PORT_FILE.read_text().strip())
-        # Try to connect
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        sock.connect(("127.0.0.1", port))
-        sock.close()
-    except Exception:
-        # Stale files — clean up
-        _cleanup()
+    """Is a scorer daemon alive WITH the configured model? Decided by the
+    process lock: a live daemon that does not answer a connect this instant
+    (binding, stalled, a full backlog) is still the daemon, and its files
+    stay. Files with no holder behind them are stale and removed. A daemon
+    loaded with a different model is replaced -- using it would mix vector
+    spaces."""
+    if not _daemon_alive():
+        if PORT_FILE.exists() or PID_FILE.exists():
+            _remove_files()
         return False
     if not _server_model_matches():
         _stop_running_server()
@@ -545,6 +559,19 @@ def start_server_background():
 
     import subprocess
     import platform
+
+    # One spawn per 30 s: a burst of hooks that all found no daemon would
+    # each start one; the extras exit on the lock, but every one of them is
+    # an interpreter start on a machine that is already short of breath. The
+    # daemon clears the marker when it binds (same marker as hook_client).
+    marker = _storage_root() / "scorer_starting"
+    try:
+        if marker.exists() and time.time() - marker.stat().st_mtime < 30:
+            return False
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(time.time()))
+    except OSError:
+        pass
 
     try:
         kwargs: dict[str, Any] = {
@@ -605,16 +632,14 @@ _auto_start_attempted = False
 def _ensure_server() -> bool:
     """Auto-start scorer server if not running. Returns True if server is available."""
     global _auto_start_attempted
-    if PORT_FILE.exists():
-        if _server_model_matches():
-            _auto_start_attempted = False
-            return True
-        # Config changed under a running server: replace it.
-        _stop_running_server()
+    if is_server_running():  # a live holder; replaces a model mismatch itself
+        _auto_start_attempted = False
+        return True
     if _auto_start_attempted:
         return False
     _auto_start_attempted = True
-    start_server_background()
+    if not start_server_background():
+        return False  # another process spawned one within the last 30 s
     for _ in range(20):
         if PORT_FILE.exists():
             return True

@@ -83,7 +83,7 @@ The best of the two has to reach 0.6 (`CAPTURE_THRESHOLD` in `hooks/intent.py`),
 pip install -e ".[semantic]"
 ```
 
-The scorer server auto-starts on `SessionStart` and auto-exits after 30 min idle.
+The scorer server auto-starts on `SessionStart` and auto-exits after 30 min idle. One runs per store, held by a process lock; `claude_engram_status` lists every engram process by role and size and warns when a second scorer or miner is alive.
 
 ### What gets captured
 

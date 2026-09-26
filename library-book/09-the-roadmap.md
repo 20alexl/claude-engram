@@ -296,7 +296,7 @@
 |---------|-------|
 | GPU policy split: cpu-resident, GPU-transient | Supersedes the v0.8.2 resident-GPU default, which parked weights + a CUDA context (~1GB VRAM) on the card for the daemon's whole lifetime, and live-mining ticks keep that daemon warm all day, so it read as a VRAM leak. Now: the resident daemon and every in-process fallback stay on cpu (zero VRAM parked); bulk jobs (>= `CLAUDE_ENGRAM_GPU_BULK_MIN`, default 512 texts) run in a transient worker (`embed_worker.py`) that loads on cuda, encodes once, and exits; process exit is the only way to fully release a CUDA context. `CLAUDE_ENGRAM_DEVICE` forces one device everywhere. Verified cuda/cpu vectors identical (cos 1.000000), so device switching never rebuilds stores. |
 | In-process fallback model cached | `score_decision_semantic`'s daemon-down fallback loaded a fresh SentenceTransformer per call, uncached, so any long-lived process hitting it re-paid ~500ms + ~1GB per prompt (and briefly, on v0.8.2, did so on the GPU). Now cached once per process, on cpu. |
-| Single-instance daemon startup | Two sessions racing to spawn the scorer left an orphan (last PORT_FILE writer wins; the loser idled 30 min holding a loaded model). `serve()` now exits immediately when a live server with the same embedding signature already owns PORT_FILE. |
+| Single-instance daemon startup | Two sessions racing to spawn the scorer left an orphan (last PORT_FILE writer wins; the loser idled 30 min holding a loaded model). `serve()` now exits immediately when a live server with the same embedding signature already owns PORT_FILE. Superseded in v0.8.55 by a process lock: the connect-based check itself orphaned daemons under load. |
 
 ## Done / Shipped (v0.8.2)
 

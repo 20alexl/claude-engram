@@ -18,75 +18,141 @@ import time
 from pathlib import Path
 
 
-LOCK_FILE = Path("~/.claude_engram/mining.lock").expanduser()
-STATUS_FILE = Path("~/.claude_engram/mining_status.json").expanduser()
+def _storage() -> Path:
+    """The store the lock and status live in (honors CLAUDE_ENGRAM_DIR, so a
+    bench never touches the real miner's lock)."""
+    from claude_engram.hooks.paths import get_engram_storage_dir
+
+    return get_engram_storage_dir()
 
 
-def _is_pid_alive(pid: int) -> bool:
-    """Check if a process with given PID is still running."""
-    try:
-        if platform.system() == "Windows":
-            import ctypes
+def _lock_file() -> Path:
+    return _storage() / "mining.lock"
 
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
-            if handle:
-                kernel32.CloseHandle(handle)
-                return True
-            return False
-        else:
-            os.kill(pid, 0)
-            return True
-    except (OSError, PermissionError):
-        return False
+
+def _status_file() -> Path:
+    return _storage() / "mining_status.json"
+
+
+# A post-session run that completes within this many seconds of the last one
+# is downgraded to a live tick: three sessions plus a workflow ended, compacted
+# and resumed within minutes and each launched the full 3 GB, 7-minute run.
+POST_SESSION_GAP_SECS = 600
+
+_HELD = None  # this process's miner lock, while it runs
 
 
 def is_mining_running() -> bool:
-    """Check if a mining process is currently running."""
-    if not LOCK_FILE.exists():
-        return False
-    try:
-        pid = int(LOCK_FILE.read_text().strip())
-        if _is_pid_alive(pid):
-            return True
-        # Stale lock
-        LOCK_FILE.unlink(missing_ok=True)
-        return False
-    except (ValueError, OSError):
-        LOCK_FILE.unlink(missing_ok=True)
-        return False
+    """Is a miner alive? The process lock (hooks/proc_lock) says: the kernel
+    releases it when the holder exits, so a stale lock cannot exist and a
+    check-then-write race cannot admit two (four started together all won
+    the old pid-file lock, measured 2026-09-25)."""
+    from claude_engram.hooks import proc_lock
+
+    return proc_lock.held(_lock_file())
 
 
 def get_mining_status() -> dict:
     """Get current mining status."""
-    if not STATUS_FILE.exists():
+    status_file = _status_file()
+    if not status_file.exists():
         return {"status": "idle"}
     try:
-        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+        return json.loads(status_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"status": "unknown"}
 
 
 def _write_status(status: dict):
     """Write mining status atomically."""
-    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATUS_FILE.with_suffix(".json.tmp")
+    status_file = _status_file()
+    status_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = status_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(status), encoding="utf-8")
-    tmp.replace(STATUS_FILE)
+    tmp.replace(status_file)
 
 
 def _acquire_lock() -> bool:
-    """Try to acquire the mining lock. Returns True if acquired."""
-    if is_mining_running():
+    """Take the miner lock for this process's lifetime. False = held elsewhere."""
+    global _HELD
+    from claude_engram.hooks import proc_lock
+
+    lock = proc_lock.acquire(_lock_file())
+    if lock is None:
         return False
-    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LOCK_FILE.write_text(str(os.getpid()))
+    _HELD = lock
+    try:
+        # Informational: the pid behind the lock, for a census or a human.
+        (_lock_file().parent / "mining.pid").write_text(str(os.getpid()))
+    except OSError:
+        pass
     return True
 
 
 def _release_lock():
-    """Release the mining lock."""
-    LOCK_FILE.unlink(missing_ok=True)
+    """Release this process's miner lock (a no-op for a non-holder)."""
+    global _HELD
+    if _HELD is not None:
+        _HELD.release()
+        _HELD = None
+
+
+def _rss_mb() -> int:
+    try:
+        import psutil
+
+        return int(psutil.Process().memory_info().rss / 1e6)
+    except Exception:
+        return -1
+
+
+class PhaseMeter:
+    """Peak resident memory per phase, sampled by a background thread. A
+    reading at the end of a phase misses what the phase held and freed:
+    the patterns phase ended at 300 MB after climbing to 3.1 GB."""
+
+    def __init__(self, interval: float = 0.5):
+        import threading
+
+        self._interval = interval
+        self._phase = ""
+        self._peaks: dict[str, int] = {}
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._started = False
+
+    def start(self, phase: str) -> None:
+        self._sample()
+        self._phase = phase
+        self._sample()
+        if not self._started:
+            self._started = True
+            self._thread.start()
+
+    def _sample(self) -> None:
+        if self._phase:
+            rss = _rss_mb()
+            if rss > self._peaks.get(self._phase, -1):
+                self._peaks[self._phase] = rss
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            self._sample()
+
+    def stop(self) -> dict[str, int]:
+        self._sample()
+        self._stop.set()
+        if self._started:
+            self._thread.join(timeout=2)
+        return dict(self._peaks)
+
+
+def _recent_full_run(status: dict, now: float) -> bool:
+    return (
+        status.get("status") == "completed"
+        and status.get("mode") in ("post_session", "bootstrap", "full")
+        and now - float(status.get("completed") or 0) < POST_SESSION_GAP_SECS
+    )
 
 
 def start_mining_background(
@@ -115,6 +181,8 @@ def start_mining_background(
     """
     if is_mining_running():
         return False
+    if mode == "post_session" and _recent_full_run(get_mining_status(), time.time()):
+        mode = "live"  # the full run just happened; index the tail only
 
     try:
         kwargs: dict[str, Any] = {
@@ -263,10 +331,15 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
     # patterns/cleanup/code-index for the run (the old blocks caught only
     # ImportError, so any other exception did exactly that).
     phase_errors: dict[str, str] = {}
+    # Peak resident memory per phase: the miner reached 3.1 GB resident /
+    # 3.6 GB committed on 2026-09-25 and nothing said where.
+    meter = PhaseMeter()
+    meter.start(current_phase)
 
     def _phase_status(phase: str, **extra):
         nonlocal current_phase
         current_phase = phase
+        meter.start(phase)
         _write_status(
             {
                 "status": "running",
@@ -274,6 +347,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 "mode": mode,
                 "started": started,
                 "phase": phase,
+                "rss_by_phase": meter._peaks,
                 **extra,
             }
         )
@@ -467,6 +541,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                 "messages": messages_count,
                 "extractions": extraction_count,
             },
+            "rss_by_phase": meter.stop(),
             "completed": time.time(),
         }
         try:
@@ -486,6 +561,7 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
             "mode": mode,
             "phase": current_phase,
             "error": str(e),
+            "rss_by_phase": meter.stop(),
             "completed": time.time(),
         }
         if phase_errors:

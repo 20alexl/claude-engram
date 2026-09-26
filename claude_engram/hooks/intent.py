@@ -110,12 +110,6 @@ DECISION_THRESHOLD = 0.45
 AMBIGUITY_MARGIN = 0.025
 
 
-# Cached in-process fallback model (used only when the scorer daemon is
-# down). Loaded at most once per process, on resolve_device() — cpu unless
-# CLAUDE_ENGRAM_DEVICE says otherwise.
-_FALLBACK_MODEL = None
-
-
 def _try_import_sentence_transformers():
     """Try to import sentence-transformers. Returns None if not installed."""
     try:
@@ -241,12 +235,10 @@ def score_decision_semantic(text: str, server_only: bool = False) -> tuple[float
     """
     Score whether text expresses a decision using semantic similarity.
 
-    Tries three paths in order:
-    1. Persistent scorer server (~5ms) — if running
-    2. Direct model load (~500ms) — if sentence-transformers installed,
-       skipped when ``server_only`` (a long-lived process such as the MCP
-       server must not park a second model beside the daemon's)
-    3. Returns (0.0, "") — fallback to regex in caller
+    One path: the persistent scorer daemon (~5ms). When no daemon answers,
+    (0.0, "") -- the caller's regex tier scores. No process loads the model
+    for a prompt any more; ``server_only`` is kept for the callers that
+    pass it.
 
     Returns (score 0.0-1.0, extracted_text).
     """
@@ -269,73 +261,12 @@ def score_decision_semantic(text: str, server_only: bool = False) -> tuple[float
     except Exception:
         pass
 
-    if server_only:
-        return (0.0, "")
-
-    if _try_import_sentence_transformers() is None:
-        return (0.0, "")
-
-    cache = _get_or_build_template_cache()
-    if cache is None:
-        return (0.0, "")
-
-    try:
-        import numpy as np
-
-        from claude_engram.embed_config import load_sentence_transformer
-
-        # One in-process load per process lifetime (cpu by default via
-        # resolve_device): an uncached per-call load made any long-lived
-        # process that hit this fallback re-pay ~500ms+1GB per prompt.
-        global _FALLBACK_MODEL
-        if _FALLBACK_MODEL is None:
-            _FALLBACK_MODEL = load_sentence_transformer()
-        model = _FALLBACK_MODEL
-
-        # Split into sentences and score each
-        sentences = re.split(r"(?<=[.!])\s+|\n+", text)
-        sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
-        if not sentences:
-            sentences = [text.strip()]
-
-        decision_embs = np.array(cache["decision_embeddings"])
-        non_decision_embs = np.array(cache["non_decision_embeddings"])
-
-        best_score = 0.0
-        best_text = ""
-
-        for sentence in sentences[:5]:  # Limit to first 5 sentences
-            prompt_emb = model.encode([sentence], normalize_embeddings=True)
-
-            # Cosine similarity with decision templates (already normalized, so dot product)
-            decision_sims = np.dot(decision_embs, prompt_emb.T).flatten()
-            best_decision_sim = float(np.max(decision_sims))
-
-            # Cosine similarity with non-decision templates
-            non_decision_sims = np.dot(non_decision_embs, prompt_emb.T).flatten()
-            best_non_decision_sim = float(np.max(non_decision_sims))
-
-            # Score: high decision similarity AND low non-decision similarity
-            if best_decision_sim >= DECISION_THRESHOLD:
-                # Check ambiguity — if non-decision templates are close, it's unclear
-                if best_decision_sim - best_non_decision_sim < AMBIGUITY_MARGIN:
-                    continue  # Too ambiguous
-
-                # Scale to 0-1 range (0.55 threshold maps to ~0.5 output)
-                score = min((best_decision_sim - 0.3) / 0.5, 1.0)
-
-                if score > best_score:
-                    best_score = score
-                    # Word-boundary cut: mid-identifier truncation made
-                    # stored decisions unreadable when resurfaced later.
-                    best_text = sentence[:300].rsplit(" ", 1)[0] if len(
-                        sentence
-                    ) > 300 else sentence
-
-        return (best_score, best_text)
-
-    except Exception:
-        return (0.0, "")
+    # No daemon answered: the regex tier scores. A hook process never loads
+    # the model itself -- that load is ~1.4 GB resident and ~3 GB of commit
+    # charge per hook, and it fired on every prompt of every session while
+    # no daemon was bound (2026-09-25, under a chain of orphaned daemons).
+    del server_only
+    return (0.0, "")
 
 
 def build_template_cache() -> bool:
