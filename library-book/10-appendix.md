@@ -274,6 +274,15 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.56 (2026-09-26)
+
+A review of the nine sessions that ran after 0.8.55 found the hooks quiet and right (no strikes, no hook errors, every compaction banner its own) and the store taking about fifty junk entries in four shapes. Each shape got a neutral corpus row first, then a rule:
+
+- **A relayed message is not the user's.** A teammate's or an agent's report wrapped in tags, or Claude Code's notice of one, is dropped as a MESSAGE before any pattern sees it (`extractors._typed_prompt`); the boilerplate around one had matched "use ... instead" across three sentences and the report's first sentence was stored as a decision. A decision or correction candidate is a typed prompt under 500 chars in one paragraph, the same rule the semantic phase already had. The stored text is the sentence the pattern matched (a two-sentence prompt was stored by its first sentence while the decision sat in the second), and "use X instead" is bounded to one sentence.
+- **An approval verdict, a hedged leaning, a question without its mark are not decisions.** "The plan is approved" carries no plan; "probably", "I guess", "up to you", "or not" hold a leaning loosely; "would it be better to split the module" is a question typed without the mark. Thirty neutral negatives in `tests/bench_decision_capture_v2.py` (categories `approval_verdict`, `hedge`, `unmarked_question`); the gate rules after; the benches read decision 1.00 / 0.93, correction 0.97 / 0.80, shared capture 1.00 / 0.95. Migration `0.8.56:rejudge_mined_decisions` archives what was stored under the old gate, restorable by id.
+- **One sentence, one entry.** The prompt hook stored a sentence live as "(from user)", the miner stored it again as a decision and a third time as a preference, sometimes in an ancestor store (the hook filed under the cwd's project before the session had edits, the miner by the session's edits). The miner now compares the bare sentence against the destination store and its ancestors and against what the pass already stored.
+- **A grep line is not an error message.** "ValueError: 141:def graphs_overrides(...)" was a mistake entry; so was a two-word fragment. A source line or a line-number prefix after an error name is skipped, and a message needs four words unless it is one quoted token (a KeyError's).
+
 ### v0.8.55 (2026-09-25)
 
 The machine ran out of memory under three sessions and a workflow of parallel agents and had to be rebooted. Windows named three engram pythons of ~3 GB each, alive 20 to 33 minutes at a constant size; Task Manager showed many more. Reproduced on temp stores:

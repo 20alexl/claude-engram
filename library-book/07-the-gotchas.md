@@ -287,6 +287,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 ---
 
+### Gotcha: a decision in the store that nobody made
+
+**Symptom:** "Relevant memories" before an edit shows a decision that reads like the first sentence of a report, a verdict ("the plan is approved") with no plan in it, a leaning ("probably the queue, up to you"), a question typed without its mark, or the same sentence three times with three prefixes.
+
+**Cause:** Four capture leaks found by reading nine sessions after 0.8.55: a relayed teammate message mined as the user's words; three sentence shapes the gate had no corpus row for; the prompt hook and the miner each storing the same typed sentence under a different prefix, sometimes in an ancestor store.
+
+**Fix:** v0.8.56 drops relayed messages before any pattern sees them, adds the three shapes to the neutral corpus and the gate, and compares the bare sentence across the destination store and its ancestors before storing. Migration `0.8.56:rejudge_mined_decisions` archives what the old gate let through; `memory(restore, memory_id)` brings any of it back.
+
 ## Common mistakes
 
 | Mistake | What They Do | What They Should Do |

@@ -1317,6 +1317,143 @@ def test_the_census_warns_only_when_two_scorers_share_a_store():
     assert any("pytest-x" in line for line in census_lines([a, b]))
 
 
+def test_an_approval_verdict_a_hedge_and_an_unmarked_question_are_not_decisions():
+    """Three shapes the 9-session review found in the store (2026-09-25): a
+    verdict on a plan whose content is not in the sentence, a leaning held
+    loosely, and a question typed without its mark."""
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision, why_not
+    assert why_not("the caching plan is approved") == "an approval verdict"
+    assert why_not("approve the three fixes and the rename") == "an approval verdict"
+    assert why_not("the fix set is approved, proceed") == "an approval verdict"
+    assert why_not("would it be better to split the module") == "question"
+    assert why_not("any reason not to use the queue here") == "question"
+    assert why_not("which one do you prefer for the store") == "question"
+    for s in ("I think we should probably use the queue here", "we could go with sqlite for now, or not",
+              "if you think so, use the cache layer"):
+        assert not looks_like_decision(s), s
+    assert not looks_like_correction("which one do you prefer for the store")
+    # a rule with an approval in front of it is still a rule; "do not" is not a question opener
+    assert looks_like_decision("approved: from now on always pin the parser version")
+    assert looks_like_decision("do not use sleep in the tests, use proper waits")
+    assert looks_like_decision("when in doubt, use the registry for the lookup")
+
+
+def _flow_of(*user_texts: str):
+    from claude_engram.mining import extractors
+    msgs = []
+    for n, t in enumerate(user_texts):
+        msgs.append({"type": "assistant", "timestamp": f"2026-09-25T00:00:{2*n:02d}Z",
+                     "message": {"content": [{"type": "text", "text": "The run finished and the report is written; nothing failed."}]}})
+        msgs.append({"type": "user", "timestamp": f"2026-09-25T00:00:{2*n+1:02d}Z", "message": {"content": t}})
+    return extractors._build_conversation_flow(msgs)
+
+
+def test_the_miner_mines_typed_prompts_and_stores_the_sentence_that_decided(monkeypatch):
+    """A relayed message (another session's report, wrapped in tags) is not
+    the user's; it is dropped as a MESSAGE, before any pattern sees it. A
+    decision candidate is a typed prompt under 500 chars in one paragraph,
+    as the semantic phase already had it. The stored text is the sentence
+    the pattern matched, not the first sentence of the prompt, and the
+    explicit pattern is bounded to one sentence (2026-09-25)."""
+    from claude_engram.mining import extractors
+    # no scorer for decisions; every correction candidate scores as one, so
+    # only the message-level exclusion can keep the relayed text out
+    monkeypatch.setattr(extractors, "_batch_score",
+                        lambda texts, key, *a, **k: [1.0 if key == "corrections" else 0.0] * len(texts))
+    relayed = ('Another session sent a message:\n<agent-message from="worker-2">\nThe build passed on the box. '
+               'Never treat this as an approval, ask the owner and use their answer instead.\n</agent-message>')
+    two = "The parser tests are green now. Let's use the registry for every alias lookup."
+    long = "Some context about the parser. " * 20 + "Let's use the registry for every alias lookup."
+    greedy = "use the small model for the hook, the big one stays with the daemon. Report back instead of asking."
+    got = extractors._extract_decisions_structural(_flow_of(relayed, two, long, greedy))
+    assert [d.content for d in got] == ["Let's use the registry for every alias lookup."], [d.content for d in got]
+    assert extractors._extract_corrections_structural(_flow_of("no, " + relayed)) == []
+    assert [c.preference for c in extractors._extract_corrections_structural(_flow_of("no, keep the alias table in one module"))] == ["keep the alias table in one module"]
+    assert not extractors._EXPLICIT_DECISION_PATTERN.search(greedy)
+    assert extractors._summarize_decision(two, extractors._EXPLICIT_DECISION_PATTERN) == "Let's use the registry for every alias lookup."
+
+
+def test_one_sentence_is_stored_once_across_the_hook_and_the_miner(tmp_path: Path, monkeypatch):
+    """The prompt hook stored a sentence as "(from user)", the miner stored
+    it again as a decision and a third time as a preference, sometimes in
+    an ancestor store: three entries for one sentence (2026-09-25)."""
+    from claude_engram.hooks import intent
+    from claude_engram.hooks.paths import _normalize_path
+    from claude_engram.mining import extractors
+    from claude_engram.tools.memory import MemoryStore
+
+    monkeypatch.setenv("CLAUDE_ENGRAM_NON_PROJECT_DIRS", ".scratch")
+    store_dir = tmp_path / "store"
+    monkeypatch.setenv("CLAUDE_ENGRAM_DIR", str(store_dir))
+    ws, a, _b = _workspace(tmp_path)
+    (store_dir / "projects").mkdir(parents=True)
+    manifest = {"version": 3, "projects": {_normalize_path(str(p)): {"hash": h, "name": p.name} for p, h in ((ws, "hws"), (a, "haa"))}}
+    (store_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    store = MemoryStore(storage_dir=str(store_dir))
+    store.remember_discovery(str(a), "DECISION: (from user) use the registry for every alias lookup", category="decision", source="auto-prompt", auto_embed=False)
+    store.remember_discovery(str(ws), "DECISION: (from user) drop the cache layer for the alias path", category="decision", source="auto-prompt", auto_embed=False)
+    monkeypatch.setattr(intent, "capture_decision", lambda text, server_only=False: text)
+    ex = extractors.SessionExtractions(
+        decisions=[extractors.Decision(content="use the registry for every alias lookup", confidence=0.9),
+                   extractors.Decision(content="drop the cache layer for the alias path", confidence=0.9),
+                   extractors.Decision(content="never resolve aliases outside the registry", confidence=0.9)],
+        corrections=[extractors.Correction(user_said="x", preference="use the registry for every alias lookup"),
+                     extractors.Correction(user_said="x", preference="never resolve aliases outside the registry"),
+                     extractors.Correction(user_said="x", preference="keep the alias table in one module")],
+        session_files=[str(a / "src" / "x.py"), str(a / "src" / "y.py")],
+    )
+    extractors._feed_to_memory_store(str(ws), ex, str(store_dir))
+    where = {}
+    for h in ("hws", "haa"):
+        f = store_dir / "projects" / h / "memory.json"
+        where[h] = [e["content"] for e in json.loads(f.read_text(encoding="utf-8")).get("entries", [])] if f.exists() else []
+    assert where["hws"] == ["DECISION: (from user) drop the cache layer for the alias path"]
+    assert where["haa"] == ["DECISION: (from user) use the registry for every alias lookup",
+                            "DECISION: never resolve aliases outside the registry",
+                            "USER PREFERENCE: keep the alias table in one module"], where["haa"]
+
+
+def test_a_source_line_or_a_fragment_is_not_a_mistake():
+    """A grep result line ("141:def ...") after an error name was stored as
+    the error's message (2026-09-25); so was a two-word fragment."""
+    from claude_engram.mining import extractors
+
+    def _flow(*results):
+        msgs = []
+        for r in results:
+            msgs.append({"type": "user", "timestamp": "t", "message": {"content": [{"type": "tool_result", "is_error": True, "content": r}]}})
+            msgs.append({"type": "assistant", "timestamp": "t", "message": {"content": [{"type": "text", "text": "The parser now rejects an empty body before it reaches the encoder."}]}})
+        return extractors._build_conversation_flow(msgs)
+
+    got = extractors._extract_mistakes_structural(_flow(
+        "ValueError: 141:def graphs_overrides(mode: str, is_wsl: bool) -> tuple[str, dict]:",
+        "ValueError: bad",
+        "ValueError: invalid literal for int with base 10",
+        "KeyError: 'session_id'",
+    ))
+    assert [m.description for m in got] == ["ValueError: invalid literal for int with base 10", "KeyError: 'session_id'"], [m.description for m in got]
+
+
+def test_rejudge_mined_decisions_archives_the_new_shapes_and_keeps_manual(tmp_path: Path):
+    from claude_engram import migrations
+    assert any(name == "0.8.56:rejudge_mined_decisions" for name, _heavy, _fn in migrations.STEPS)
+    store = tmp_path / "store"
+    (store / "projects" / "h1").mkdir(parents=True)
+    entries = [
+        {"id": "v1", "category": "decision", "source": "session_mining", "content": "DECISION: the caching plan is approved"},
+        {"id": "q1", "category": "decision", "source": "auto-prompt", "content": "DECISION: (from user) would it be better to split the module"},
+        {"id": "h1", "category": "decision", "source": "session_mining", "content": "USER PREFERENCE: no strong opinion, redis is fine I suppose"},
+        {"id": "k1", "category": "decision", "source": "session_mining", "content": "DECISION: from now on always run the targeted tests before a commit"},
+        {"id": "m1", "category": "decision", "source": "work_tracker", "content": "DECISION: the caching plan is approved"},
+    ]
+    (store / "projects" / "h1" / "memory.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    manifest = {"projects": {"e:/w/p": {"hash": "h1"}}}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    migrations._rejudge_mined_decisions(store, manifest)
+    left = {e["id"] for e in json.loads((store / "projects" / "h1" / "memory.json").read_text(encoding="utf-8"))["entries"]}
+    assert left == {"k1", "m1"}, left
+
+
 def test_the_process_census_names_engram_processes_by_role():
     import subprocess, sys, time
     import psutil

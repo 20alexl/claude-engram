@@ -68,7 +68,29 @@ _HEDGE = re.compile(
     r"\b(?:not sure|unsure|not certain|no idea|wondering|whether|maybe|perhaps|might|could potentially|"
     r"potentially|thinking about|think about|consider(?:ing)?|used to|were going to|was going to|personally|"
     r"(?:most|many|some|other|several) (?:people|teams|projects|folks|companies|devs|developers)|"
-    r"our competitors|the previous team|the old team|use case)\b",
+    r"our competitors|the previous team|the old team|use case|"
+    # a leaning held loosely: a guess, a choice left open, a choice handed back (2026-09-25)
+    r"probably|possibly|i guess|i'?d guess|i suppose|leaning toward|open to it|up to you|either works|"
+    r"no strong opinion|if you think so|or not\W*$)",
+    re.IGNORECASE,
+)
+# A question typed without its mark: an auxiliary or a question word opens
+# the sentence ("would it be better to split", "any reason not to use the
+# queue"). "Do not", "should never" and "should always" open rules, not
+# questions (2026-09-25).
+_QUESTION_OPENER = re.compile(
+    r"^(?:(?:so|and|but|or|ok(?:ay)?)[\s,]+)?"
+    r"(?:(?:would|should|could|can|is|are|do|does|did|will|what|which|how|why)\b"
+    r"(?!\s+(?:not|never|always)\b)|any reason\b)",
+    re.IGNORECASE,
+)
+# An approval verdict: a plan under discussion was approved. The plan is
+# not in the sentence, so the entry would say only that something was
+# approved; a rule with an approval in front of it ("approved: from now on
+# always ...") keeps its other deciding word and stays (2026-09-25).
+_APPROVAL_WORDS = re.compile(
+    r"\b(?:approved?|approval|accepted|green[- ]?light(?:ed)?|sign(?:ed)?[- ]?off|proceed|go ahead|"
+    r"as written|no changes|lgtm)\b",
     re.IGNORECASE,
 )
 # A word that redirects: what a correction or a preference carries. Tuned
@@ -165,8 +187,8 @@ def why_not(text: str) -> str:
     """The first reason a text is not a decision, or '' when it may be one
     (the cue is checked by the callers, per kind)."""
     t = bare(text)
-    if "?" in t:
-        return "question"
+    if "?" in t or (_QUESTION_OPENER.match(t) and not _ASSESSMENT.search(t)):
+        return "question"  # "should be fine now" is an assessment, judged below
     if len(t) < 12 or len(t.split()) < 3:
         return "too short"
     if _ACK.match(t):
@@ -189,6 +211,8 @@ def why_not(text: str) -> str:
         return "a one-off instruction"
     if _ASSESSMENT.search(t):
         return "a status assessment"
+    if _APPROVAL_WORDS.search(t) and not _CUE.search(_APPROVAL_WORDS.sub(" ", t)):
+        return "an approval verdict"
     if _PRIVATE.search(t):
         return "carries an address or a secret"
     if _REPORT_SHAPE.search(t):

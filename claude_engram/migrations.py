@@ -453,6 +453,14 @@ def _drop_worktree_projects(storage: Path, manifest: dict) -> None:
             _log(f"skip {path}: {e}")
 
 
+def _shape_judge(content: str) -> bool:
+    """The gate both capture paths apply, on an entry already on disk."""
+    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision
+
+    is_pref = content.lstrip().upper().startswith("USER PREFERENCE")
+    return looks_like_correction(content) if is_pref else looks_like_decision(content)
+
+
 def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
     """Archive (never delete) machine-captured decisions that do not have
     the shape of one: questions, acknowledgements, counts, status lines,
@@ -462,14 +470,19 @@ def _prune_junk_decisions(storage: Path, manifest: dict) -> None:
     both capture paths (mining/decision_gate.py); this applies it to what
     is already on disk. Manual entries (work_tracker, the memory tool) are
     never touched; archived entries stay restorable by id."""
-    from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision
-
-    def _judge(content: str) -> bool:
-        is_pref = content.lstrip().upper().startswith("USER PREFERENCE")
-        return looks_like_correction(content) if is_pref else looks_like_decision(content)
-
-    _archive_machine_decisions(storage, manifest, _judge, "prune_junk_decisions",
+    _archive_machine_decisions(storage, manifest, _shape_judge, "prune_junk_decisions",
                                "machine-captured decisions without the shape of one")
+
+
+def _rejudge_mined_decisions(storage: Path, manifest: dict) -> None:
+    """Re-judge every machine-captured decision and preference with the gate
+    as of 0.8.56: an approval verdict on a plan that is not in the sentence,
+    a leaning held loosely, and a question typed without its mark are not
+    decisions (a review of nine sessions found about fifty such entries,
+    2026-09-25). Archive, never delete; manual entries untouched; every
+    archived entry restorable by id."""
+    _archive_machine_decisions(storage, manifest, _shape_judge, "rejudge_mined_decisions",
+                               "machine-captured decisions the 0.8.56 gate rejects")
 
 
 def _rejudge_preferences(storage: Path, manifest: dict) -> None:
@@ -632,6 +645,8 @@ STEPS = [
     ("0.8.53:prune_junk_decisions_private", False, _prune_junk_decisions),
     # Re-run: a tag with attributes, a hash-led line, a line break inside.
     ("0.8.54:prune_junk_decisions_pastes", False, _prune_junk_decisions),
+    # Re-run: an approval verdict, a hedged leaning, a question without its mark.
+    ("0.8.56:rejudge_mined_decisions", False, _rejudge_mined_decisions),
 ]
 
 

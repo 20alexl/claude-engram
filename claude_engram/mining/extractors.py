@@ -224,6 +224,39 @@ _ERROR_TYPE_PATTERN = re.compile(
     r"((?:Attribute|Type|Name|Import|Key|Index|Value|Runtime|Syntax|FileNotFound)Error):\s*(.{5,200})"
 )
 
+# A grep result line or a line of code after an error name is not the
+# error's message ("ValueError: 141:def graphs_overrides(...)", 2026-09-25).
+_SOURCE_LINE = re.compile(
+    r"^\d+[:-]|^[\w./\\-]+\.\w{1,5}:\d+|"
+    r"^(?:async def|def|class|import|from|return|raise|if|elif|else|for|while|try|except|with)\b"
+)
+# A single quoted token is a whole message for a KeyError ("'session_id'").
+_QUOTED_TOKEN = re.compile(r"^(?:'[^']+'|\"[^\"]+\")$")
+
+# A message another program relayed into the user's turn: a teammate's or
+# an agent's report wrapped in tags, Claude Code's own notice of one, a
+# system reminder. Its sentences are not the user's and the whole MESSAGE
+# is dropped before any pattern sees it: the boilerplate around one matched
+# "use ... instead" across sentence boundaries and the report's first
+# sentence was stored as a decision (2026-09-25).
+_RELAYED = re.compile(
+    r"<(?:teammate|agent|peer)-message\b|Another (?:Claude )?session sent a message|<system-reminder\b",
+    re.IGNORECASE,
+)
+
+
+def _typed_prompt(text: str, max_len: int = 500) -> bool:
+    """A prompt the user typed, one paragraph, short enough to be a sentence
+    or two: the only message a decision or a correction is mined from.
+    Pasted markup or JSON, a relayed message, a wall of text are not."""
+    t = (text or "").strip()
+    if not t or len(t) >= max_len:
+        return False
+    if t.startswith("<") or t.startswith("{"):
+        return False
+    return not _RELAYED.search(t) and "\n\n" not in t
+
+
 _TEST_FAILURE_PATTERN = re.compile(
     r"(\d+) (?:failed|errors?),?\s*(\d+)? ?(?:passed)?", re.I
 )
@@ -372,6 +405,10 @@ def _extract_mistakes_structural(flow: list[FlowMessage]) -> list[Mistake]:
 
         error_type = match.group(1)
         error_msg = match.group(2).strip()[:200]
+        if _SOURCE_LINE.match(error_msg):
+            continue
+        if len(error_msg.split()) < 4 and not _QUOTED_TOKEN.match(error_msg):
+            continue  # a fragment, not a message
         key = f"{error_type}:{error_msg[:60]}"
 
         if key in seen:
@@ -441,9 +478,7 @@ def _extract_corrections_structural(flow: list[FlowMessage]) -> list[Correction]
             continue
 
         text = fm.user_text.strip()
-        if len(text) < 5 or len(text) > 500:
-            continue
-        if text.startswith("<") or text.startswith("{"):
+        if len(text) < 5 or not _typed_prompt(text):
             continue
 
         # Structural signals:
@@ -500,12 +535,15 @@ _CONFIRM_PATTERN = re.compile(
     r"^(yes|yeah|yep|ok|sure|do it|go ahead|lets? do|go with|proceed|approved?|confirmed?)\b",
     re.I,
 )
+# "use X instead" is bounded to one sentence: the greedy form matched from a
+# "use" in one sentence to an "instead" three sentences later (2026-09-25).
 _REDIRECT_PATTERN = re.compile(
-    r"^(no|don'?t|stop|not that|instead|actually|switch to|use .+ instead|change .+ to)\b",
+    r"^(no|don'?t|stop|not that|instead|actually|switch to|use [^.!?\n]{1,80} instead|change [^.!?\n]{1,80} to)\b",
     re.I,
 )
 _EXPLICIT_DECISION_PATTERN = re.compile(
-    r"(let'?s? (?:use|go with|switch to|do|try|change|make|keep)|from now on|always use|never use|we should|go with|use .+ instead)",
+    r"(let'?s? (?:use|go with|switch to|do|try|change|make|keep)|from now on|always use|never use|we should|go with|"
+    r"use [^.!?\n]{1,80} instead)",
     re.I,
 )
 
@@ -549,7 +587,7 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         if fm.msg_type != "user" or not fm.user_text:
             continue
         text = fm.user_text.strip()
-        if text.startswith("<") or text.startswith("{"):
+        if not _typed_prompt(text):
             continue
 
         # Find preceding assistant message
@@ -578,7 +616,7 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         # Pattern B: User redirects
         elif _REDIRECT_PATTERN.match(text) and len(text) > 10:
             _add(
-                _summarize_decision(text),
+                _summarize_decision(text, _REDIRECT_PATTERN),
                 fm.timestamp,
                 prev_files,
                 0.75,
@@ -588,7 +626,7 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
         # Pattern C: Explicit decision language
         elif _EXPLICIT_DECISION_PATTERN.search(text):
             _add(
-                _summarize_decision(text),
+                _summarize_decision(text, _EXPLICIT_DECISION_PATTERN),
                 fm.timestamp,
                 prev_files,
                 0.8,
@@ -604,12 +642,7 @@ def _extract_decisions_structural(flow: list[FlowMessage]) -> list[Decision]:
     for i, fm in enumerate(flow):
         if fm.msg_type == "user" and fm.user_text:
             text = fm.user_text.strip()
-            if (
-                15 < len(text) < 500
-                and not text.startswith("<")
-                and not text.startswith("{")
-                and "?" not in text
-            ):
+            if 15 < len(text) and _typed_prompt(text) and "?" not in text:
                 semantic_candidates.append((text, fm.timestamp))
 
     if semantic_candidates:
@@ -765,17 +798,24 @@ def _first_sentence(text: str, max_len: int = 150) -> str:
     return text[:max_len].strip()
 
 
-def _summarize_decision(text: str) -> str:
-    """Extract a concise decision statement from text."""
+def _summarize_decision(text: str, pattern: "re.Pattern | None" = None) -> str:
+    """The sentence to store. With a pattern, the sentence the pattern
+    matched: a two-sentence prompt was stored whole, or by its FIRST
+    sentence, while the decision sat in the second (2026-09-25). Without
+    one, the text when it is short, else its first sentence of a usable
+    length."""
     text = text.strip()
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]
+    if pattern is not None:
+        for s in sentences:
+            if 10 < len(s) < 200 and pattern.search(s):
+                return s
     # If short enough, use as-is
     if len(text) <= 150:
         return text
 
     # Try to find the decision sentence
-    sentences = re.split(r"(?<=[.!?])\s+", text)
     for s in sentences:
-        s = s.strip()
         if len(s) > 15 and len(s) < 200:
             return s
 
@@ -1044,14 +1084,58 @@ def _feed_to_memory_store(
 
         home = _target([], "")
 
+        # One sentence, one entry. The prompt hook stores a typed sentence
+        # live as "(from user) ...", sometimes under the cwd's project while
+        # the miner routes by the session's edits; the miner then stored it
+        # again as a decision and a third time as a preference (2026-09-25).
+        # The store's own dedupe compares whole contents, and the prefixes
+        # differ, so the comparison here is on the bare sentence, against
+        # the destination store and its ancestors, and against what this
+        # pass has already stored.
+        from claude_engram.mining.decision_gate import bare
+
+        def _bare_key(content: str) -> str:
+            return " ".join(bare(content).lower().split())
+
+        held_cache: dict[str, set[str]] = {}
+
+        def _held(dst: str) -> set[str]:
+            if dst not in held_cache:
+                keys: set[str] = set()
+                norm_dst = store._normalize_path(dst)
+                for norm in known:
+                    if norm == norm_dst or norm_dst.startswith(norm.rstrip("/") + "/"):
+                        proj = store.get_project(norm)
+                        for e in (proj.entries if proj else []):
+                            if e.category == "decision":
+                                keys.add(_bare_key(e.content))
+                held_cache[dst] = keys
+            return held_cache[dst]
+
+        def _first_time(dst: str, content: str) -> bool:
+            key = _bare_key(content)
+            if not key:
+                return False
+            held = _held(dst)
+            if key in held:
+                return False
+            # the hook cuts a long sentence at a word; a prefix of 30+ chars is the same sentence
+            if len(key) >= 30 and any(k.startswith(key) or key.startswith(k) for k in held if len(k) >= 30):
+                return False
+            held.add(key)
+            return True
+
         # High-confidence decisions
         for d in extractions.decisions:
             if d.confidence >= 0.6:
                 content = f"DECISION: {d.content}"
                 if d.reasoning:
                     content += f" (reason: {d.reasoning})"
+                dst = _target(d.related_files, content)
+                if not _first_time(dst, content):
+                    continue
                 store.remember_discovery(
-                    _target(d.related_files, content),
+                    dst,
                     content,
                     category="decision",
                     source="session_mining",
@@ -1086,7 +1170,7 @@ def _feed_to_memory_store(
 
         for c in extractions.corrections:
             kept = capture_decision(c.preference, server_only=True)
-            if kept:
+            if kept and _first_time(home, f"USER PREFERENCE: {kept}"):
                 store.remember_discovery(
                     home,
                     f"USER PREFERENCE: {kept}",
