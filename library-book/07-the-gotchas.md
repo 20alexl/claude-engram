@@ -281,7 +281,7 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 **Cause:** Two locks that were not locks. The daemon's "one instance" check was a pid file plus a 0.5 s connect; a stalled daemon absorbs only 8 pending connections, so a burst of hooks made the 9th read it as dead, delete its files and spawn a second one. The first idled 30 minutes at ~3 GB, and its exit deleted the second's files, so the next hook spawned a third: every idle exit orphaned the live daemon. Hooks that found no port file loaded the model themselves, ~3 GB of commit each. The miner's lock was check-then-write: four miners started together all acquired it, each ~3.6 GB for seven minutes.
 
-**Fix:** v0.8.55. Both are OS process locks the kernel releases at exit (`hooks/proc_lock.py`); a daemon's exit removes only its own files; no hook loads a model; a post-session run right after another runs as a live tick. `claude_engram_status` lists every engram process and warns at a second scorer or miner.
+**Fix:** v0.8.55. Both are OS process locks the kernel releases at exit (`hooks/proc_lock.py`); a daemon's exit removes only its own files; no hook loads a model; a post-session run right after another runs as a live tick. `claude_engram_status` lists every engram process and warns at a second scorer or miner on the same store.
 
 **Lesson:** A pid file answers "did a process write here", not "is one alive"; a connect answers "did it accept this instant", not "is it dead". Only a lock the kernel drops on exit answers the question the spawner is asking.
 

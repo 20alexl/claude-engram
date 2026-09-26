@@ -19,6 +19,10 @@ def _clean_env(monkeypatch):
     for k in ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_ENGRAM_OUTPUT_RESERVE",
               "CLAUDE_ENGRAM_CHECKPOINT_MARGIN", "CLAUDE_ENGRAM_GOAL_TURN_CAP"):
         monkeypatch.delenv(k, raising=False)
+    # A test that embeds against a temp store must not start a scorer daemon
+    # for it: the daemon outlives the temp dir and idles 30 minutes at ~1.2 GB
+    # (one per smoke run, found in the process census 2026-09-25).
+    monkeypatch.setenv("CLAUDE_ENGRAM_NO_DAEMON", "1")
 
 
 def test_checkpoint_band_sits_above_the_measured_compaction():
@@ -1302,6 +1306,15 @@ def test_the_phase_meter_reports_the_peak_inside_a_phase_not_its_end():
     peaks = meter.stop()
     assert peaks["grow"] >= 150, peaks
     assert peaks["after"] < peaks["grow"] - 100
+
+
+def test_the_census_warns_only_when_two_scorers_share_a_store():
+    from claude_engram.procs import census_lines
+    a = {"pid": 1, "role": "scorer", "rss_mb": 1200, "commit_mb": 3000, "age_min": 5.0, "store": "default"}
+    b = dict(a, pid=2, store=r"C:\Temp\pytest-x\store")
+    assert not any("WARNING" in line for line in census_lines([a, b]))
+    assert any("WARNING" in line for line in census_lines([a, dict(a, pid=3)]))
+    assert any("pytest-x" in line for line in census_lines([a, b]))
 
 
 def test_the_process_census_names_engram_processes_by_role():

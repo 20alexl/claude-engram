@@ -56,6 +56,13 @@ def census() -> list[dict]:
             continue
         mem = p.info["memory_info"]
         rss = (mem.rss if mem else 0) / 1e6
+        # The store the process serves: a daemon a bench or a test started
+        # for a temp store is legitimate beside the real one (and idles 30
+        # minutes after the temp dir is gone), so the count is per store.
+        try:
+            store = p.environ().get("CLAUDE_ENGRAM_DIR", "") or "default"
+        except psutil.Error:
+            store = "?"
         rows.append(
             {
                 "pid": pid,
@@ -63,6 +70,7 @@ def census() -> list[dict]:
                 "rss_mb": int(rss),
                 "commit_mb": int((mem.vms if mem else 0) / 1e6),
                 "age_min": round((now - (p.info["create_time"] or now)) / 60, 1),
+                "store": store,
             }
         )
     rows.sort(key=lambda r: (-r["rss_mb"], r["pid"]))
@@ -80,15 +88,21 @@ def census_lines(rows: list[dict]) -> list[str]:
         f"Processes: {len(rows)} engram, {sum(r['rss_mb'] for r in rows)} MB resident, "
         f"{sum(r['commit_mb'] for r in rows)} MB committed"
     ]
+    def _tag(r: dict) -> str:
+        store = r.get("store", "default")
+        return "" if store == "default" else f" (store {store})"
+
     for role, group in sorted(by_role.items()):
         lines.append(
             f"  {role}: {len(group)} "
-            + ", ".join(f"pid {r['pid']} {r['rss_mb']} MB {r['age_min']} min" for r in group[:6])
+            + ", ".join(f"pid {r['pid']} {r['rss_mb']} MB {r['age_min']} min{_tag(r)}" for r in group[:6])
         )
-    scorers = by_role.get("scorer", [])
-    if len(scorers) > 1:
-        lines.append(f"  WARNING: {len(scorers)} scorer daemons; one is the design")
-    miners = by_role.get("miner", [])
-    if len(miners) > 1:
-        lines.append(f"  WARNING: {len(miners)} miners; the lock allows one")
+    for role, noun, why in (("scorer", "scorer daemons", "one per store is the design"),
+                            ("miner", "miners", "the lock allows one per store")):
+        per_store: dict[str, int] = {}
+        for r in by_role.get(role, []):
+            per_store[r.get("store", "default")] = per_store.get(r.get("store", "default"), 0) + 1
+        for store, n in per_store.items():
+            if n > 1:
+                lines.append(f"  WARNING: {n} {noun} on store {store}; {why}")
     return lines
