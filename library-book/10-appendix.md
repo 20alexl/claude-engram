@@ -274,6 +274,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.57 (2026-09-26)
+
+Two questions from the same afternoon: how often does the banner after a compaction show the right checkpoint, and what does engram see when a conversation is rewound? Measured, then built:
+
+- **The banner shows this session's own checkpoint, whole.** Of 99 compaction banners in 14 days, 92 showed the session's own latest deliberate checkpoint, 1 another session's, 6 came before the session had banked anything. The banner and `checkpoint_restore` now pick this session's newest deliberate checkpoint first (the ring record's `session_id`), the project's newest only as a fallback, and the record is shown whole (task, current step, every completed and pending step, files, warnings, context notes, handoff note, goal, movement since) instead of a 100-char teaser that made the model call `checkpoint_restore` after every compaction.
+- **A rewind is a fork, and engram follows the live branch.** A scripted experiment (write a file and checkpoint A; edit it and checkpoint B; rewind to before the edit with "restore code and conversation"; read the file and restore the checkpoint) showed: no hook fires, no record marks the rewind, the transcript is append-only with the abandoned turns still in it, the file came back as A, and engram returned B, the abandoned branch's checkpoint, under the same session id. The test session's own words: "something else under this same session id changed the file". `transcript_chain.py` walks from the transcript's last record up its parent links (through the system records between turns); a checkpoint this session saved off that chain is skipped and named in the banner and in the restore's warnings; the miner extracts the live branch only. The check is matched by tool-call id: a `checkpoint_restore` result quotes a task id too, and the first read counted a rewound checkpoint as live because a later restore printed it.
+
 ### v0.8.56 (2026-09-26)
 
 A review of the nine sessions that ran after 0.8.55 found the hooks quiet and right (no strikes, no hook errors, every compaction banner its own) and the store taking about fifty junk entries in four shapes. Each shape got a neutral corpus row first, then a rule:

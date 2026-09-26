@@ -857,6 +857,94 @@ def _subtree_manual_handoff(project_dir: str) -> dict:
         return {}
 
 
+def _own_session_checkpoint(dirs: list, session_id: str, transcript_path: str) -> tuple:
+    """This session's newest deliberate checkpoint that is still on the
+    transcript's live branch, and the newer ones of its own it skipped
+    because the user rewound past them. (None, []) when the session has no
+    manual checkpoint in the given rings. A rewind fires no hook and leaves
+    no record; the ring kept returning the abandoned branch's checkpoint
+    under this session's id (2026-09-26, transcript_chain)."""
+    try:
+        from claude_engram import handoff_store as _hs
+        from claude_engram.transcript_chain import TAIL_BYTES, branch_checkpoints
+
+        sid = str(session_id or "")
+        if not sid:
+            return None, []
+        mine = [h for h in _hs.read_history(dirs)  # newest first
+                if h.get("kind") == "manual" and str(h.get("session_id") or "") == sid]
+        if not mine:
+            return None, []
+        # One read of the transcript's tail for every candidate (a hook has
+        # 1-2 s; the tail is 8 MB at most).
+        on_branch: set = set()
+        everywhere: set = set()
+        if transcript_path:
+            try:
+                on_branch, everywhere = branch_checkpoints(transcript_path, TAIL_BYTES)
+            except Exception:
+                on_branch, everywhere = set(), set()
+        skipped = []
+        for h in mine:
+            tid = str(h.get("task_id") or "")
+            if tid and tid in everywhere and tid not in on_branch:
+                skipped.append(h)  # saved, then rewound past
+                continue
+            return h, skipped
+        return None, skipped
+    except Exception:
+        return None, []
+
+
+def _format_restored_full(entry: dict, skipped: "list | None" = None) -> list[str]:
+    """The whole checkpoint for the banner after a compaction or on resume:
+    every completed and pending step, every file, warning and context note,
+    the handoff summary, the goal and the repo's movement since. The teaser
+    (`_format_restored_context`) cut the task at 100 chars, the step at 60
+    and showed three next steps; after every compaction the model had to
+    call checkpoint_restore to read what it had banked (2026-09-26). A
+    checkpoint of this session that sits on a rewound branch is named so the
+    model knows the ring holds a future it no longer remembers."""
+    if not entry:
+        return []
+    out = list(_format_restored_context(entry)[:1])  # the self-identifying header line
+    task = entry.get("task_description") or ""
+    if task and task != (entry.get("summary") or ""):
+        out.append(f"  Task: {task}")
+    step = entry.get("current_step")
+    if step and step != "Context was compacted":
+        out.append(f"  Current step: {step}")
+    done = [s for s in (entry.get("completed_steps") or []) if s]
+    if done:
+        out.append(f"  Completed ({len(done)}):")
+        out.extend(f"    - {s}" for s in done)
+    _trivial = {"review what was in progress", "continue work from before compaction"}
+    pending = [s for s in (entry.get("pending_steps") or entry.get("next_steps") or []) if s and s.strip().lower() not in _trivial]
+    if pending:
+        out.append(f"  Pending ({len(pending)}):")
+        out.extend(f"    - {s}" for s in pending)
+    files = entry.get("files_in_progress") or entry.get("files_involved") or []
+    if files:
+        out.append("  Files: " + ", ".join(str(f) for f in files))
+    for key, label in (("warnings", "Warnings"), ("handoff_warnings", "Warnings"),
+                       ("context_needed", "Context needed"), ("handoff_context_needed", "Context needed")):
+        items = [s for s in (entry.get(key) or []) if s]
+        if items and not any(line.startswith(f"  {label}:") for line in out):
+            out.append(f"  {label}:")
+            out.extend(f"    ! {s}" for s in items)
+    handoff = entry.get("handoff_summary") or entry.get("summary") or ""
+    if handoff and handoff != task and handoff != step:
+        out.append(f"  Handoff note: {handoff}")
+    if entry.get("goal"):
+        out.append(f"  Goal: {entry['goal']}")
+    for s in (skipped or []):
+        out.append(
+            f"  Skipped: {s.get('task_id', '?')} \"{_truncate(str(s.get('task_description') or s.get('summary') or ''), 80)}\""
+            " sits on a rewound branch of this conversation (saved, then rewound past); not restored"
+        )
+    return out
+
+
 def _format_restored_context(entry: dict) -> list[str]:
     """Render a restored checkpoint for the session-start banner. Checkpoints and
     handoffs are one ring construct now, so this shows whichever fields the entry
@@ -3817,15 +3905,39 @@ def _hook_session_start(project_dir: str) -> None:
         #              PostCompact's plain stdout never reached the model,
         #              so after every auto compaction the checkpoint the
         #              model had just banked was not shown to it.
+        #   Since 0.8.57, on resume and compact THIS SESSION's own newest
+        #   deliberate checkpoint comes first (session_id on the ring
+        #   record; 92 of 99 measured compaction banners had shown it, 1 had
+        #   shown another session's), skipping one the user rewound past,
+        #   and the record is shown whole. The project's newest is the
+        #   fallback for a session that has banked nothing yet.
         restored = {}
-        if resume_files:
-            restored = get_handoff_data(work_project)
-        if not restored:
-            restored = _subtree_manual_handoff(project_dir)
-        if not restored:
-            restored = get_handoff_data(project_dir)
+        skipped: list = []
+        if source in ("resume", "compact"):
+            try:
+                _dirs = _handoff_candidate_dirs(work_project)
+                for _p, _info in _get_manifest().get("projects", {}).items():
+                    if _p.startswith(_normalize_path(project_dir) + "/") and _info.get("hash"):
+                        _d = get_engram_storage_dir() / "projects" / _info["hash"]
+                        if _d not in _dirs:
+                            _dirs.append(_d)
+                restored, skipped = _own_session_checkpoint(_dirs, _session_id, _transcript)
+            except Exception:
+                restored, skipped = {}, []
         if restored:
-            lines.extend(_format_restored_context(restored))
+            lines.extend(_format_restored_full(restored, skipped))
+        else:
+            if resume_files:
+                restored = get_handoff_data(work_project)
+            if not restored:
+                restored = _subtree_manual_handoff(project_dir)
+            if not restored:
+                restored = get_handoff_data(project_dir)
+            if restored:
+                if source in ("resume", "compact"):
+                    lines.extend(_format_restored_full(restored, skipped))
+                else:
+                    lines.extend(_format_restored_context(restored))
 
         # Session mining: show last session context (read-only, no building)
         try:

@@ -248,6 +248,7 @@ Storage: ~/.claude_engram/
 - Auto-starts on SessionStart hook (fire-and-forget, non-blocking)
 - Auto-exits after 30 min idle (configurable via `CLAUDE_ENGRAM_SCORER_TIMEOUT`)
 - One instance, decided by a process lock (`hooks/proc_lock.py`, `scorer.lock`; the kernel releases it at exit): a spawn that finds it held exits, `is_server_running()` reads the lock and never deletes a live daemon's files on a failed connect, and a daemon's exit removes only files that name its own pid (v0.8.55, after a chain of orphaned daemons exhausted the machine's memory)
+- The transcript's live chain (`transcript_chain.py`, v0.8.57): a rewind fires no hook and leaves only a fork in the append-only transcript, so the banner after a compaction or resume, `checkpoint_restore` and the miner all walk from the last record up its parent links and ignore what sits off that chain: a checkpoint this session saved on a rewound branch is skipped and named; the miner extracts the live branch only. A hook reads one 8 MB tail (exact within the window, since a record's parent is always earlier in the file); the miner reads the whole file
 - Thread-per-connection for concurrent requests; accept backlog 64
 
 ### Handlers (`handlers.py`)

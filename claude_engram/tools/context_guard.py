@@ -313,6 +313,7 @@ class ContextGuard:
         work_log.what_i_tried.append("restoring checkpoint")
 
         data = None
+        rewound: list = []
         # Ring buffer is the unified source of truth — read it first.
         # index=0 -> promoted latest; index>0 -> older entry, newest-first.
         if not task_id:
@@ -324,7 +325,22 @@ class ContextGuard:
                 if index and index > 0:
                     data = _hs.get_by_index(dirs, index)
                 else:
-                    data = _hs.read_latest(dirs)
+                    # This session's own newest deliberate checkpoint first,
+                    # skipping one the user rewound past (the ring kept
+                    # returning the abandoned branch's checkpoint under this
+                    # session's id, 2026-09-26); the scope's newest deliberate
+                    # checkpoint when this session has banked nothing.
+                    try:
+                        from claude_engram import transcript_chain as _tc
+                        from claude_engram.hooks import remind as _remind
+
+                        _sid = _remind._session_id or _remind.adopt_env_session_id()
+                        _tp = _tc.transcript_for_session(_sid) if _sid else None
+                        data, rewound = _remind._own_session_checkpoint(dirs, _sid, str(_tp or ""))
+                    except Exception:
+                        data, rewound = None, []
+                    if data is None:
+                        data = _hs.read_latest(dirs)
             except Exception:
                 data = None
 
@@ -393,6 +409,12 @@ class ContextGuard:
         if age_hours > 24:
             warnings.append(
                 f"Checkpoint is {age_hours:.0f} hours old - verify it's still relevant"
+            )
+        for _r in rewound:
+            warnings.append(
+                f"Skipped {_r.get('task_id', '?')} \"{str(_r.get('task_description') or _r.get('summary') or '')[:80]}\": "
+                "saved by this session on a branch of the conversation that was rewound past; "
+                "the checkpoint above is the newest on the live branch"
             )
 
         # Provenance. A restore resolves across the project's own ring, its

@@ -839,6 +839,26 @@ def _extract_reasoning_from_text(text: str) -> str:
 # ─── Pipeline ────────────────────────────────────────────────────────────
 
 
+def _live_messages(jsonl_file) -> list[dict]:
+    """The user and assistant messages on the transcript's LIVE branch. A
+    rewind leaves the abandoned turns in the file (append-only, the next
+    prompt forks off an earlier record), and the miner had mined them as
+    history: a decision the user rewound past was stored as decided
+    (2026-09-26). A subagent's inline sidechain records are kept; a record
+    with no uuid is kept."""
+    from claude_engram.mining.jsonl_reader import iter_messages
+    from claude_engram.transcript_chain import chain_of
+
+    # The chain is built over EVERY record with a uuid: it runs through the
+    # system and attachment records between turns.
+    everything = [msg for _, msg in iter_messages(jsonl_file)]
+    live = chain_of(m for m in everything if m.get("uuid"))
+    messages = [m for m in everything if m.get("type") in ("user", "assistant")]
+    if not live:
+        return messages
+    return [m for m in messages if m.get("isSidechain") or not m.get("uuid") or m["uuid"] in live]
+
+
 def run_extraction_pipeline(
     project_path: str,
     index,  # SessionIndex
@@ -930,9 +950,7 @@ def run_extraction_pipeline(
         if not jsonl_file.exists():
             continue
 
-        messages = []
-        for _, msg in iter_messages(jsonl_file, types={"user", "assistant"}):
-            messages.append(msg)
+        messages = _live_messages(jsonl_file)
         main_message_count = len(messages)
 
         session_dir = jsonl_dir / session_meta.get("jsonl_file", "").replace(

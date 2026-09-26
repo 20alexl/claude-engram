@@ -287,6 +287,14 @@ The "wrong moment" case is the raw-percent trap: the statusline's `used_percenta
 
 ---
 
+### Gotcha: after a rewind, the checkpoint describes work that is not on disk
+
+**Symptom:** You pressed Esc twice (or `/rewind`) and went back a few turns. The file is back to the earlier version, the conversation has forgotten the later turns, but `checkpoint_restore` (or the banner after the next compaction) describes the later work as this session's latest checkpoint.
+
+**Cause:** A rewind fires no hook and writes no record. Claude Code's transcript is append-only: the abandoned turns stay in the file and the next prompt forks off the record you rewound to. Engram's ring kept every checkpoint the abandoned turns saved, all under this session's id, and returned the newest.
+
+**Fix:** v0.8.57 walks the transcript's live chain (`transcript_chain.py`) and skips a checkpoint saved off it, naming it as skipped; the miner mines the live branch only. Two things a rewind never undoes: a file written by a shell redirect (Claude Code restores only what Write and Edit touched) and anything engram stored in the meantime (decisions, mistakes) — the live-chain read stops the miner from adding more, and `memory(delete)` removes what it already stored.
+
 ### Gotcha: a decision in the store that nobody made
 
 **Symptom:** "Relevant memories" before an edit shows a decision that reads like the first sentence of a report, a verdict ("the plan is approved") with no plan in it, a leaning ("probably the queue, up to you"), a question typed without its mark, or the same sentence three times with three prefixes.

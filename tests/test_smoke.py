@@ -1454,6 +1454,117 @@ def test_rejudge_mined_decisions_archives_the_new_shapes_and_keeps_manual(tmp_pa
     assert left == {"k1", "m1"}, left
 
 
+def _rewound_transcript(tmp_path: Path) -> Path:
+    """A transcript after one rewind, as Claude Code writes it: append-only,
+    the abandoned turn (prompt 2, checkpoint task_1) still in the file, the
+    new prompt 3 hung off the END OF TURN 1 (its parent is r2), checkpoint
+    task_2 on the live branch. Measured on a real rewind, 2026-09-26."""
+    def rec(uuid, parent, typ, content):
+        return {"uuid": uuid, "parentUuid": parent, "type": typ, "isSidechain": False,
+                "timestamp": "2026-09-26T00:00:00Z", "message": {"role": typ, "content": content}}
+
+    def result(call, text):
+        return [{"type": "tool_result", "tool_use_id": call, "content": [{"type": "text", "text": text}]}]
+
+    def call(cid, op):
+        return [{"type": "tool_use", "id": cid, "name": "mcp__claude-engram__context", "input": {"operation": op}}]
+
+    # the chain runs through the system records between turns: a prompt's
+    # parent is the previous turn's turn_duration record, as measured. The
+    # live branch ends with a checkpoint_restore whose RESULT quotes task_1:
+    # a quoted id is not a save.
+    recs = [
+        rec("r1", None, "user", "let's use sqlite for the alias store"),
+        rec("r2", "r1", "assistant", [{"type": "text", "text": "Done; the store is sqlite now."}]),
+        {"uuid": "s1", "parentUuid": "r2", "type": "system", "subtype": "turn_duration", "isSidechain": False},
+        rec("r3", "s1", "user", "let's use the registry for every alias lookup"),
+        rec("r4", "r3", "assistant", call("c1", "checkpoint_save")),
+        rec("r5", "r4", "user", result("c1", "Checkpoint saved.\ntask_id: task_1\n")),
+        rec("r6", "r5", "assistant", [{"type": "text", "text": "Saved."}]),
+        {"uuid": "s2", "parentUuid": "r6", "type": "system", "subtype": "turn_duration", "isSidechain": False},
+        rec("r7", "s1", "user", "never resolve aliases outside the registry"),
+        rec("r8", "r7", "assistant", call("c2", "checkpoint_save")),
+        rec("r9", "r8", "user", result("c2", "Checkpoint saved.\ntask_id: task_2\n")),
+        rec("r10", "r9", "assistant", call("c3", "checkpoint_restore")),
+        rec("r11", "r10", "user", result("c3", "**Task:** rewound branch task\ntask_id: task_1\n")),
+        rec("r12", "r11", "assistant", [{"type": "text", "text": "Restored."}]),
+        {"uuid": "s3", "parentUuid": "r12", "type": "system", "subtype": "turn_duration", "isSidechain": False},
+    ]
+    p = tmp_path / "rewound.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+    return p
+
+
+def _rewound_ring(tmp_path: Path) -> Path:
+    import time
+    ring = tmp_path / "ring"
+    ring.mkdir(exist_ok=True)
+    now = time.time()
+    entries = [
+        {"task_id": "task_3", "kind": "manual", "created": now - 10, "session_id": "other", "summary": "another session's task", "task_description": "another session's task"},
+        {"task_id": "task_1", "kind": "manual", "created": now - 20, "session_id": "mine", "summary": "rewound branch task", "task_description": "rewound branch task"},
+        {"task_id": "task_2", "kind": "manual", "created": now - 30, "session_id": "mine", "summary": "own live task", "task_description": "own live task",
+         "current_step": "step two", "completed_steps": ["step one done"], "next_steps": ["step two", "step three"],
+         "files_in_progress": ["a.py", "b.py"], "warnings": ["never push without the word"], "context_needed": ["read the design first"]},
+    ]
+    (ring / "handoff_history.json").write_text(json.dumps({"handoffs": entries}), encoding="utf-8")
+    return ring
+
+
+def test_a_rewind_leaves_a_fork_and_the_live_chain_skips_the_abandoned_branch(tmp_path: Path):
+    """No hook fires on a rewind and no record marks it; the transcript is
+    append-only and the rewind shows only as a fork. The live chain is the
+    walk from the last record up its parent links (2026-09-26)."""
+    from claude_engram import transcript_chain as tc
+    p = _rewound_transcript(tmp_path)
+    assert tc.live_chain(p) == {"r1", "r2", "s1", "r7", "r8", "r9", "r10", "r11", "r12"}
+    live, everywhere = tc.branch_checkpoints(p)
+    assert live == {"task_2"} and everywhere == {"task_1", "task_2"}
+    assert tc.rewound_away({"task_id": "task_1"}, p)
+    assert not tc.rewound_away({"task_id": "task_2"}, p)
+    assert not tc.rewound_away({"task_id": "task_9"}, p)  # never saved through this transcript: nothing to judge
+
+
+def test_after_a_compaction_the_banner_shows_this_sessions_own_full_checkpoint(tmp_path: Path):
+    """The banner picked the project's newest deliberate checkpoint (92 of 99
+    compactions its own, measured); now this session's own latest comes
+    first, a checkpoint on a rewound branch is skipped and named, and the
+    record is shown whole, not as a 100-char teaser (2026-09-26)."""
+    from claude_engram.hooks import remind
+    p = _rewound_transcript(tmp_path)
+    ring = _rewound_ring(tmp_path)
+    chosen, skipped = remind._own_session_checkpoint([ring], "mine", str(p))
+    assert chosen and chosen["task_id"] == "task_2" and [s["task_id"] for s in skipped] == ["task_1"]
+    text = "\n".join(remind._format_restored_full(chosen, skipped))
+    for piece in ("own live task", "step one done", "step two", "step three", "a.py", "b.py",
+                  "never push without the word", "read the design first", "task_1", "rewound"):
+        assert piece in text, piece
+    assert remind._own_session_checkpoint([ring], "nobody", str(p)) == (None, [])
+
+
+def test_the_miner_mines_the_live_branch_only(tmp_path: Path):
+    from claude_engram.mining import extractors
+    p = _rewound_transcript(tmp_path)
+    msgs = extractors._live_messages(p)
+    typed = [m["message"]["content"] for m in msgs if m["type"] == "user" and isinstance(m["message"]["content"], str)]
+    assert typed == ["let's use sqlite for the alias store", "never resolve aliases outside the registry"]
+
+
+def test_checkpoint_restore_prefers_this_sessions_live_checkpoint(tmp_path: Path, monkeypatch):
+    from claude_engram import transcript_chain as tc
+    from claude_engram.hooks import remind
+    from claude_engram.tools.context_guard import ContextGuard
+    p = _rewound_transcript(tmp_path)
+    ring = _rewound_ring(tmp_path)
+    monkeypatch.setattr(remind, "_session_id", "mine")
+    monkeypatch.setattr(remind, "_handoff_candidate_dirs", lambda project_dir="": [ring])
+    monkeypatch.setattr(tc, "transcript_for_session", lambda sid: p if sid == "mine" else None)
+    guard = ContextGuard(storage_dir=tmp_path / "ckpt")
+    text = guard.restore_checkpoint(None, project_path=str(tmp_path), index=0).to_formatted_string()
+    assert "own live task" in text and "another session's task" not in text
+    assert "task_1" in text and "rewound" in text.lower()
+
+
 def test_the_process_census_names_engram_processes_by_role():
     import subprocess, sys, time
     import psutil
