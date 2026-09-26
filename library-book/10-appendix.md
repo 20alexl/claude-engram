@@ -274,6 +274,12 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.59 (2026-09-26)
+
+A report from one of the standing background sessions: its heads-up and `CHECKPOINT NOW` nudges never fired, and only the PreCompact floor checkpoint landed at each compaction.
+
+- **A background job's `--autocompact` flag is read.** The launch flag is not in a hook's environment, so a session that set its window only that way was assessed against the model default: on a 200K model that is the boundary itself, and the nudges keyed on the boundary sat past the 200K compaction the flag had set. `claude --bg` saves its launch flags in `~/.claude/jobs/<first 8 of session id>/state.json` (`respawnFlags`, the flags the harness relaunches with on a resume, so they are the live window). `compaction_point` now reads `--autocompact` from there when the mirror names a session (matched on the file's `sessionId`/`resumeSessionId`, never the directory name alone), between the env var and the settings files, where Claude Code's own precedence puts the flag; the source label is `launch flag`. No job file, or no flag in it, is today's behaviour: an interactive session's flag stays invisible. Verified on the machine's five job files: four carry `--autocompact 200k`, one carries only a model and keeps reading the default.
+
 ### v0.8.58 (2026-09-26)
 
 A store survey after 0.8.57 (681 MB, 715 hot memories, 3593 archived, 21 registered projects). Two things the code had let pile up:

@@ -11,8 +11,10 @@ CLAUDE_CODE_AUTO_COMPACT_WINDOW / autoCompactWindow can move the point.
 
 What must hold:
   1. autoCompactWindow parsing accepts every documented form.
-  2. compaction_point precedence: env > settings > model default; capped at
-     the window; the two model defaults (200K boundary, ~967K).
+  2. compaction_point precedence: env > a background job's --autocompact
+     launch flag (its saved respawnFlags, matched on the file's session id)
+     > settings > model default; capped at the window; the two model
+     defaults (200K boundary, ~967K).
   3. Thresholds sit BELOW the point (10% / 3% of the window; 5% on 200K).
   4. The statusline mirror round-trips and is keyed by session_id.
   5. The nudge fires once per band per compaction cycle, in order
@@ -33,6 +35,7 @@ Run: venv/Scripts/python.exe tests/bench_context_pressure.py
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -131,6 +134,47 @@ def test_compaction_point(cp, tmp):
     os.environ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "banana"
     check("env garbage is ignored", cp.compaction_point(1_000_000, str(proj))[1] == "settings")
     _clean_env()
+
+    # A background job (`claude --bg`) saves its launch flags; the flag sits
+    # between the env var and the settings files. The job dir is the first
+    # eight characters of the session id, but the file's own session id decides.
+    jobs = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "jobs"
+    sid = "3ba90f62-0000-4000-8000-000000000001"
+    other = "3ba90f62-0000-4000-8000-000000000002"
+    job = jobs / sid[:8]
+    job.mkdir(parents=True, exist_ok=True)
+    (job / "state.json").write_text(json.dumps({
+        "sessionId": sid, "resumeSessionId": sid,
+        "respawnFlags": ["-n", "server", "--autocompact", "200k", "--effort", "medium", "--model", "opus"],
+        "providerEnv": {},
+    }), encoding="utf-8")
+    check("job flag read from respawnFlags", cp.job_autocompact(sid) == 200_000)
+    check("no session id -> no job flag", cp.job_autocompact("") is None)
+    check("job flag beats settings", cp.compaction_point(1_000_000, str(proj), sid) == (200_000, "launch flag"))
+    check("without a session id the flag is invisible", cp.compaction_point(1_000_000, str(proj)) == (300_000, "settings"))
+    check("a job file naming another session is not this session's", cp.compaction_point(1_000_000, str(proj), other) == (300_000, "settings"))
+    os.environ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "750000"
+    check("env beats the job flag", cp.compaction_point(1_000_000, str(proj), sid) == (750_000, "env"))
+    _clean_env()
+    (job / "state.json").write_text(json.dumps({
+        "sessionId": sid, "respawnFlags": ["--autocompact=150k", "--model", "opus"],
+    }), encoding="utf-8")
+    check("--autocompact=VALUE form", cp.compaction_point(1_000_000, str(proj), sid) == (150_000, "launch flag"))
+    (job / "state.json").write_text(json.dumps({
+        "sessionId": sid, "respawnFlags": ["--model", "claude-fable-5-1"],
+    }), encoding="utf-8")
+    check("a job without the flag reads the settings", cp.compaction_point(1_000_000, str(proj), sid) == (300_000, "settings"))
+    # A resumed job whose dir is named for an older id: found by scanning.
+    moved = jobs / "aaaaaaaa"
+    moved.mkdir(parents=True, exist_ok=True)
+    (moved / "state.json").write_text(json.dumps({
+        "sessionId": "aaaaaaaa-0000-4000-8000-000000000003", "resumeSessionId": other,
+        "respawnFlags": ["--autocompact", "180k"],
+    }), encoding="utf-8")
+    check("a job file is matched on resumeSessionId, not the dir name", cp.compaction_point(1_000_000, str(proj), other) == (180_000, "launch flag"))
+    (job / "state.json").write_text("{not json", encoding="utf-8")
+    check("a corrupt job file is ignored", cp.compaction_point(1_000_000, str(proj), sid) == (300_000, "settings"))
+    shutil.rmtree(jobs, ignore_errors=True)
 
 
 def test_thresholds(cp):
@@ -793,7 +837,9 @@ def test_compaction_reinjection(tmp):
     except Exception:
         ctx2 = ""
     check("SessionStart(compact) shows the banked checkpoint (was skipped)", "CHECKPOINT [manual" in ctx2 and "task_replay_1" in ctx2 and "0.8.28 committed" in ctx2)
-    check("... with its goal and next steps", "Goal: the stack is pushed once" in ctx2 and "Pending: 2 steps" in ctx2)
+    # 0.8.57 renders the record whole after a compaction: "Pending (2):" with
+    # the steps listed, where the teaser said "Pending: 2 steps".
+    check("... with its goal and next steps", "Goal: the stack is pushed once" in ctx2 and ("Pending (2):" in ctx2 or "Pending: 2 steps" in ctx2))
     check("SessionStart(compact) states the rhythm with the measured trigger", "Compaction #1. Rhythm" in ctx2 and "checkpoint at ~698K" in ctx2 and "auto-compaction at ~718K" in ctx2)
     st2 = json.loads((Path(os.environ["CLAUDE_ENGRAM_DIR"]) / "sessions" / f"{sid}.json").read_text(encoding="utf-8"))
     check("the banner did not open a second cycle for the same compaction", int((st2.get("pressure") or {}).get("cycle", 0)) == 1)

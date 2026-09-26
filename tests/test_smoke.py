@@ -1138,6 +1138,54 @@ def test_an_entry_whose_files_cast_no_vote_follows_the_sessions_edits(tmp_path: 
     assert not (store / "projects" / "hws" / "memory.json").exists()
 
 
+def test_a_background_jobs_autocompact_flag_moves_the_nudges(tmp_path: Path, monkeypatch):
+    """A session launched `claude --bg ... --autocompact 200k` on a 1M model
+    (0.8.59): the flag is not in a hook's environment, so the nudges were
+    keyed on the model default (~967K) and compaction at 200K came first.
+    The job's saved respawnFlags carry the flag; the assessment reads it."""
+    import json as _json
+    from claude_engram.hooks import context_pressure as cp
+
+    cfg = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    monkeypatch.delenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW", raising=False)
+    monkeypatch.setattr(cp, "_managed_dir", lambda: tmp_path / "no-managed")
+    monkeypatch.setattr(cp, "_managed_registry", lambda: {})
+    sid = "51c9a4bf-0000-4000-8000-000000000001"
+    job = cfg / "jobs" / sid[:8]
+    job.mkdir(parents=True)
+    (job / "state.json").write_bytes(_json.dumps({
+        "sessionId": sid, "resumeSessionId": sid,
+        "respawnFlags": ["-n", "homenet", "--autocompact", "200k", "--effort", "medium", "--model", "opus"],
+        "providerEnv": {},
+    }).encode())
+    mirror = {"session_id": sid, "total_input_tokens": 175_000, "context_window_size": 1_000_000, "ts": 1.0}
+
+    a = cp.assess(mirror, str(tmp_path / "proj"))
+    assert (a["point"], a["source"]) == (200_000, "launch flag")
+    assert a["band"] == "checkpoint"  # 175K sits inside the last band above the 200K trigger
+    assert "launch flag" in cp.checkpoint_text(a) or "launch flag" in cp.headsup_text(a, 0)
+
+    # The same reading without a job file is the model default: clear, ~967K.
+    plain = dict(mirror, session_id="00000000-0000-4000-8000-000000000009")
+    b = cp.assess(plain, str(tmp_path / "proj"))
+    assert (b["point"], b["source"], b["band"]) == (967_000, "model-default", "clear")
+
+    # A job launched without the flag (a model only) keeps the default too.
+    (job / "state.json").write_bytes(_json.dumps({
+        "sessionId": sid, "respawnFlags": ["--model", "claude-fable-5-1"],
+    }).encode())
+    c = cp.assess(mirror, str(tmp_path / "proj"))
+    assert (c["point"], c["source"]) == (967_000, "model-default")
+
+    # The PostCompact rhythm line names the flag as the source.
+    (job / "state.json").write_bytes(_json.dumps({
+        "sessionId": sid, "respawnFlags": ["--autocompact", "200k"],
+    }).encode())
+    monkeypatch.setattr(cp, "read_mirror", lambda _sid: mirror if _sid == sid else None)
+    assert "200K launch flag setting" in cp.rhythm_text({}, sid, str(tmp_path / "proj"))
+
+
 def test_one_compaction_opens_one_cycle_whichever_hook_runs_first():
     from claude_engram.hooks import context_pressure as cp
     state: dict = {}

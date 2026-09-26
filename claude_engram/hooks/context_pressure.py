@@ -11,10 +11,14 @@ Everything is a DISTANCE to the compaction point, never a raw percent. The
 statusline's ``used_percentage`` is against the full window (200K or 1M), but
 compaction does not fire at 100%: with nothing configured a 200K model compacts
 at the 200K boundary and a native-1M model at about 967K (model-config docs).
-``CLAUDE_CODE_AUTO_COMPACT_WINDOW`` (env, wins over everything) and the
-``autoCompactWindow`` setting move that point. A window set only by the
-``--autocompact`` launch flag is invisible from here; the assessment falls back
-to the model default and names its source so the reader knows.
+``CLAUDE_CODE_AUTO_COMPACT_WINDOW`` (env, wins over everything), the
+``--autocompact`` launch flag and the ``autoCompactWindow`` setting move that
+point. The flag is not in a hook's environment, but a background job
+(``claude --bg``) saves its launch flags in ``~/.claude/jobs/<id>/state.json``
+(``respawnFlags``, the flags the harness relaunches with on a resume), so for
+a job the flag is read from there. An interactive session's flag stays
+invisible; the assessment falls back to the model default and names its
+source so the reader knows.
 
 Two nudges, once each per compaction cycle:
 
@@ -278,20 +282,77 @@ def statusline_configured(project_dir: str = "") -> bool:
     return any(bool(_read_settings(f).get("statusLine")) for f in _settings_files(project_dir))
 
 
-def compaction_point(window: int, project_dir: str = "") -> tuple[int, str]:
+def _jobs_dir() -> Path:
+    """Where ``claude --bg`` keeps its job state, next to the user settings."""
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    return (Path(cfg) if cfg else Path.home() / ".claude") / "jobs"
+
+
+def _job_state(session_id: str) -> dict:
+    """The ``state.json`` of the background job running ``session_id``, or {}.
+
+    The job dir is named by the first eight characters of the session id, but
+    the file's own ``sessionId`` / ``resumeSessionId`` is what identifies it:
+    the named dir is tried first, then every other job file, and a file that
+    names a different session is never used.
+    """
+    sid = str(session_id or "").strip()
+    if not sid:
+        return {}
+    root = _jobs_dir()
+    candidates = [root / sid[:8] / "state.json"]
+    try:
+        candidates += sorted(p for p in root.glob("*/state.json") if p != candidates[0])
+    except Exception:
+        pass
+    for p in candidates:
+        try:
+            if not p.is_file():
+                continue
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(d, dict) and sid in (d.get("sessionId"), d.get("resumeSessionId")):
+            return d
+    return {}
+
+
+def _flag_value(flags, name: str) -> Optional[str]:
+    """The value of ``--name X`` or ``--name=X`` in an argv-style list."""
+    if not isinstance(flags, list):
+        return None
+    for i, tok in enumerate(flags):
+        if not isinstance(tok, str):
+            continue
+        if tok == name and i + 1 < len(flags) and isinstance(flags[i + 1], str):
+            return flags[i + 1]
+        if tok.startswith(name + "="):
+            return tok[len(name) + 1 :]
+    return None
+
+
+def job_autocompact(session_id: str) -> Optional[int]:
+    """The ``--autocompact`` window a background job was launched with, from
+    its saved ``respawnFlags``; None for an interactive session, a job
+    without the flag, or a value that does not parse."""
+    return parse_window_value(_flag_value(_job_state(session_id).get("respawnFlags"), "--autocompact"))
+
+
+def compaction_point(window: int, project_dir: str = "", session_id: str = "") -> tuple[int, str]:
     """(token count where auto-compaction fires, where that number came from).
 
     Precedence per the docs: the env var beats the command, the flag and the
-    setting; the setting is next; otherwise the model default. Claude Code caps
-    the window at the model's context window, so we do too. The launch flag is
-    not visible from a hook -- a session that set its window only that way
-    reads as ``model-default`` here.
+    setting; the flag beats the setting; otherwise the model default. Claude
+    Code caps the window at the model's context window, so we do too. The
+    launch flag is read from the background job's saved ``respawnFlags`` when
+    ``session_id`` names one (source ``launch flag``); an interactive session
+    that set its window only that way still reads as ``model-default`` here.
     """
-    d = compaction_point_detail(window, project_dir)
+    d = compaction_point_detail(window, project_dir, session_id)
     return d["point"], d["source"]
 
 
-def compaction_point_detail(window: int, project_dir: str = "") -> dict:
+def compaction_point_detail(window: int, project_dir: str = "", session_id: str = "") -> dict:
     """compaction_point() plus what was CONFIGURED and whether the window
     capped it. A fixed autoCompactWindow is a token count, not a fraction:
     750K is 75% of a 1M model and, capped, the whole window of a 200K one --
@@ -308,6 +369,10 @@ def compaction_point_detail(window: int, project_dir: str = "") -> dict:
             n = 0
         if n >= _ENV_MIN_WINDOW:
             configured, source = n, "env"
+    if not configured and session_id:
+        n = job_autocompact(session_id)
+        if n:
+            configured, source = int(n), "launch flag"
     if not configured:
         n, label = settings_autocompact_detail(project_dir)
         if n:
@@ -388,7 +453,9 @@ def assess(mirror: Optional[dict], project_dir: str = "") -> dict:
         out["reason"] = "no tokens counted yet"
         return out
     used, window = int(used), int(window)
-    d = compaction_point_detail(window, project_dir)
+    # The mirror names its session, which is how a background job's launch
+    # flag is found; a mirror without one resolves as an interactive session.
+    d = compaction_point_detail(window, project_dir, str(mirror.get("session_id") or ""))
     point, source = d["point"], d["source"]
     th = thresholds(window, point)
     band = "clear"
@@ -857,7 +924,7 @@ def rhythm_text(state: dict, session_id: str, project_dir: str = "") -> str:
             f"Compaction #{cycle}. No context reading (statusline mirror missing); "
             f"checkpoint on cadence, every {cadence} turns."
         )
-    d = compaction_point_detail(window, project_dir)
+    d = compaction_point_detail(window, project_dir, session_id)
     point, source = d["point"], d["source"]
     th = thresholds(window, point)
     capped = ""

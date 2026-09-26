@@ -143,7 +143,7 @@ In a workspace with several projects, memories are scoped to the sub-project of 
 
 ## Checkpoints and compaction
 
-Hooks never see context usage, but the statusline does. Engram mirrors the statusline's token counts to a per-session file and computes the distance to the point where auto-compaction fires: `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else `autoCompactWindow` in settings (the env var, then managed settings, then project and user settings, in Claude Code's own order), else the model default. Never the raw percentage.
+Hooks never see context usage, but the statusline does. Engram mirrors the statusline's token counts to a per-session file and computes the distance to the point where auto-compaction fires: `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else the `--autocompact` launch flag of a background job, else `autoCompactWindow` in settings (the env var, then the flag, then managed settings, then project and user settings, in Claude Code's own order), else the model default. Never the raw percentage.
 
 | Distance to the compaction point | Engram injects |
 |---|---|
@@ -163,7 +163,7 @@ The nudges need a statusline that records the mirror. Either use engram's, which
 "statusLine": {"type": "command", "command": "<venv python> -m claude_engram.hooks.context_pressure statusline"}
 ```
 
-or have your own script call `claude_engram.hooks.context_pressure.record_statusline(data)` with the JSON it received, or write the same record to `~/.claude_engram/sessions/<session_id>.ctx.json` yourself (eight flat fields, listed in the module docstring; no engram import needed). Without a statusline engram says so at session start and only the turn cadence runs. A window set only by the `--autocompact` launch flag is invisible to hooks, so engram falls back to the model default and names the source it used.
+or have your own script call `claude_engram.hooks.context_pressure.record_statusline(data)` with the JSON it received, or write the same record to `~/.claude_engram/sessions/<session_id>.ctx.json` yourself (eight flat fields, listed in the module docstring; no engram import needed). Without a statusline engram says so at session start and only the turn cadence runs. The `--autocompact` launch flag is not in a hook's environment: for a background job (`claude --bg`) engram reads it from the job's saved launch flags (`~/.claude/jobs/<id>/state.json`); in an interactive session a window set only by the flag is invisible, so engram falls back to the model default and names the source it used.
 
 The setting is a token count capped at the model's window. `/autocompact 750k` is 75% of a 1M model and the whole window of a 200K one, which leaves no room for the checkpoint call. Engram tells you once, at the first reading, when the number does not fit the model and names one that does. For long unattended runs, set the point yourself: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=750000` on a 1M model keeps turns cheaper and puts the checkpoint nudge a known distance below a number you chose.
 
