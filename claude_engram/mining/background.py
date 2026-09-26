@@ -480,6 +480,14 @@ def run_mining(project_path: str, mode: str, engram_storage_dir: str):
                         )
                 except Exception as e:
                     phase_errors["mistake_hygiene"] = str(e)[:200]
+                # Checkpoint task files older than the retention that no
+                # ring names any more (handoff_store.prune_task_files).
+                try:
+                    from claude_engram.handoff_store import prune_task_files
+
+                    prune_task_files(Path(engram_storage_dir).expanduser())
+                except Exception as e:
+                    phase_errors["task_file_retention"] = str(e)[:200]
                 # Curated-lessons bridge: dated entries in lesson files
                 # sync as protected "lesson" memories with code-index-joined
                 # triggers. STRICTLY opt-in: runs only when config.json

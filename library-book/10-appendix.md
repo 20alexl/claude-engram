@@ -274,6 +274,13 @@ Files that indicate a project root when resolving sub-projects in a workspace:
 
 ## Changelog
 
+### v0.8.58 (2026-09-26)
+
+A store survey after 0.8.57 (681 MB, 715 hot memories, 3593 archived, 21 registered projects). Two things the code had let pile up:
+
+- **Gone projects are retired.** Twelve registrations pointed at paths that no longer exist (a version folder flattened into its parent, a rename, projects moved to an attic, two worktree scratch dirs), and their rings and stores stayed in every scope walk, mistake sweep and census. Migration `0.8.58:retire_gone_projects` parks each such store under `_retired/<hash>/` with a `retired.json` note (path, name, when) and drops the registration. Nothing is deleted; what is worth keeping is merged by a person into the project that replaced it. A path whose drive or mount root is absent is left registered.
+- **Checkpoint task files have a retention.** 1182 `checkpoints/task_*.json` files, 602 older than a month. Every ring keeps its newest 20 entries with the full record, so a task file is the last copy only while a ring still names it. The miner's hygiene pass removes files older than 90 days (`TASK_FILE_KEEP_DAYS`) that no ring references (`handoff_store.prune_task_files`).
+
 ### v0.8.57 (2026-09-26)
 
 Two questions from the same afternoon: how often does the banner after a compaction show the right checkpoint, and what does engram see when a conversation is rewound? Measured, then built:

@@ -191,6 +191,41 @@ def write_handoff(
     return report
 
 
+TASK_FILE_KEEP_DAYS = 90
+
+
+def prune_task_files(storage: Path, keep_days: int = TASK_FILE_KEEP_DAYS) -> list:
+    """Remove the per-task checkpoint files (``checkpoints/task_*.json``)
+    older than ``keep_days`` that no ring names any more. Every ring keeps
+    its newest 20 entries with the full record, so a task file is the last
+    copy only while a ring still points at it; 1182 had piled up, 602 of
+    them older than a month (2026-09-26). Called by the miner's hygiene
+    pass. Returns the removed paths."""
+    ck = storage / "checkpoints"
+    if not ck.is_dir():
+        return []
+    referenced: set = set()
+    ring_files = list((storage / "projects").glob("*/" + HISTORY_FILENAME)) + list((storage / "projects").glob("*/" + LATEST_FILENAME))
+    ring_files += [ck / HISTORY_FILENAME, ck / LATEST_FILENAME]
+    for rf in ring_files:
+        data = _read_json(rf)
+        entries = data.get("handoffs", []) if isinstance(data, dict) and "handoffs" in data else ([data] if isinstance(data, dict) else [])
+        for h in entries:
+            if isinstance(h, dict) and h.get("task_id"):
+                referenced.add(str(h["task_id"]))
+    cutoff = time.time() - keep_days * 86400
+    removed = []
+    for f in sorted(ck.glob("task_*.json")):
+        try:
+            if f.stem in referenced or f.stat().st_mtime >= cutoff:
+                continue
+            f.unlink()
+            removed.append(f)
+        except Exception:
+            continue
+    return removed
+
+
 def read_latest(
     candidate_dirs: Sequence[Optional[Path]], *, max_age_hours: Optional[float] = None
 ) -> Optional[dict]:

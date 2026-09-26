@@ -1565,6 +1565,68 @@ def test_checkpoint_restore_prefers_this_sessions_live_checkpoint(tmp_path: Path
     assert "task_1" in text and "rewound" in text.lower()
 
 
+def test_retire_gone_projects_parks_the_store_and_keeps_live_and_unmounted(tmp_path: Path):
+    """Twelve registered projects pointed at paths that no longer exist
+    (flattened, renamed, moved to an attic); their rings and stores stayed
+    in every scope walk (2026-09-26). A gone project is parked under
+    _retired/ with a note, never deleted; a path whose drive is not mounted
+    is left alone, since it may come back."""
+    import string
+    from claude_engram import migrations
+    from claude_engram.hooks.paths import _normalize_path
+    store = tmp_path / "store"
+    live = tmp_path / "live"
+    live.mkdir()
+    gone = tmp_path / "gone"  # never created
+    projects = {_normalize_path(str(live)): {"hash": "hlive", "name": "live"},
+                _normalize_path(str(gone)): {"hash": "hgone", "name": "gone"}}
+    unmounted = ""
+    if os.name == "nt":
+        free = next((d for d in string.ascii_lowercase if not Path(f"{d}:/").exists()), "")
+        if free:
+            unmounted = f"{free}:/somewhere/project"
+            projects[unmounted] = {"hash": "hunm", "name": "project"}
+    for h in ("hlive", "hgone", "hunm"):
+        (store / "projects" / h).mkdir(parents=True)
+        (store / "projects" / h / "memory.json").write_text(json.dumps({"entries": [{"id": h, "category": "decision", "content": "x"}]}), encoding="utf-8")
+    manifest = {"version": 3, "projects": projects}
+    (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    migrations._retire_gone_projects(store, manifest)
+    assert _normalize_path(str(live)) in manifest["projects"]
+    assert _normalize_path(str(gone)) not in manifest["projects"]
+    assert not (store / "projects" / "hgone").exists()
+    note = json.loads((store / "_retired" / "hgone" / "retired.json").read_text(encoding="utf-8"))
+    assert note["path"] == _normalize_path(str(gone)) and note["retired_at"] > 0
+    assert (store / "_retired" / "hgone" / "memory.json").exists()
+    if unmounted:
+        assert unmounted in manifest["projects"] and (store / "projects" / "hunm").exists()
+    assert any(name == "0.8.58:retire_gone_projects" for name, _heavy, _fn in migrations.STEPS)
+
+
+def test_old_unreferenced_checkpoint_task_files_are_pruned_and_ring_members_kept(tmp_path: Path):
+    """1182 task_*.json files sat under checkpoints/, 602 older than 30 days;
+    the rings read only their newest 20 entries each (2026-09-26). A task
+    file older than the retention that no ring names any more is removed by
+    the miner's hygiene pass; a ring member is kept whatever its age."""
+    import time
+    from claude_engram import handoff_store as hs
+    store = tmp_path / "store"
+    ck = store / "checkpoints"
+    ck.mkdir(parents=True)
+    (store / "projects" / "h1").mkdir(parents=True)
+    old = time.time() - 100 * 86400
+    for name in ("task_1", "task_2", "task_3"):
+        f = ck / f"{name}.json"
+        f.write_text(json.dumps({"task_id": name}), encoding="utf-8")
+    os.utime(ck / "task_1.json", (old, old))
+    os.utime(ck / "task_2.json", (old, old))
+    (store / "projects" / "h1" / "handoff_history.json").write_text(json.dumps({"handoffs": [{"task_id": "task_1", "kind": "manual", "created": old}]}), encoding="utf-8")
+    removed = hs.prune_task_files(store, keep_days=90)
+    assert [p.name for p in removed] == ["task_2.json"]
+    assert (ck / "task_1.json").exists() and (ck / "task_3.json").exists() and not (ck / "task_2.json").exists()
+    assert hs.prune_task_files(store, keep_days=90) == []
+
+
 def test_the_process_census_names_engram_processes_by_role():
     import subprocess, sys, time
     import psutil

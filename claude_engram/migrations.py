@@ -453,6 +453,47 @@ def _drop_worktree_projects(storage: Path, manifest: dict) -> None:
             _log(f"skip {path}: {e}")
 
 
+def _retire_gone_projects(storage: Path, manifest: dict) -> None:
+    """Park the store of every registered project whose path no longer
+    exists: renamed, flattened into its parent, moved to an attic. Twelve
+    such registrations were still in every scope walk (rings, mistake
+    sweeps, the census) on 2026-09-26. The store directory moves under
+    ``_retired/<hash>/`` with a ``retired.json`` note (path, when); nothing
+    is deleted, and a person merges what is worth keeping into the project
+    that replaced it. A path whose drive or mount root is absent is left
+    registered: an unplugged disk is not a gone project."""
+    projects = manifest.get("projects")
+    if not isinstance(projects, dict):
+        return
+    import time as _time
+
+    for path in list(projects):
+        info = projects.get(path) or {}
+        try:
+            p = Path(str(path))
+            if p.exists():
+                continue
+            anchor = Path(p.anchor) if p.anchor else None
+            if anchor is None or not anchor.exists():
+                _log(f"kept {path}: its drive or mount is not present")
+                continue
+            hdir = storage / "projects" / str(info.get("hash") or "")
+            parked = storage / "_retired"
+            parked.mkdir(parents=True, exist_ok=True)
+            target = parked / hdir.name
+            if hdir.is_dir() and not target.exists():
+                hdir.rename(target)
+            target.mkdir(parents=True, exist_ok=True)
+            note = target / "retired.json"
+            if not note.exists():
+                note.write_text(json.dumps({"path": path, "name": info.get("name"), "hash": info.get("hash"),
+                                            "retired_at": _time.time()}, indent=2), encoding="utf-8")
+            del projects[path]
+            _log(f"retired {path}: the path no longer exists; store parked under _retired/{hdir.name}")
+        except Exception as e:
+            _log(f"skip {path}: {e}")
+
+
 def _shape_judge(content: str) -> bool:
     """The gate both capture paths apply, on an entry already on disk."""
     from claude_engram.mining.decision_gate import looks_like_correction, looks_like_decision
@@ -647,6 +688,8 @@ STEPS = [
     ("0.8.54:prune_junk_decisions_pastes", False, _prune_junk_decisions),
     # Re-run: an approval verdict, a hedged leaning, a question without its mark.
     ("0.8.56:rejudge_mined_decisions", False, _rejudge_mined_decisions),
+    # A registered project whose path is gone is parked, never deleted.
+    ("0.8.58:retire_gone_projects", False, _retire_gone_projects),
 ]
 
 
